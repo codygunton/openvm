@@ -1,0 +1,78 @@
+---
+description: OpenVM project architecture guidelines
+alwaysApply: true
+---
+
+# OpenVM Project Architecture
+
+OpenVM is a performant and modular zkVM framework built for customization and extensibility. The project uses a monorepo structure organized into distinct categories.
+
+## Core Architecture Principles
+
+- **No-CPU Design**: Unlike traditional VMs, OpenVM has no central processing unit, allowing seamless integration of custom chips
+- **Modular Extensions**: New functionality is added via extensions that integrate directly with the VM
+- **STARK-based Proving**: Built on Plonky3 for zero-knowledge proof generation
+
+## Project Structure
+
+### `/crates` - Core Components
+- `sdk/` - Main SDK for building and proving programs
+- `cli/` - Command-line interface (cargo-openvm)
+- `vm/` - Core virtual machine implementation
+- `continuations/` - Proof continuation support
+- `prof/` - Profiling tools
+- `circuits/` - Circuit building primitives
+  - `mod-builder/` - Modular circuit builder
+  - `poseidon2-air/` - Poseidon2 hash AIR implementation
+  - `primitives/` - Circuit primitives and traits
+- `toolchain/` - Rust toolchain integration
+  - `transpiler/` - ELF to OpenVM bytecode transpiler
+  - `instructions/` - Instruction definitions
+  - `platform/` - Platform-specific code
+  - `openvm/` - Guest program runtime
+
+### `/extensions` - VM Extensions
+Each extension typically contains:
+- `circuit/` - Circuit implementation
+- `transpiler/` - Transpiler integration
+- `guest/` - Guest library for Rust programs
+- `tests/` - Extension-specific tests
+
+Current extensions:
+- `rv32im/` - RISC-V 32-bit support
+- `native/` - Native field arithmetic for recursion
+- `algebra/` - Modular arithmetic over arbitrary fields
+- `bigint/` - Int256 arithmetic
+- `ecc/` - Elliptic curve operations
+- `pairing/` - Pairing operations (BN254, BLS12-381)
+- `keccak256/` - Keccak-256 hash function
+- `sha256/` - SHA2-256 hash function
+
+### `/guest-libs` - Guest Libraries
+Libraries available for use in guest programs:
+- `k256/` - secp256k1 curve operations
+- `p256/` - P-256 curve operations
+- `keccak256/` - Keccak hashing
+- `sha2/` - SHA2 hashing
+- `pairing/` - Pairing operations
+- `ruint/` - Unsigned integer types
+- `verify_stark/` - STARK proof verification
+
+### `/benchmarks` - Performance Testing
+- `execute/` - Execution benchmarks
+- `prove/` - Proving benchmarks
+- `guest/` - Guest program benchmarks
+
+### `/examples` - Usage Examples
+Demonstration programs showing how to use various extensions
+
+## Build System
+- Rust workspace with 70+ crates
+- Custom build system for guest programs
+- Forge for Solidity contracts
+
+## Key Technologies
+- **Language**: Rust (MSRV 1.82)
+- **STARK Backend**: Plonky3-based
+- **Proof System**: STARKs with FRI
+- **On-chain Verification**: Ethereum smart contracts

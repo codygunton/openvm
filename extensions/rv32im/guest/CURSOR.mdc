@@ -1,0 +1,20 @@
+---
+description: RISC-V 32-bit IM guest library - Low-level guest code interface for VM custom instructions
+globs: 
+  - "*.rs"
+  - "src/**/*.rs"
+alwaysApply: false
+---
+
+# RISC-V 32-bit IM Guest Library
+
+Guest-side library providing low-level primitives for VM custom instructions and hint stream interaction.
+
+## Key Integration Pattern
+- Custom instruction macros wrap inline assembly for VM-specific operations
+- Hint stream operations for non-deterministic input handling during execution
+
+## Important Constraints
+- No-std environment - all code must work without standard library
+- Target-specific compilation - conditional compilation for zkvm target vs native
+- Direct hardware interface - macros generate specific RISC-V opcodes for VM operations

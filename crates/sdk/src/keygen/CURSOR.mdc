@@ -1,0 +1,28 @@
+---
+description: OpenVM Keygen - Hierarchical proving key generation for multi-level STARK proof system
+globs: 
+  - "*.rs"
+  - "**/*.rs"
+alwaysApply: false
+---
+
+# OpenVM Keygen Component Rules
+
+## Core Purpose
+Manages hierarchical proving key generation for OpenVM's multi-level STARK proof system (App → Leaf → Internal → Root → Static).
+
+## Critical Patterns
+- **AIR Permutation Strategy**: Reorder AIRs by trace height (largest first) for root verifier to ensure consistent heights required by static verifier
+- **Dummy Proof Simulation**: Use dummy proofs to determine optimal trace heights before actual key generation
+- **Memory-Intensive Operations**: Use Arc<> for shared ownership of large structures (>10GB for Halo2 keys)
+
+## Key Constraints
+- Always validate FRI parameters against max constraint degrees before keygen
+- Ensure special AIRs (program, connector, public values) remain trackable after permutation
+- Round trace heights to powers of 2 for dummy proof compatibility
+- Check recursive verifier sizes to prevent soundness violations
+
+## Integration Requirements
+- Verifier hierarchy must be generated in dependency order
+- Each level's FRI parameters must be compatible with the next level's log_blowup
+- AIR permutation must be applied consistently across all root verifier operations

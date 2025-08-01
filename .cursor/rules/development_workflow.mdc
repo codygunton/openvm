@@ -1,0 +1,196 @@
+---
+description: OpenVM development workflow and processes
+alwaysApply: true
+---
+
+# OpenVM Development Workflow
+
+## Git Workflow
+
+### Branching Strategy
+- `main` - Stable release branch
+- `dev` - Active development branch
+- Feature branches from `dev` using descriptive names
+- Tag releases with semantic versioning (e.g., `v1.3.0`)
+
+### Commit Guidelines
+- Use conventional commit format when beneficial
+- Keep commits atomic and focused
+- Reference issues in commit messages
+- Sign commits when possible
+
+### Pull Request Process
+1. Create feature branch from latest `dev`
+2. Implement changes with tests
+3. Run all checks locally before pushing
+4. Create PR with clear description
+5. Address review feedback
+6. Squash merge to maintain clean history
+
+## Testing Requirements
+
+### Running Tests
+```bash
+# Run all tests
+cargo test --all
+
+# Run tests for specific crate
+cargo test -p openvm-circuit
+
+# Run with debug output
+RUST_LOG=debug cargo test
+
+# Run integration tests
+cargo test --all-features --release
+```
+
+### Test Coverage
+- All new features must include tests
+- Aim for >80% code coverage
+- Integration tests for cross-crate functionality
+- Benchmark tests for performance-critical code
+
+## CI/CD Pipeline
+
+### Pre-commit Checks
+Run before committing:
+```bash
+# Format code
+cargo fmt --all
+
+# Run linter
+cargo clippy --all-features
+
+# Check compilation
+cargo check --all
+```
+
+### GitHub Actions
+- Automated on all PRs
+- Tests on multiple Rust versions
+- Security audit of dependencies
+- Performance regression tests
+
+## Building & Compilation
+
+### Development Build
+```bash
+# Fast compilation, debug assertions enabled
+cargo build --profile=fast
+```
+
+### Release Build
+```bash
+# Optimized for runtime performance
+cargo build --release
+
+# Maximum performance (slow compilation)
+cargo build --profile=maxperf
+```
+
+### Guest Programs
+```bash
+# Build guest program
+cargo openvm build --elf /path/to/elf
+
+# With custom config
+cargo openvm build --config openvm.toml
+```
+
+## Documentation
+
+### Building Docs
+```bash
+# Build and open Rust docs
+cargo doc --open
+
+# Build the book
+cd book && mdbook serve
+```
+
+### Documentation Standards
+- Update docs with code changes
+- Include examples in documentation
+- Keep README files current
+- Document breaking changes
+
+## Release Process
+
+### Version Bumping
+1. Update version in workspace `Cargo.toml`
+2. Update CHANGELOG.md
+3. Update documentation
+4. Create release PR
+
+### Release Checklist
+- [ ] All tests passing
+- [ ] Documentation updated
+- [ ] CHANGELOG updated
+- [ ] Security audit completed
+- [ ] Performance benchmarks run
+- [ ] Release notes drafted
+
+## Development Tools
+
+### Recommended Setup
+- Rust stable (1.82+) and nightly
+- cargo-nextest for faster test runs
+- cargo-flamegraph for profiling
+- rust-analyzer for IDE support
+
+### Debugging
+```bash
+# Enable debug logging
+RUST_LOG=info cargo run
+
+# Use debug profile
+cargo build --profile=debug
+
+# Generate flamegraphs
+cargo flamegraph --bench <benchmark>
+```
+
+## Code Review Guidelines
+
+### For Authors
+- Self-review before requesting reviews
+- Provide context in PR description
+- Respond to feedback constructively
+- Update PR based on reviews
+
+### For Reviewers
+- Check code correctness and style
+- Verify test coverage
+- Consider performance implications
+- Ensure documentation is updated
+- Be constructive and specific
+
+## Performance Optimization
+
+### Benchmarking
+```bash
+# Run benchmarks
+cargo bench
+
+# Compare with previous results
+cargo bench -- --baseline main
+```
+
+### Profiling
+- Use `cargo-flamegraph` for CPU profiling
+- Monitor memory usage with `heaptrack`
+- Profile proving time separately from execution
+
+## Security Considerations
+
+### Dependency Management
+- Regular `cargo audit` runs
+- Review new dependencies carefully
+- Pin critical dependency versions
+- Monitor for CVEs
+
+### Code Security
+- All cryptographic changes require security review
+- Follow secure coding practices
+- Document security assumptions
+- Test edge cases thoroughly

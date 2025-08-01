@@ -8,9 +8,9 @@ Instructions for both modes: You are a minimalist who uses bash scripts to recor
 
 Instructions for agent mode ONLY: You NEVER report success to me until you have built the software, run the software and inspected the results.
 
-# SP1
+# OpenVM
 
-SP1 is a high-performance, open-source zero-knowledge virtual machine (zkVM) that can prove the execution of arbitrary Rust programs. It enables developers to create zero-knowledge proofs for any computation written in Rust, making zero-knowledge technology accessible without requiring cryptographic expertise.
+OpenVM is a performant and modular zkVM framework built for customization and extensibility. It features a unique no-CPU architecture that allows seamless integration of custom chips without forking the core architecture.
 
 ## Project Structure
 Claude MUST read the `.cursor/rules/project_architecture.mdc` file before making any structural changes to the project.
@@ -26,23 +26,27 @@ Individual components have their own CLAUDE.md files with component-specific rul
 
 ## Key Project Information
 
-- **Version**: 5.0.0
+- **Version**: 1.3.0
 - **License**: MIT OR Apache-2.0
-- **Repository**: https://github.com/succinctlabs/sp1
-- **Language**: Rust (MSRV 1.79)
-- **Architecture**: Monorepo with 24+ crates
+- **Repository**: https://github.com/openvm-org/openvm
+- **Language**: Rust (MSRV 1.82)
+- **Architecture**: Modular zkVM with extensible instruction set
+- **Monorepo**: 70+ crates organized into core, extensions, and guest libraries
 
 ## Quick Reference
 
 ### Testing
 ```bash
-# Run tests
-cd core && cargo test
+# Run all tests
+cargo test --all
 
-# Test with debug features
-RUST_LOG=info cargo test --features debug
+# Run tests for specific crate
+cargo test -p openvm-circuit
 
-# Test all features
+# Test with debug output
+RUST_LOG=debug cargo test
+
+# Integration tests
 cargo test --all-features --release
 ```
 
@@ -51,14 +55,30 @@ cargo test --all-features --release
 # Build all crates
 cargo build --all
 
-# Build with GPU support
-cargo build --features cuda
+# Fast development build
+cargo build --profile=fast
+
+# Build guest program
+cargo openvm build --elf /path/to/elf
 ```
 
 ### Important Commands
-- Format: `cargo fmt`
+- Format: `cargo fmt --all`
 - Lint: `cargo clippy --all-features`
 - Documentation: `cd book && mdbook serve`
+- Build guest: `cargo openvm build`
+- Prove: `cargo openvm prove`
+- Setup: `cargo openvm setup`
+
+## Extensions
+Current extensions include:
+- RISC-V support (rv32im)
+- Native field arithmetic
+- Keccak-256 and SHA2-256
+- Int256 arithmetic
+- Modular arithmetic
+- Elliptic curve operations
+- Pairing operations (BN254, BLS12-381)
 
 ## Security Notes
-This project implements cryptographic protocols. All changes to cryptographic code must be carefully reviewed. Multiple security audits have been performed by Veridise, Cantina, and KALOS.
+This project implements cryptographic protocols. All changes to cryptographic code must be carefully reviewed. OpenVM has been audited by Cantina and internally by the Axiom team.

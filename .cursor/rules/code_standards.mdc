@@ -1,0 +1,110 @@
+---
+description: OpenVM code standards and conventions
+alwaysApply: true
+---
+
+# OpenVM Code Standards
+
+## Rust Conventions
+
+### General Guidelines
+- Minimum Rust version: 1.82
+- Use Rust 2021 edition features
+- Follow standard Rust naming conventions (snake_case for functions/variables, PascalCase for types)
+- Prefer `use` statements grouped by external crates, then internal modules
+
+### No-std Compatibility
+- Guest code must be `no_std` compatible
+- Use `alloc` where dynamic allocation is needed
+- Default features should be disabled for dependencies in guest code
+
+### Error Handling
+- Use `eyre::Result` for error handling in host code
+- Use `Result<T, E>` with specific error types in libraries
+- Avoid `unwrap()` except in tests or when impossible to fail
+
+### Testing
+- Unit tests in `src/` modules using `#[cfg(test)]`
+- Integration tests in `tests/` directory
+- Use `test-case` for parameterized tests
+- Use `test-log` for debugging test failures
+
+## Circuit Development
+
+### AIR (Algebraic Intermediate Representation)
+- Implement circuits as AIR constraints
+- Use `SubAir` trait for modular constraint systems
+- Separate trace generation from constraint definition
+
+### Field Operations
+- Use generic field traits from `p3-field`
+- Avoid hardcoding field-specific operations
+- Support both native and extension fields
+
+## Extension Guidelines
+
+### Structure
+Each extension must have:
+```
+extension-name/
+├── circuit/     # Circuit implementation
+├── transpiler/  # Instruction transpilation
+├── guest/       # Guest library
+└── tests/       # Integration tests
+```
+
+### Naming
+- Extension crate names: `openvm-{extension}-{component}`
+- Feature names should be descriptive and lowercase
+
+## Documentation
+
+### Code Documentation
+- All public APIs must have doc comments
+- Use `//!` for module-level documentation
+- Include examples in doc comments where helpful
+- Document safety requirements for `unsafe` code
+
+### Inline Comments
+- Explain "why" not "what"
+- Keep comments up-to-date with code changes
+- Use TODO/FIXME sparingly with issue references
+
+## Performance
+
+### Optimization Guidelines
+- Profile before optimizing
+- Prefer algorithmic improvements over micro-optimizations
+- Use `#[inline]` judiciously for hot paths
+- Leverage const generics for compile-time optimization
+
+### Memory Management
+- Minimize allocations in hot paths
+- Use `Vec::with_capacity` when size is known
+- Consider using `arrayvec` for small, fixed-size collections
+
+## Dependencies
+
+### Adding Dependencies
+- Justify new dependencies in PR description
+- Prefer well-maintained, minimal dependencies
+- Check license compatibility (MIT OR Apache-2.0)
+- Audit dependencies for security vulnerabilities
+
+### Version Management
+- Use workspace dependencies where possible
+- Pin exact versions for critical dependencies
+- Keep dependencies up-to-date
+
+## Security
+
+### Cryptographic Code
+- All cryptographic implementations must be reviewed
+- Use established libraries where possible
+- Document security assumptions
+- Never use `rand::thread_rng()` in production circuits
+
+### Guest Program Safety
+- Validate all inputs from untrusted sources
+- Avoid buffer overflows in no_std code
+- Use safe abstractions over unsafe code
