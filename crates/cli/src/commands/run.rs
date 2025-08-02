@@ -60,6 +60,13 @@ pub struct RunArgs {
         help_heading = "OpenVM Options"
     )]
     pub init_file_name: String,
+
+    #[arg(
+        long,
+        help = "Path to write RISCOF signature file for compliance testing",
+        help_heading = "OpenVM Options"
+    )]
+    pub signatures: Option<PathBuf>,
 }
 
 impl From<RunArgs> for BuildArgs {
@@ -250,11 +257,20 @@ impl RunCmd {
         let exe = read_exe_from_file(exe_path)?;
 
         let sdk = Sdk::new();
-        let output = sdk.execute(
-            exe,
-            app_config.app_vm_config,
-            read_to_stdin(&self.run_args.input)?,
-        )?;
+        let output = if let Some(signature_path) = &self.run_args.signatures {
+            sdk.execute_with_signature(
+                exe,
+                app_config.app_vm_config,
+                read_to_stdin(&self.run_args.input)?,
+                Some(signature_path),
+            )?
+        } else {
+            sdk.execute(
+                exe,
+                app_config.app_vm_config,
+                read_to_stdin(&self.run_args.input)?,
+            )?
+        };
         println!("Execution output: {:?}", output);
         Ok(())
     }

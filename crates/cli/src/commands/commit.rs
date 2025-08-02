@@ -73,6 +73,7 @@ impl CommitCmd {
             output_dir: self.output_dir.clone(),
             init_file_name: self.init_file_name.clone(),
             input: None,
+            signatures: None,
         };
         let (committed_exe, target_name) =
             load_or_build_and_commit_exe(&sdk, &run_args, &self.cargo_args, &app_pk)?;

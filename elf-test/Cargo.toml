@@ -1,0 +1,16 @@
+[package]
+name = "test-elf"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+openvm-circuit = { path = "../crates/vm" }
+openvm-transpiler = { path = "../crates/toolchain/transpiler" }
+openvm-rv32im-transpiler = { path = "../extensions/rv32im/transpiler" }
+openvm-sdk = { path = "../crates/sdk" }
+openvm-stark-backend = { git = "https://github.com/openvm-org/stark-backend.git", tag = "v1.1.1" }
+eyre = "0.6"
+object = "0.36"
+bon = "3.3"

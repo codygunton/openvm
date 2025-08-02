@@ -35,7 +35,10 @@ use openvm_continuations::verifier::{
 pub use openvm_continuations::{RootSC, C, F, SC};
 #[cfg(feature = "evm-prove")]
 use openvm_native_recursion::halo2::utils::Halo2ParamsReader;
-use openvm_stark_backend::proof::Proof;
+use openvm_stark_backend::{
+    p3_field::{FieldAlgebra, PrimeField32},
+    proof::Proof,
+};
 use openvm_stark_sdk::{
     config::{baby_bear_poseidon2::BabyBearPoseidon2Engine, FriParameters},
     engine::StarkFriEngine,
@@ -185,6 +188,59 @@ impl<E: StarkFriEngine<SC>> GenericSdk<E> {
             vm.config.system().num_public_values,
             final_memory.as_ref().unwrap(),
         );
+        Ok(public_values)
+    }
+
+    pub fn execute_with_signature<VC: VmConfig<F>>(
+        &self,
+        exe: VmExe<F>,
+        vm_config: VC,
+        inputs: StdIn,
+        signature_path: Option<&Path>,
+    ) -> Result<Vec<F>, ExecutionError>
+    where
+        VC::Executor: Chip<SC>,
+        VC::Periphery: Chip<SC>,
+    {
+        let vm = VmExecutor::new(vm_config);
+        let final_memory = vm.execute(exe, inputs)?;
+        let public_values = extract_public_values(
+            &vm.config.system().memory_config.memory_dimensions(),
+            vm.config.system().num_public_values,
+            final_memory.as_ref().unwrap(),
+        );
+        
+        // Extract and write signature if requested
+        if let Some(sig_path) = signature_path {
+            use std::fs::File;
+            use std::io::Write;
+            
+            // Get signature addresses from environment variables (set by the test runner)
+            let sig_begin = std::env::var("RISC0_SIG_BEGIN_ADDR")
+                .ok()
+                .and_then(|s| s.parse::<u32>().ok())
+                .expect("RISC0_SIG_BEGIN_ADDR environment variable must be set with signature start address");
+            
+            let sig_size = std::env::var("RISC0_SIG_SIZE")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .expect("RISC0_SIG_SIZE environment variable must be set with signature size");
+            
+            let mut sig_file = File::create(sig_path)
+                .map_err(|_| ExecutionError::Fail { pc: 0 })?;
+            let memory_state = final_memory.as_ref().unwrap();
+            
+            // Read signature memory region
+            for i in 0..sig_size/4 {
+                let addr = sig_begin + (i as u32) * 4;
+                // AddressMap get method takes (address_space, pointer) tuple
+                let value = memory_state.get(&(1, addr)).unwrap_or(&F::ZERO);
+                // Write as hex value
+                writeln!(sig_file, "{:08x}", value.as_canonical_u32())
+                    .map_err(|_| ExecutionError::Fail { pc: 0 })?;
+            }
+        }
+        
         Ok(public_values)
     }
 
