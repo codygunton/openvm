@@ -234,9 +234,15 @@ impl<E: StarkFriEngine<SC>> GenericSdk<E> {
             for i in 0..sig_size/4 {
                 let addr = sig_begin + (i as u32) * 4;
                 // AddressMap get method takes (address_space, pointer) tuple
-                let value = memory_state.get(&(1, addr)).unwrap_or(&F::ZERO);
+                // RV32_MEMORY_AS (2) is for RISC-V memory
+                // Read 4 bytes and combine into a word (little-endian)
+                let byte0 = memory_state.get(&(2, addr)).unwrap_or(&F::ZERO).as_canonical_u32();
+                let byte1 = memory_state.get(&(2, addr + 1)).unwrap_or(&F::ZERO).as_canonical_u32();
+                let byte2 = memory_state.get(&(2, addr + 2)).unwrap_or(&F::ZERO).as_canonical_u32();
+                let byte3 = memory_state.get(&(2, addr + 3)).unwrap_or(&F::ZERO).as_canonical_u32();
+                let word = byte0 | (byte1 << 8) | (byte2 << 16) | (byte3 << 24);
                 // Write as hex value
-                writeln!(sig_file, "{:08x}", value.as_canonical_u32())
+                writeln!(sig_file, "{:08x}", word)
                     .map_err(|_| ExecutionError::Fail { pc: 0 })?;
             }
         }
