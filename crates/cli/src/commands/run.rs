@@ -3,10 +3,13 @@ use std::path::PathBuf;
 use clap::Parser;
 use eyre::Result;
 use openvm_circuit::arch::OPENVM_DEFAULT_INIT_FILE_NAME;
-use openvm_sdk::{fs::read_exe_from_file, Sdk};
+use openvm_sdk::{fs::read_exe_from_file, Sdk, F};
+use openvm_transpiler::{elf::Elf, transpiler::Transpiler, FromElf};
+use openvm_circuit::arch::instructions::exe::VmExe;
 
 use super::{build, BuildArgs, BuildCargoArgs};
 use crate::{
+    default::default_app_config,
     input::{read_to_stdin, Input},
     util::{get_manifest_path_and_dir, get_single_target_name, read_config_toml_or_default},
 };
@@ -30,6 +33,14 @@ pub struct RunArgs {
         help_heading = "OpenVM Options"
     )]
     pub exe: Option<PathBuf>,
+
+    #[arg(
+        long,
+        action,
+        help = "Path to raw ELF file to run (for RISCOF compliance testing)",
+        help_heading = "OpenVM Options"
+    )]
+    pub elf: Option<PathBuf>,
 
     #[arg(
         long,
@@ -60,6 +71,13 @@ pub struct RunArgs {
         help_heading = "OpenVM Options"
     )]
     pub init_file_name: String,
+
+    #[arg(
+        long,
+        help = "Path to write RISCOF signature file for compliance testing",
+        help_heading = "OpenVM Options"
+    )]
+    pub signatures: Option<PathBuf>,
 }
 
 impl From<RunArgs> for BuildArgs {
@@ -228,16 +246,108 @@ impl From<RunCargoArgs> for BuildCargoArgs {
 }
 
 impl RunCmd {
+    fn load_elf_file(&self, elf_path: &PathBuf) -> Result<VmExe<F>> {
+        use std::fs;
+        use openvm_rv32im_transpiler::{
+            Rv32ITranspilerExtension, Rv32MTranspilerExtension, Rv32IoTranspilerExtension
+        };
+        
+        println!("Loading ELF file: {}", elf_path.display());
+        let elf_data = fs::read(elf_path)?;
+        
+        // Parse ELF symbols to find signature bounds if needed
+        if self.run_args.signatures.is_some() {
+            use object::{Object, ObjectSymbol};
+            
+            if let Ok(obj) = object::File::parse(elf_data.as_slice()) {
+                let mut begin_addr = None;
+                let mut end_addr = None;
+                
+                for symbol in obj.symbols() {
+                    if let Ok(name) = symbol.name() {
+                        if name == "begin_signature" {
+                            begin_addr = Some(symbol.address() as u32);
+                        } else if name == "end_signature" {
+                            end_addr = Some(symbol.address() as u32);
+                        }
+                    }
+                }
+                
+                if let (Some(begin), Some(end)) = (begin_addr, end_addr) {
+                    if begin < end {
+                        let size = (end - begin) as usize;
+                        println!("Found signature region: 0x{:08x} - 0x{:08x} ({} bytes)", 
+                                 begin, end, size);
+                        
+                        // Set environment variables for SDK signature extraction
+                        std::env::set_var("RISC0_SIG_BEGIN_ADDR", begin.to_string());
+                        std::env::set_var("RISC0_SIG_SIZE", size.to_string());
+                    }
+                }
+            }
+        }
+        
+        // Decode the ELF - use 0x80000000 as base for RISC-V tests
+        let mut elf = Elf::decode(&elf_data, 0x80000000)?;
+        
+        // RISCOF tests often have padding (all zeros) at the end of code sections
+        // Filter out trailing zeros to avoid transpiler errors
+        while elf.instructions.last() == Some(&0) {
+            elf.instructions.pop();
+        }
+        
+        println!("Decoded {} instructions from ELF", elf.instructions.len());
+        if !elf.instructions.is_empty() {
+            println!("First instruction: 0x{:08x}", elf.instructions[0]);
+            println!("Last instruction: 0x{:08x}", elf.instructions[elf.instructions.len()-1]);
+        }
+        
+        // Transpile to VmExe
+        let exe = VmExe::from_elf(
+            elf,
+            Transpiler::<F>::default()
+                .with_extension(Rv32ITranspilerExtension)
+                .with_extension(Rv32MTranspilerExtension)
+                .with_extension(Rv32IoTranspilerExtension),
+        )?;
+        
+        Ok(exe)
+    }
+
     pub fn run(&self) -> Result<()> {
+        // Special case for raw ELF files (RISCOF testing)
+        if let Some(elf_path) = &self.run_args.elf {
+            let exe = self.load_elf_file(elf_path)?;
+            let app_config = default_app_config();
+            let sdk = Sdk::new();
+            let output = if let Some(signature_path) = &self.run_args.signatures {
+                sdk.execute_with_signature(
+                    exe,
+                    app_config.app_vm_config,
+                    read_to_stdin(&self.run_args.input)?,
+                    Some(signature_path),
+                )?
+            } else {
+                sdk.execute(
+                    exe,
+                    app_config.app_vm_config,
+                    read_to_stdin(&self.run_args.input)?,
+                )?
+            };
+            println!("Execution output: {:?}", output);
+            return Ok(());
+        }
+
+        // Original flow for --exe or build from source
         let exe_path = if let Some(exe) = &self.run_args.exe {
-            exe
+            exe.clone()
         } else {
             // Build and get the executable name
             let target_name = get_single_target_name(&self.cargo_args)?;
             let build_args = self.run_args.clone().into();
             let cargo_args = self.cargo_args.clone().into();
             let output_dir = build(&build_args, &cargo_args)?;
-            &output_dir.join(format!("{}.vmexe", target_name))
+            output_dir.join(format!("{}.vmexe", target_name))
         };
 
         let (_, manifest_dir) = get_manifest_path_and_dir(&self.cargo_args.manifest_path)?;
@@ -250,11 +360,20 @@ impl RunCmd {
         let exe = read_exe_from_file(exe_path)?;
 
         let sdk = Sdk::new();
-        let output = sdk.execute(
-            exe,
-            app_config.app_vm_config,
-            read_to_stdin(&self.run_args.input)?,
-        )?;
+        let output = if let Some(signature_path) = &self.run_args.signatures {
+            sdk.execute_with_signature(
+                exe,
+                app_config.app_vm_config,
+                read_to_stdin(&self.run_args.input)?,
+                Some(signature_path),
+            )?
+        } else {
+            sdk.execute(
+                exe,
+                app_config.app_vm_config,
+                read_to_stdin(&self.run_args.input)?,
+            )?
+        };
         println!("Execution output: {:?}", output);
         Ok(())
     }
