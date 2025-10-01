@@ -47,10 +47,7 @@ use openvm_native_circuit::{NativeConfig, NativeCpuBuilder};
 use openvm_native_compiler::conversion::CompilerOptions;
 #[cfg(feature = "evm-prove")]
 use openvm_native_recursion::halo2::utils::{CacheHalo2ParamsReader, Halo2ParamsReader};
-use openvm_stark_backend::{
-    p3_field::{FieldAlgebra, PrimeField32},
-    proof::Proof,
-};
+use openvm_stark_backend::proof::Proof;
 use openvm_stark_sdk::{
     config::baby_bear_poseidon2::BabyBearPoseidon2Engine,
     engine::{StarkEngine, StarkFriEngine},
@@ -366,23 +363,23 @@ where
         Ok(public_values)
     }
 
-    pub fn execute_with_signature<VC: VmConfig<F>>(
+    pub fn execute_with_signature(
         &self,
-        exe: VmExe<F>,
-        vm_config: VC,
+        app_exe: impl Into<ExecutableFormat>,
         inputs: StdIn,
         signature_path: Option<&Path>,
-    ) -> Result<Vec<F>, ExecutionError>
-    where
-        VC::Executor: Chip<SC>,
-        VC::Periphery: Chip<SC>,
-    {
-        let vm = VmExecutor::new(vm_config);
-        let final_memory = vm.execute(exe, inputs)?;
+    ) -> Result<Vec<u8>, SdkError> {
+        let exe = self.convert_to_exe(app_exe)?;
+        let instance = self
+            .executor
+            .instance(&exe)
+            .map_err(VirtualMachineError::from)?;
+        let final_memory_result = instance
+            .execute(inputs, None)
+            .map_err(VirtualMachineError::from)?;
         let public_values = extract_public_values(
-            &vm.config.system().memory_config.memory_dimensions(),
-            vm.config.system().num_public_values,
-            final_memory.as_ref().unwrap(),
+            self.executor.config.as_ref().num_public_values,
+            &final_memory_result.memory.memory,
         );
 
         // Extract and write signature if requested
@@ -401,35 +398,26 @@ where
                 .and_then(|s| s.parse::<usize>().ok())
                 .expect("RISC0_SIG_SIZE environment variable must be set with signature size");
 
-            let mut sig_file =
-                File::create(sig_path).map_err(|_| ExecutionError::Fail { pc: 0 })?;
-            let memory_state = final_memory.as_ref().unwrap();
+            let mut sig_file = File::create(sig_path)?;
+            let memory_state = &final_memory_result.memory.memory;
 
             // Read signature memory region
             for i in 0..sig_size / 4 {
                 let addr = sig_begin + (i as u32) * 4;
                 // AddressMap get method takes (address_space, pointer) tuple
-                // RV32_MEMORY_AS (2) is for RISC-V memory
+                // RV32_MEMORY_AS (2) is for RISC-V memory with U8 cells
                 // Read 4 bytes and combine into a word (little-endian)
-                let byte0 = memory_state
-                    .get(&(2, addr))
-                    .unwrap_or(&F::ZERO)
-                    .as_canonical_u32();
-                let byte1 = memory_state
-                    .get(&(2, addr + 1))
-                    .unwrap_or(&F::ZERO)
-                    .as_canonical_u32();
-                let byte2 = memory_state
-                    .get(&(2, addr + 2))
-                    .unwrap_or(&F::ZERO)
-                    .as_canonical_u32();
-                let byte3 = memory_state
-                    .get(&(2, addr + 3))
-                    .unwrap_or(&F::ZERO)
-                    .as_canonical_u32();
-                let word = byte0 | (byte1 << 8) | (byte2 << 16) | (byte3 << 24);
+                // SAFETY: We are reading from memory that was written by the guest program
+                let byte0: u8 = unsafe { memory_state.get((2, addr)) };
+                let byte1: u8 = unsafe { memory_state.get((2, addr + 1)) };
+                let byte2: u8 = unsafe { memory_state.get((2, addr + 2)) };
+                let byte3: u8 = unsafe { memory_state.get((2, addr + 3)) };
+                let word = (byte0 as u32)
+                    | ((byte1 as u32) << 8)
+                    | ((byte2 as u32) << 16)
+                    | ((byte3 as u32) << 24);
                 // Write as hex value
-                writeln!(sig_file, "{:08x}", word).map_err(|_| ExecutionError::Fail { pc: 0 })?;
+                writeln!(sig_file, "{:08x}", word)?;
             }
         }
 

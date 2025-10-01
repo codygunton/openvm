@@ -72,28 +72,20 @@ fn main() -> Result<()> {
     )?;
 
     // Use SDK to execute - this is simplified since we just need basic RV32IM support
-    let sdk = Sdk::new();
-    
-    // Create config using builder pattern from examples
-    let vm_config = openvm_sdk::config::SdkVmConfig::builder()
-        .system(Default::default())
-        .rv32i(openvm_sdk::config::UnitStruct::default())
-        .rv32m(Default::default())
-        .io(openvm_sdk::config::UnitStruct::default())
-        .build();
-    
+    // Use the riscv32 configuration which includes RV32IM support
+    let sdk = Sdk::riscv32();
+
     if let Some(sig_path) = signature_path {
         println!("Running with signature extraction to: {}", sig_path);
         sdk.execute_with_signature(
             exe,
-            vm_config,
             StdIn::default(),
             Some(std::path::Path::new(sig_path))
         )?;
         println!("Signature written to: {}", sig_path);
     } else {
         println!("Running without signature extraction...");
-        sdk.execute(exe, vm_config, StdIn::default())?;
+        sdk.execute(exe, StdIn::default())?;
     }
 
     println!("Done!");
