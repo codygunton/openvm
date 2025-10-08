@@ -6031,6 +6031,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "openvm-rv32f-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "openvm-instructions",
+ "openvm-rv32f-transpiler",
+ "openvm-rv32im-transpiler",
+ "openvm-stark-sdk",
+ "openvm-transpiler",
+ "test-case",
+]
+
+[[package]]
+name = "openvm-rv32f-runtime"
+version = "0.1.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "openvm-rv32f-transpiler"
+version = "0.1.0"
+dependencies = [
+ "openvm-instructions",
+ "openvm-rv32im-transpiler",
+ "openvm-stark-backend",
+ "openvm-stark-sdk",
+ "openvm-transpiler",
+ "rrs-lib",
+]
+
+[[package]]
 name = "openvm-rv32im-circuit"
 version = "1.4.1-rc.1"
 dependencies = [
@@ -6149,6 +6181,7 @@ dependencies = [
  "openvm-native-transpiler",
  "openvm-pairing-circuit",
  "openvm-pairing-transpiler",
+ "openvm-rv32f-transpiler",
  "openvm-rv32im-circuit",
  "openvm-rv32im-transpiler",
  "openvm-sha256-circuit",
@@ -6156,6 +6189,7 @@ dependencies = [
  "openvm-stark-backend",
  "openvm-stark-sdk",
  "openvm-transpiler",
+ "openvm-zicsr-minimal-transpiler",
  "p3-fri",
  "rand 0.8.5",
  "rrs-lib",
@@ -6364,6 +6398,18 @@ dependencies = [
  "openvm-sdk",
  "openvm-stark-sdk",
  "openvm-verify-stark",
+]
+
+[[package]]
+name = "openvm-zicsr-minimal-transpiler"
+version = "0.1.0"
+dependencies = [
+ "openvm-instructions",
+ "openvm-rv32im-transpiler",
+ "openvm-stark-backend",
+ "openvm-stark-sdk",
+ "openvm-transpiler",
+ "rrs-lib",
 ]
 
 [[package]]

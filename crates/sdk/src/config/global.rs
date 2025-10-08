@@ -33,8 +33,10 @@ use openvm_rv32im_circuit::{
 use openvm_rv32im_transpiler::{
     Rv32ITranspilerExtension, Rv32IoTranspilerExtension, Rv32MTranspilerExtension,
 };
+use openvm_rv32f_transpiler::Rv32FArchATranspilerExtension;
 use openvm_sha256_circuit::{Sha256, Sha256Executor, Sha2CpuProverExt};
 use openvm_sha256_transpiler::Sha256TranspilerExtension;
+use openvm_zicsr_minimal_transpiler::ZicsrMinimalTranspiler;
 use openvm_stark_backend::{
     config::{StarkGenericConfig, Val},
     engine::StarkEngine,
@@ -89,6 +91,7 @@ pub struct SdkVmConfig {
     /// field to have the same `range_tuple_checker_sizes` as the `bigint` field for best
     /// performance.
     pub rv32m: Option<Rv32M>,
+    pub rv32f: Option<UnitStruct>,
     /// NOTE: if enabling this together with the [Rv32M] extension, you should set the `rv32m`
     /// field to have the same `range_tuple_checker_sizes` as the `bigint` field for best
     /// performance.
@@ -166,6 +169,7 @@ impl SdkVmConfig {
             .system(Default::default())
             .rv32i(Default::default())
             .rv32m(Default::default())
+            .rv32f(Default::default())
             .io(Default::default())
             .build()
             .optimize()
@@ -222,6 +226,11 @@ impl TranspilerConfig<F> for SdkVmConfig {
         }
         if self.ecc.is_some() {
             transpiler = transpiler.with_extension(EccTranspilerExtension);
+        }
+        if self.rv32f.is_some() {
+            // Register Zicsr transpiler first to handle FCSR CSR instructions
+            transpiler = transpiler.with_extension(ZicsrMinimalTranspiler::default());
+            transpiler = transpiler.with_extension(Rv32FArchATranspilerExtension);
         }
         transpiler
     }
@@ -597,6 +606,7 @@ struct SdkVmConfigWithDefaultDeser {
     pub castf: Option<UnitStruct>,
 
     pub rv32m: Option<Rv32M>,
+    pub rv32f: Option<UnitStruct>,
     pub bigint: Option<Int256>,
     pub modular: Option<ModularExtension>,
     pub fp2: Option<Fp2Extension>,
@@ -615,6 +625,7 @@ impl From<SdkVmConfigWithDefaultDeser> for SdkVmConfig {
             native: config.native,
             castf: config.castf,
             rv32m: config.rv32m,
+            rv32f: config.rv32f,
             bigint: config.bigint,
             modular: config.modular,
             fp2: config.fp2,

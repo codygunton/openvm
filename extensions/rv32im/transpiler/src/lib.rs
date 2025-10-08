@@ -41,25 +41,20 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
         }
         let instruction_u32 = instruction_stream[0];
 
+        // Handle 0x00000000 (illegal instruction / padding) as NOP
+        // This commonly appears in ELF files as section padding
+        if instruction_u32 == 0 {
+            return Some(TranspilerOutput::one_to_one(nop()));
+        }
+
         let opcode = (instruction_u32 & 0x7f) as u8;
         let funct3 = ((instruction_u32 >> 12) & 0b111) as u8; // All our instructions are R-, I- or B-type
 
         let instruction = match (opcode, funct3) {
             (CSR_OPCODE, _) => {
-                let dec_insn = IType::new(instruction_u32);
-                if dec_insn.funct3 as u8 == CSRRW_FUNCT3 {
-                    // CSRRW
-                    if dec_insn.rs1 == 0 && dec_insn.rd == 0 {
-                        // This resets the CSR counter to zero. Since we don't have any CSR
-                        // registers, this is a nop.
-                        return Some(TranspilerOutput::one_to_one(nop()));
-                    }
-                }
-                eprintln!(
-                    "Transpiling system / CSR instruction: {:b} (opcode = {:07b}, funct3 = {:03b}) to unimp",
-                    instruction_u32, opcode, funct3
-                );
-                return Some(TranspilerOutput::one_to_one(unimp()));
+                // CSR instructions should be handled by dedicated Zicsr transpiler extension
+                // Return None to let other extensions process these instructions
+                return None;
             }
             (SYSTEM_OPCODE, TERMINATE_FUNCT3) => {
                 let dec_insn = IType::new(instruction_u32);
