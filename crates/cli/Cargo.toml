@@ -18,7 +18,7 @@ vergen = { version = "8", default-features = false, features = [
 
 [dependencies]
 openvm-build = { workspace = true }
-openvm-transpiler = { workspace = true }
+openvm-transpiler = { workspace = true, features = ["function-span"] }
 openvm-sdk = { workspace = true }
 openvm-stark-sdk.workspace = true
 openvm-stark-backend.workspace = true

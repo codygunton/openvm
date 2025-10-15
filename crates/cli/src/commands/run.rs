@@ -320,6 +320,7 @@ impl RunCmd {
         let exe_bytes = if exe_path.extension().and_then(|s| s.to_str()) == Some("vmexe") {
             // For .vmexe files, read as bitcode-encoded VmExe and re-encode as bytes
             // This maintains backward compatibility with pre-built vmexe files
+            eprintln!("running vmexe");
             use openvm_circuit::arch::instructions::exe::VmExe;
             use openvm_sdk::F;
             let exe: VmExe<F> = read_object_from_file(exe_path)?;
@@ -327,6 +328,7 @@ impl RunCmd {
             // Actually, just pass the VmExe directly - it implements Into<ExecutableFormat>
             return self.run_with_exe(exe, app_config, manifest_path, manifest_dir);
         } else {
+            eprintln!("running elf");
             // For ELF files, read raw bytes
             let bytes = read(exe_path)?;
 
@@ -337,7 +339,9 @@ impl RunCmd {
                     env::set_var("RISC0_SIG_BEGIN_ADDR", begin.to_string());
                     env::set_var("RISC0_SIG_SIZE", size.to_string());
                 } else {
-                    eprintln!("Warning: Could not find begin_signature/end_signature symbols in ELF");
+                    eprintln!(
+                        "Warning: Could not find begin_signature/end_signature symbols in ELF"
+                    );
                 }
             }
 
@@ -425,6 +429,7 @@ impl RunCmd {
         let inputs = read_to_stdin(&self.run_args.input)?;
 
         // Create SDK
+        println!("running with bytes");
         let sdk = Sdk::new(app_config)?;
 
         // For metered modes, load existing app pk from disk or generate it
@@ -454,6 +459,7 @@ impl RunCmd {
 
         // Handle signature extraction for RISCOF compliance testing
         if let Some(signature_path) = &self.run_args.signatures {
+            println!("Executing with signatures");
             let output = sdk.execute_with_signature(exe_bytes, inputs, Some(signature_path))?;
             println!("Execution output: {:?}", output);
         } else {

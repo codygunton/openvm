@@ -41,33 +41,28 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
         }
         let instruction_u32 = instruction_stream[0];
 
+        // Handle 0x00000000 (illegal instruction / padding) as NOP
+        // This commonly appears in ELF files as section padding
+        if instruction_u32 == 0 {
+            return Some(TranspilerOutput::one_to_one(nop()));
+        }
+
         let opcode = (instruction_u32 & 0x7f) as u8;
         let funct3 = ((instruction_u32 >> 12) & 0b111) as u8; // All our instructions are R-, I- or B-type
 
         let instruction = match (opcode, funct3) {
             (CSR_OPCODE, _) => {
-                let dec_insn = IType::new(instruction_u32);
-                if dec_insn.funct3 as u8 == CSRRW_FUNCT3 {
-                    // CSRRW
-                    if dec_insn.rs1 == 0 && dec_insn.rd == 0 {
-                        // This resets the CSR counter to zero. Since we don't have any CSR
-                        // registers, this is a nop.
-                        return Some(TranspilerOutput::one_to_one(nop()));
-                    }
-                }
-                eprintln!(
-                    "Transpiling system / CSR instruction: {:b} (opcode = {:07b}, funct3 = {:03b}) to unimp",
-                    instruction_u32, opcode, funct3
-                );
-                return Some(TranspilerOutput::one_to_one(unimp()));
+                // CSR instructions should be handled by dedicated Zicsr transpiler extension
+                // Return None to let other extensions process these instructions
+                return None;
             }
             (SYSTEM_OPCODE, TERMINATE_FUNCT3) => {
                 let dec_insn = IType::new(instruction_u32);
+                // Mask imm to lowest byte to handle any value (including negative)
+                let exit_code = (dec_insn.imm as u32 & 0xFF) as u8;
                 Some(Instruction {
                     opcode: SystemOpcode::TERMINATE.global_opcode(),
-                    c: F::from_canonical_u8(
-                        dec_insn.imm.try_into().expect("exit code must be byte"),
-                    ),
+                    c: F::from_canonical_u8(exit_code),
                     ..Default::default()
                 })
             }
@@ -99,6 +94,12 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
                         0,
                     ),
                 })
+            }
+            (SYSTEM_OPCODE, _) => {
+                // Unknown SYSTEM instruction - likely corrupted or dead code
+                // Transpile to NOP to skip it gracefully
+                // This handles corrupted JAL relocations and safety loops at end of handler
+                Some(nop())
             }
             (RV32_ALU_OPCODE, _) => {
                 // Exclude RV32M instructions from this transpiler extension

@@ -4,7 +4,8 @@ use std::{
     borrow::Borrow,
     fs::read,
     marker::PhantomData,
-    path::Path,
+    path::{Path, PathBuf},
+    process::Command,
     sync::{Arc, OnceLock},
 };
 
@@ -47,7 +48,7 @@ use openvm_native_circuit::{NativeConfig, NativeCpuBuilder};
 use openvm_native_compiler::conversion::CompilerOptions;
 #[cfg(feature = "evm-prove")]
 use openvm_native_recursion::halo2::utils::{CacheHalo2ParamsReader, Halo2ParamsReader};
-use openvm_stark_backend::proof::Proof;
+use openvm_stark_backend::{p3_field::PrimeField64, proof::Proof};
 use openvm_stark_sdk::{
     config::baby_bear_poseidon2::BabyBearPoseidon2Engine,
     engine::{StarkEngine, StarkFriEngine},
@@ -202,6 +203,98 @@ where
     pub fn riscv32() -> Self {
         GenericSdk::new(AppConfig::riscv32()).unwrap()
     }
+
+    /// Helper function to build the RV32F runtime library for RISC-V target.
+    /// Returns the path to the static library (.a file) that should be linked.
+    fn build_rv32f_runtime() -> Result<PathBuf, SdkError> {
+        // Find the rv32f-runtime crate directory
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let sdk_dir = PathBuf::from(manifest_dir);
+        let workspace_root = sdk_dir.parent().and_then(|p| p.parent())
+            .ok_or_else(|| SdkError::Other(eyre::eyre!("Could not find workspace root")))?;
+        let runtime_dir = workspace_root.join("crates/rv32f-runtime");
+
+        if !runtime_dir.exists() {
+            return Err(SdkError::Other(eyre::eyre!(
+                "RV32F runtime directory not found at {:?}", runtime_dir
+            )));
+        }
+
+        // Build the runtime library for RISC-V target
+        eprintln!("Building RV32F runtime library for RISC-V target...");
+        let output = Command::new("cargo")
+            .arg("build")
+            .arg("--release")
+            .arg("--target")
+            .arg(openvm_build::RUSTC_TARGET)
+            .arg("--manifest-path")
+            .arg(runtime_dir.join("Cargo.toml"))
+            .output()
+            .map_err(|e| SdkError::Other(eyre::eyre!("Failed to build RV32F runtime: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(SdkError::Other(eyre::eyre!(
+                "RV32F runtime build failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        // Construct path to the built static library
+        let lib_path = workspace_root
+            .join("target")
+            .join(openvm_build::RUSTC_TARGET)
+            .join("release")
+            .join("libopenvm_rv32f_runtime.a");
+
+        if !lib_path.exists() {
+            return Err(SdkError::Other(eyre::eyre!(
+                "RV32F runtime library not found at expected path: {:?}", lib_path
+            )));
+        }
+
+        eprintln!("RV32F runtime library built successfully at: {:?}", lib_path);
+        Ok(lib_path)
+    }
+
+    /// Builds the guest package located at `pkg_dir`. This function requires that the build target
+    /// is unique and errors otherwise. Returns the built ELF file decoded in the [Elf] type.
+    pub fn build<P: AsRef<Path>>(
+        &self,
+        guest_opts: GuestOptions,
+        pkg_dir: P,
+        target_filter: &Option<TargetFilter>,
+        init_file_name: Option<&str>, // If None, we use "openvm-init.rs"
+    ) -> Result<Elf, SdkError> {
+        self.app_config
+            .app_vm_config
+            .write_to_init_file(pkg_dir.as_ref(), init_file_name)?;
+        let pkg = get_package(pkg_dir.as_ref());
+
+        // Check if RV32F extension is enabled - if so, build and link the runtime library
+        let runtime_lib = if self.app_config.app_vm_config.rv32f.is_some() {
+            let lib_path = Self::build_rv32f_runtime()?;
+            Some(lib_path.to_str()
+                .ok_or_else(|| SdkError::Other(eyre::eyre!("Invalid UTF-8 in runtime lib path")))?
+                .to_string())
+        } else {
+            None
+        };
+
+        let target_dir = match build_guest_package(&pkg, &guest_opts, runtime_lib.as_deref(), target_filter) {
+            Ok(target_dir) => target_dir,
+            Err(Some(code)) => {
+                return Err(SdkError::BuildFailedWithCode(code));
+            }
+            Err(None) => {
+                return Err(SdkError::BuildFailed);
+            }
+        };
+
+        let elf_path =
+            find_unique_executable(pkg_dir, target_dir, target_filter).map_err(SdkError::Other)?;
+        let data = read(&elf_path)?;
+        Elf::decode(&data, MEM_SIZE as u32).map_err(SdkError::Other)
+    }
 }
 
 impl<E, VB, NativeBuilder> GenericSdk<E, VB, NativeBuilder>
@@ -269,35 +362,6 @@ where
         })
     }
 
-    /// Builds the guest package located at `pkg_dir`. This function requires that the build target
-    /// is unique and errors otherwise. Returns the built ELF file decoded in the [Elf] type.
-    pub fn build<P: AsRef<Path>>(
-        &self,
-        guest_opts: GuestOptions,
-        pkg_dir: P,
-        target_filter: &Option<TargetFilter>,
-        init_file_name: Option<&str>, // If None, we use "openvm-init.rs"
-    ) -> Result<Elf, SdkError> {
-        self.app_config
-            .app_vm_config
-            .write_to_init_file(pkg_dir.as_ref(), init_file_name)?;
-        let pkg = get_package(pkg_dir.as_ref());
-        let target_dir = match build_guest_package(&pkg, &guest_opts, None, target_filter) {
-            Ok(target_dir) => target_dir,
-            Err(Some(code)) => {
-                return Err(SdkError::BuildFailedWithCode(code));
-            }
-            Err(None) => {
-                return Err(SdkError::BuildFailed);
-            }
-        };
-
-        let elf_path =
-            find_unique_executable(pkg_dir, target_dir, target_filter).map_err(SdkError::Other)?;
-        let data = read(&elf_path)?;
-        Elf::decode(&data, MEM_SIZE as u32).map_err(SdkError::Other)
-    }
-
     /// Transpiler for transpiling RISC-V ELF to OpenVM executable.
     pub fn transpiler(&self) -> Result<&Transpiler<F>, SdkError> {
         self.transpiler
@@ -320,12 +384,67 @@ where
         let exe = match executable {
             ExecutableFormat::Elf(elf) => {
                 let transpiler = self.transpiler()?.clone();
-                Arc::new(VmExe::from_elf(elf, transpiler)?)
+                let mut vm_exe = VmExe::from_elf(elf.clone(), transpiler)?;
+
+                // Populate the float handler trampoline for RV32F extension
+                // This is safe to call even if RV32F is not enabled - the handler just won't be called
+                Self::populate_float_handler_trampoline(&mut vm_exe)?;
+
+                Arc::new(vm_exe)
             }
             ExecutableFormat::VmExe(exe) => Arc::new(exe),
             ExecutableFormat::SharedVmExe(exe) => exe,
         };
         Ok(exe)
+    }
+
+    /// Populates the memory location at HANDLER_PC_ADDR with the OpenVM PC of the float handler.
+    /// This enables the trampoline mechanism for calling RISC-V float emulation code.
+    fn populate_float_handler_trampoline(
+        vm_exe: &mut VmExe<F>,
+    ) -> Result<(), SdkError> {
+        // Constants must match transpiler
+        const HANDLER_PC_ADDR: u32 = 0x18000090;
+
+        let program_len = vm_exe.program.instructions_and_debug_infos.len();
+        eprintln!("🔍 Program has {} instructions total (pc_base=0x{:x})", program_len, vm_exe.program.pc_base);
+
+        // Try to find the handler in fn_bounds (which comes from ELF symbol table)
+        let handler_pc_index = if let Some(bound) = vm_exe.fn_bounds.values()
+            .find(|bound| bound.name.contains("_openvm_float") || bound.name.contains("float_handler")) {
+            eprintln!("✓ Found float handler in fn_bounds: name='{}', start={}, end={}", bound.name, bound.start, bound.end);
+            bound.start
+        } else {
+            return Err(SdkError::Other(eyre::eyre!(
+                "Could not find float handler symbol '_openvm_float' in program. \
+                 Make sure the RV32F runtime is linked and the ELF has symbol information. \
+                 Try building with debug symbols or check that the 'function-span' feature is enabled."
+            )));
+        };
+
+        // Convert PC index to actual PC value (pc_base + index * DEFAULT_PC_STEP)
+        let handler_pc = vm_exe.program.pc_base + handler_pc_index * openvm_circuit::arch::instructions::program::DEFAULT_PC_STEP;
+
+        eprintln!("🔧 Float handler trampoline: PC index {} → OpenVM PC 0x{:x} (RISCV addr 0x{:x})",
+            handler_pc_index, handler_pc, handler_pc);
+
+        // Verify the PC index is within bounds
+        let program_len = vm_exe.program.instructions_and_debug_infos.len() as u32;
+        if handler_pc_index >= program_len {
+            return Err(SdkError::Other(eyre::eyre!(
+                "Float handler PC index {} is out of bounds (program length: {})",
+                handler_pc_index, program_len
+            )));
+        }
+
+        // Write the handler PC to memory at HANDLER_PC_ADDR (little-endian, 4 bytes)
+        // Address space 2 is RV32_MEMORY_AS for RISC-V memory
+        for i in 0..4 {
+            let byte = ((handler_pc >> (i * 8)) & 0xFF) as u8;
+            vm_exe.init_memory.insert((2, HANDLER_PC_ADDR + i), byte);
+        }
+
+        Ok(())
     }
 }
 

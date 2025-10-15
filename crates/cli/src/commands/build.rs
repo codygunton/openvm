@@ -2,13 +2,15 @@ use std::{
     env::var,
     fs::{copy, create_dir_all, read},
     path::PathBuf,
+    process::Command,
 };
 
 use clap::Parser;
 use eyre::Result;
 use itertools::izip;
 use openvm_build::{
-    build_generic, get_package, get_workspace_packages, get_workspace_root, GuestOptions,
+    build_generic, get_package, get_rustup_toolchain_name, get_workspace_packages,
+    get_workspace_root, GuestOptions, RUSTC_TARGET,
 };
 use openvm_circuit::arch::{
     instructions::exe::VmExe, InitFileGenerator, OPENVM_DEFAULT_INIT_FILE_NAME,
@@ -358,6 +360,15 @@ pub fn build(build_args: &BuildArgs, cargo_args: &BuildCargoArgs) -> Result<Path
         .app_vm_config
         .write_to_init_file(&manifest_dir, Some(&build_args.init_file_name))?;
 
+    // Check if RV32F extension is enabled - if so, build and link the runtime library
+    if app_config.app_vm_config.rv32f.is_some() {
+        eprintln!("[openvm] RV32F extension enabled, building runtime library...");
+        let runtime_lib_path = build_rv32f_runtime(&manifest_path)?;
+        guest_options
+            .rustc_flags
+            .push(format!("-Clink-arg={}", runtime_lib_path.display()));
+    }
+
     // Build (allowing passed options to decide what gets built)
     let elf_target_dir = match build_generic(&guest_options) {
         Ok(raw_target_dir) => raw_target_dir,
@@ -461,4 +472,70 @@ pub fn build(build_args: &BuildArgs, cargo_args: &BuildCargoArgs) -> Result<Path
         final_output_dir.display()
     );
     Ok(final_output_dir.clone())
+}
+
+/// Helper function to build the RV32F runtime library for RISC-V target.
+/// Returns the path to the static library (.a file) that should be linked.
+fn build_rv32f_runtime(_manifest_path: &PathBuf) -> Result<PathBuf> {
+    // Find the openvm workspace by looking for CARGO_MANIFEST_DIR environment variable
+    // (set during compilation of cargo-openvm) or by searching upward from the binary
+    let openvm_workspace = if let Ok(manifest_dir) = var("CARGO_MANIFEST_DIR") {
+        // During development, CARGO_MANIFEST_DIR points to crates/cli
+        PathBuf::from(manifest_dir).parent().and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| eyre::eyre!("Could not find openvm workspace from CARGO_MANIFEST_DIR"))?
+    } else {
+        // When installed, look for rv32f-runtime relative to the binary
+        // For now, use env!("CARGO_MANIFEST_DIR") which is set at compile time
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        PathBuf::from(manifest_dir).parent().and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| eyre::eyre!("Could not find openvm workspace"))?
+    };
+
+    let runtime_dir = openvm_workspace.join("crates/rv32f-runtime");
+
+    if !runtime_dir.exists() {
+        return Err(eyre::eyre!(
+            "RV32F runtime directory not found at {:?}", runtime_dir
+        ));
+    }
+
+    // Build the runtime library for RISC-V target using nightly toolchain
+    eprintln!("Building RV32F runtime library for RISC-V target...");
+    let toolchain_name = get_rustup_toolchain_name();
+    let output = Command::new("cargo")
+        .arg(format!("+{}", toolchain_name))
+        .arg("build")
+        .arg("--release")
+        .arg("--target")
+        .arg(RUSTC_TARGET)
+        .arg("-Zbuild-std=alloc,core,proc_macro,panic_abort,std")
+        .arg("-Zbuild-std-features=compiler-builtins-mem")
+        .arg("--manifest-path")
+        .arg(runtime_dir.join("Cargo.toml"))
+        .output()?;
+
+    if !output.status.success() {
+        return Err(eyre::eyre!(
+            "RV32F runtime build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    // Construct path to the built static library
+    let lib_path = openvm_workspace
+        .join("target")
+        .join(RUSTC_TARGET)
+        .join("release")
+        .join("libopenvm_rv32f_runtime.a");
+
+    if !lib_path.exists() {
+        return Err(eyre::eyre!(
+            "RV32F runtime library not found at expected path: {:?}", lib_path
+        ));
+    }
+
+    eprintln!("RV32F runtime library built successfully at: {:?}", lib_path);
+    Ok(lib_path)
 }

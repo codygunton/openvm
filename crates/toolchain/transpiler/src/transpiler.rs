@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use openvm_instructions::instruction::Instruction;
+use openvm_instructions::{instruction::Instruction, LocalOpcode, SystemOpcode};
 use openvm_stark_backend::p3_field::PrimeField32;
 use thiserror::Error;
 

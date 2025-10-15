@@ -549,6 +549,13 @@ unsafe fn execute_trampoline<F: PrimeField32, Ctx: ExecutionCtxTrait>(
     exec_state: &mut VmExecState<F, GuestMemory, Ctx>,
     fn_ptrs: &[PreComputeInstruction<F, Ctx>],
 ) {
+    let mut last_log_instret = instret;
+    let log_interval = 10_000;
+    let mut same_pc_count = 0;
+    let mut last_pc = pc;
+
+    eprintln!("🚀 Starting execution at PC=0x{:08x}, instret={}", pc, instret);
+
     while exec_state
         .exit_code
         .as_ref()
@@ -557,6 +564,25 @@ unsafe fn execute_trampoline<F: PrimeField32, Ctx: ExecutionCtxTrait>(
         if Ctx::should_suspend(instret, pc, arg, exec_state) {
             break;
         }
+
+        // Periodic progress logging
+        if instret - last_log_instret >= log_interval {
+            eprintln!("📊 Progress: {} instructions executed, PC=0x{:08x}", instret, pc);
+            last_log_instret = instret;
+        }
+
+        // Infinite loop detection
+        if pc == last_pc {
+            same_pc_count += 1;
+            if same_pc_count >= 100 {
+                eprintln!("⚠️  WARNING: Same PC (0x{:08x}) executed {} times consecutively - possible infinite loop!", pc, same_pc_count);
+                same_pc_count = 0; // Reset to avoid spamming
+            }
+        } else {
+            same_pc_count = 0;
+            last_pc = pc;
+        }
+
         let pc_index = get_pc_index(pc);
         if let Some(inst) = fn_ptrs.get(pc_index) {
             // SAFETY: pre_compute assumed to live long enough
@@ -567,6 +593,7 @@ unsafe fn execute_trampoline<F: PrimeField32, Ctx: ExecutionCtxTrait>(
     }
     // Update the execution state with the final PC and instruction count
     exec_state.set_instret_and_pc(instret, pc);
+    eprintln!("✅ Execution finished: {} total instructions", instret);
 }
 
 #[inline(always)]
