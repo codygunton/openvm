@@ -146,8 +146,9 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let return_addr = *pc + DEFAULT_PC_STEP;
     exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &return_addr.to_le_bytes()); // x1 = ra
 
-    // JALR: jump to handler
-    *pc = handler_addr;
+    // JALR: jump to handler (with RISC-V compliant address rounding - clear LSB)
+    let target_addr = handler_addr & !1;
+    *pc = target_addr;
     *instret += 1;
 
     eprintln!(
