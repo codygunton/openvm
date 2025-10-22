@@ -5,7 +5,8 @@ pub const FLOAT_REGISTER_BASE: u32 = 0x1F001000;
 pub const FLOAT_INST_ADDR: u32 = 0x1F001108;
 
 /// Address of pointer to float library entry point (_zisk_float)
-pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x0001_EC60;
+/// This should match where the linker places .float_lib_entry section
+pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x0001_F440;
 
 /// Heap memory address space ID
 pub const FLOAT_MEM_AS: u32 = 2;

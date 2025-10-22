@@ -10,6 +10,11 @@ mod constants;
 mod float_load;
 mod float_store;
 mod float_alu;
+mod float_fma;
+mod float_convert;
+mod float_compare;
+mod float_move;
+mod float_class;
 pub mod extension;
 
 pub use constants::*;

@@ -3,38 +3,33 @@ use openvm_circuit::system::memory::online::TracingMemory;
 use openvm_instructions::instruction::Instruction;
 use openvm_stark_backend::p3_field::PrimeField32;
 
-/// FloatAluExecutor handles FADD, FSUB, FMUL, FDIV by calling external handler
+/// FloatMoveExecutor handles FMV.X.W and FMV.W.X by calling external handler
 #[derive(Clone, Copy)]
-pub struct FloatAluExecutor;
+pub struct FloatMoveExecutor;
 
-impl FloatAluExecutor {
+impl FloatMoveExecutor {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl Default for FloatAluExecutor {
+impl Default for FloatMoveExecutor {
     fn default() -> Self {
         Self::new()
     }
 }
 
 // Stub implementation - float operations call external handler, so PreflightExecutor is not used
-impl<F, RA> PreflightExecutor<F, RA> for FloatAluExecutor
+impl<F, RA> PreflightExecutor<F, RA> for FloatMoveExecutor
 where
     F: PrimeField32,
     RA: Arena,
 {
     fn get_opcode_name(&self, opcode: usize) -> String {
         match opcode {
-            0x302 => "FADD".to_string(),
-            0x303 => "FSUB".to_string(),
-            0x304 => "FMUL".to_string(),
-            0x305 => "FDIV".to_string(),
-            0x306 => "FSQRT".to_string(),
-            0x307 => "FMIN/FMAX".to_string(),
-            0x308 => "FSGNJ*".to_string(),
-            _ => format!("UnknownFloatAlu(0x{:x})", opcode),
+            0x310 => "FMV.X.W".to_string(),
+            0x311 => "FMV.W.X".to_string(),
+            _ => format!("UnknownFloatMove(0x{:x})", opcode),
         }
     }
 

@@ -55,6 +55,10 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
                         return Some(TranspilerOutput::one_to_one(nop()));
                     }
                 }
+                // Handle EBREAK instruction (imm=1, funct3=0) as nop
+                if dec_insn.funct3 == 0 && dec_insn.imm == 1 {
+                    return Some(TranspilerOutput::one_to_one(nop()));
+                }
                 eprintln!(
                     "Transpiling system / CSR instruction: {:b} (opcode = {:07b}, funct3 = {:03b}) to unimp",
                     instruction_u32, opcode, funct3

@@ -27,6 +27,12 @@ SECTIONS
         *(.rodata*)
     } > RAM : data
 
+    /* Place float library entry pointer at fixed high address to avoid conflicts */
+    . = 0x80000;
+    .float_lib_entry : {
+        KEEP(*(.float_lib_entry))
+    } > RAM : data
+
     .data : {
         *(.data*)
         *(.sdata*)
