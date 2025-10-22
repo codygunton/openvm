@@ -17,7 +17,7 @@ fi
 if [ $RUN = "1" ]; then
     TEST_FILE=examples/floats/build/test.elf
     LOG_FILE=examples/floats/elf.log
-    RUST_BACKTRACE=1 RUST_LOG=trace ./target/debug/cargo-openvm openvm run \
+    RUST_BACKTRACE=1 RUST_LOG=debug target/debug/cargo-openvm openvm run \
         --exe $TEST_FILE \
         --config examples/floats/openvm.toml \
         &> "$LOG_FILE"

@@ -5651,7 +5651,6 @@ dependencies = [
  "openvm-circuit-derive",
  "openvm-circuit-primitives",
  "openvm-circuit-primitives-derive",
- "openvm-floats-guest",
  "openvm-floats-transpiler",
  "openvm-instructions",
  "openvm-rv32im-circuit",
@@ -5679,6 +5678,7 @@ dependencies = [
  "openvm-stark-backend",
  "openvm-transpiler",
  "rrs-lib",
+ "serde",
  "strum",
 ]
 
@@ -6183,6 +6183,8 @@ dependencies = [
  "openvm-cuda-backend",
  "openvm-ecc-circuit",
  "openvm-ecc-transpiler",
+ "openvm-floats-circuit",
+ "openvm-floats-transpiler",
  "openvm-keccak256-circuit",
  "openvm-keccak256-transpiler",
  "openvm-native-circuit",

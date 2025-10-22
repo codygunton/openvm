@@ -6,7 +6,11 @@
 //! standard rv32im instructions.
 //!
 
+mod constants;
+mod float_load;
+mod float_store;
+mod float_alu;
 pub mod extension;
 
-// Re-export for consistency with extension pattern
-pub use extension::FloatsExtension;
+pub use constants::*;
+pub use extension::{Rv32F, Rv32FExecutor};

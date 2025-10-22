@@ -15,3 +15,4 @@ openvm-instructions-derive = { workspace = true }
 openvm-rv32im-transpiler = { workspace = true }
 rrs-lib = { workspace = true }
 strum = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

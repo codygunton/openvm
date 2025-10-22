@@ -558,6 +558,11 @@ unsafe fn execute_trampoline<F: PrimeField32, Ctx: ExecutionCtxTrait>(
             break;
         }
         let pc_index = get_pc_index(pc);
+        let pc_before = pc;
+        eprintln!(
+            "[EXEC] instret={}, PC=0x{:08x}, pc_index={}",
+            instret, pc, pc_index
+        );
         if let Some(inst) = fn_ptrs.get(pc_index) {
             // SAFETY: pre_compute assumed to live long enough
             unsafe { (inst.handler)(inst.pre_compute, &mut instret, &mut pc, arg, exec_state) };

@@ -16,6 +16,8 @@ use openvm_ecc_circuit::{
     SECP256K1_CONFIG,
 };
 use openvm_ecc_transpiler::EccTranspilerExtension;
+use openvm_floats_circuit::{Rv32F, Rv32FExecutor};
+use openvm_floats_transpiler::FloatsTranspilerExtension;
 use openvm_keccak256_circuit::{Keccak256, Keccak256CpuProverExt, Keccak256Executor};
 use openvm_keccak256_transpiler::Keccak256TranspilerExtension;
 use openvm_native_circuit::{
@@ -89,6 +91,7 @@ pub struct SdkVmConfig {
     /// field to have the same `range_tuple_checker_sizes` as the `bigint` field for best
     /// performance.
     pub rv32m: Option<Rv32M>,
+    pub rv32f: Option<UnitStruct>,
     /// NOTE: if enabling this together with the [Rv32M] extension, you should set the `rv32m`
     /// field to have the same `range_tuple_checker_sizes` as the `bigint` field for best
     /// performance.
@@ -166,6 +169,7 @@ impl SdkVmConfig {
             .system(Default::default())
             .rv32i(Default::default())
             .rv32m(Default::default())
+            .rv32f(Default::default())
             .io(Default::default())
             .build()
             .optimize()
@@ -207,6 +211,9 @@ impl TranspilerConfig<F> for SdkVmConfig {
         }
         if self.rv32m.is_some() {
             transpiler = transpiler.with_extension(Rv32MTranspilerExtension);
+        }
+        if self.rv32f.is_some() {
+            transpiler = transpiler.with_extension(FloatsTranspilerExtension);
         }
         if self.bigint.is_some() {
             transpiler = transpiler.with_extension(Int256TranspilerExtension);
@@ -273,6 +280,7 @@ impl SdkVmConfig {
         let native = config.native.map(|_| Native);
         let castf = config.castf.map(|_| CastFExtension);
         let rv32m = config.rv32m;
+        let rv32f = config.rv32f.map(|_| Rv32F);
         let bigint = config.bigint;
         let modular = config.modular.clone();
         let fp2 = config.fp2.clone();
@@ -288,6 +296,7 @@ impl SdkVmConfig {
             native,
             castf,
             rv32m,
+            rv32f,
             bigint,
             modular,
             fp2,
@@ -324,6 +333,8 @@ pub struct SdkVmConfigInner {
 
     #[extension(executor = "Rv32MExecutor")]
     pub rv32m: Option<Rv32M>,
+    #[extension(executor = "Rv32FExecutor")]
+    pub rv32f: Option<Rv32F>,
     #[extension(executor = "Int256Executor")]
     pub bigint: Option<Int256>,
     #[extension(executor = "ModularExtensionExecutor")]
@@ -584,6 +595,12 @@ impl From<CastFExtension> for UnitStruct {
     }
 }
 
+impl From<Rv32F> for UnitStruct {
+    fn from(_: Rv32F) -> Self {
+        UnitStruct {}
+    }
+}
+
 #[derive(Deserialize)]
 struct SdkVmConfigWithDefaultDeser {
     #[serde(default)]
@@ -597,6 +614,7 @@ struct SdkVmConfigWithDefaultDeser {
     pub castf: Option<UnitStruct>,
 
     pub rv32m: Option<Rv32M>,
+    pub rv32f: Option<UnitStruct>,
     pub bigint: Option<Int256>,
     pub modular: Option<ModularExtension>,
     pub fp2: Option<Fp2Extension>,
@@ -615,6 +633,7 @@ impl From<SdkVmConfigWithDefaultDeser> for SdkVmConfig {
             native: config.native,
             castf: config.castf,
             rv32m: config.rv32m,
+            rv32f: config.rv32f,
             bigint: config.bigint,
             modular: config.modular,
             fp2: config.fp2,

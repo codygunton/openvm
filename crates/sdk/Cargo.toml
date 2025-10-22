@@ -16,6 +16,8 @@ openvm-bigint-transpiler = { workspace = true }
 openvm-build = { workspace = true }
 openvm-ecc-circuit = { workspace = true }
 openvm-ecc-transpiler = { workspace = true }
+openvm-floats-circuit = { workspace = true }
+openvm-floats-transpiler = { workspace = true }
 openvm-keccak256-circuit = { workspace = true }
 openvm-keccak256-transpiler = { workspace = true }
 openvm-sha256-circuit = { workspace = true }
