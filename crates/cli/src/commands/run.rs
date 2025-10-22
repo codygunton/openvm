@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::{env, fs::read, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
 use eyre::Result;
-use openvm_circuit::arch::{instructions::exe::VmExe, OPENVM_DEFAULT_INIT_FILE_NAME};
-use openvm_sdk::{config::SdkVmConfig, fs::read_object_from_file, keygen::AppProvingKey, Sdk, F};
+use openvm_circuit::arch::OPENVM_DEFAULT_INIT_FILE_NAME;
+use openvm_sdk::{config::SdkVmConfig, fs::read_object_from_file, keygen::AppProvingKey, Sdk};
 
 use super::{build, BuildArgs, BuildCargoArgs};
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
     input::{read_to_stdin, Input},
     util::{
         get_app_pk_path, get_app_vk_path, get_manifest_path_and_dir, get_single_target_name,
-        get_target_dir, read_config_toml_or_default,
+        get_target_dir,
     },
 };
 
@@ -75,6 +75,13 @@ pub struct RunArgs {
         help_heading = "OpenVM Options"
     )]
     pub init_file_name: String,
+
+    #[arg(
+        long,
+        help = "Path to write RISCOF signature file for compliance testing",
+        help_heading = "OpenVM Options"
+    )]
+    pub signatures: Option<PathBuf>,
 
     #[arg(
         long,
@@ -251,6 +258,31 @@ impl From<RunCargoArgs> for BuildCargoArgs {
     }
 }
 
+// Parse ELF to find signature symbols for RISCOF compliance testing
+fn find_signature_bounds(elf_data: &[u8]) -> Option<(u32, u32)> {
+    use object::{Object, ObjectSymbol};
+
+    let obj = object::File::parse(elf_data).ok()?;
+
+    let mut begin_addr = None;
+    let mut end_addr = None;
+
+    for symbol in obj.symbols() {
+        if let Ok(name) = symbol.name() {
+            if name == "begin_signature" {
+                begin_addr = Some(symbol.address() as u32);
+            } else if name == "end_signature" {
+                end_addr = Some(symbol.address() as u32);
+            }
+        }
+    }
+
+    match (begin_addr, end_addr) {
+        (Some(begin), Some(end)) if begin < end => Some((begin, end)),
+        _ => None,
+    }
+}
+
 impl RunCmd {
     pub fn run(&self) -> Result<()> {
         let exe_path = if let Some(exe) = &self.run_args.exe {
@@ -266,13 +298,37 @@ impl RunCmd {
 
         let (manifest_path, manifest_dir) =
             get_manifest_path_and_dir(&self.cargo_args.manifest_path)?;
-        let config_path = self
-            .run_args
-            .config
-            .to_owned()
-            .unwrap_or_else(|| manifest_dir.join("openvm.toml"));
-        let app_config = read_config_toml_or_default(&config_path)?;
-        let exe: VmExe<F> = read_object_from_file(exe_path)?;
+
+        // Use riscv32 config for ELF files (RISCOF compliance testing)
+        let app_config = {
+            use openvm_sdk::config::AppConfig;
+            AppConfig::riscv32()
+        };
+
+        // Read ELF file
+        let exe_bytes = read(exe_path)?;
+
+        // Extract signature bounds for RISCOF compliance testing
+        if self.run_args.signatures.is_some() {
+            if let Some((begin, end)) = find_signature_bounds(&exe_bytes) {
+                let size = (end - begin) as usize;
+                env::set_var("RISC0_SIG_BEGIN_ADDR", begin.to_string());
+                env::set_var("RISC0_SIG_SIZE", size.to_string());
+            } else {
+                eprintln!("Warning: Could not find begin_signature/end_signature symbols in ELF");
+            }
+        }
+
+        self.run_elf(exe_bytes, app_config, manifest_path, manifest_dir)
+    }
+
+    fn run_elf(
+        &self,
+        exe_bytes: Vec<u8>,
+        app_config: openvm_sdk::config::AppConfig<SdkVmConfig>,
+        manifest_path: PathBuf,
+        manifest_dir: PathBuf,
+    ) -> Result<()> {
         let inputs = read_to_stdin(&self.run_args.input)?;
 
         // Create SDK
@@ -303,25 +359,31 @@ impl RunCmd {
                 .map_err(|_| eyre::eyre!("Failed to set app pk"))?;
         }
 
-        match self.run_args.mode {
-            ExecutionMode::Pure => {
-                let output = sdk.execute(exe, inputs)?;
-                println!("Execution output: {:?}", output);
-            }
-            ExecutionMode::Meter => {
-                let (output, (cost, instret)) = sdk.execute_metered_cost(exe, inputs)?;
-                println!("Execution output: {:?}", output);
+        // Handle signature extraction for RISCOF compliance testing
+        if let Some(signature_path) = &self.run_args.signatures {
+            let output = sdk.execute_with_signature(exe_bytes, inputs, Some(signature_path))?;
+            println!("Execution output: {:?}", output);
+        } else {
+            match self.run_args.mode {
+                ExecutionMode::Pure => {
+                    let output = sdk.execute(exe_bytes, inputs)?;
+                    println!("Execution output: {:?}", output);
+                }
+                ExecutionMode::Meter => {
+                    let (output, (cost, instret)) = sdk.execute_metered_cost(exe_bytes, inputs)?;
+                    println!("Execution output: {:?}", output);
 
-                println!("Number of instructions executed: {}", instret);
-                println!("Total cost: {}", cost);
-            }
-            ExecutionMode::Segment => {
-                let (output, segments) = sdk.execute_metered(exe, inputs)?;
-                println!("Execution output: {:?}", output);
+                    println!("Number of instructions executed: {}", instret);
+                    println!("Total cost: {}", cost);
+                }
+                ExecutionMode::Segment => {
+                    let (output, segments) = sdk.execute_metered(exe_bytes, inputs)?;
+                    println!("Execution output: {:?}", output);
 
-                let total_instructions: u64 = segments.iter().map(|s| s.num_insns).sum();
-                println!("Number of instructions executed: {}", total_instructions);
-                println!("Total segments: {}", segments.len());
+                    let total_instructions: u64 = segments.iter().map(|s| s.num_insns).sum();
+                    println!("Number of instructions executed: {}", total_instructions);
+                    println!("Total segments: {}", segments.len());
+                }
             }
         }
 

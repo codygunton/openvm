@@ -363,6 +363,67 @@ where
         Ok(public_values)
     }
 
+    pub fn execute_with_signature(
+        &self,
+        app_exe: impl Into<ExecutableFormat>,
+        inputs: StdIn,
+        signature_path: Option<&Path>,
+    ) -> Result<Vec<u8>, SdkError> {
+        let exe = self.convert_to_exe(app_exe)?;
+        let instance = self
+            .executor
+            .instance(&exe)
+            .map_err(VirtualMachineError::from)?;
+        let final_memory_result = instance
+            .execute(inputs, None)
+            .map_err(VirtualMachineError::from)?;
+        let public_values = extract_public_values(
+            self.executor.config.as_ref().num_public_values,
+            &final_memory_result.memory.memory,
+        );
+
+        // Extract and write signature if requested
+        if let Some(sig_path) = signature_path {
+            use std::fs::File;
+            use std::io::Write;
+
+            // Get signature addresses from environment variables (set by the test runner)
+            let sig_begin = std::env::var("RISC0_SIG_BEGIN_ADDR")
+                .ok()
+                .and_then(|s| s.parse::<u32>().ok())
+                .expect("RISC0_SIG_BEGIN_ADDR environment variable must be set with signature start address");
+
+            let sig_size = std::env::var("RISC0_SIG_SIZE")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .expect("RISC0_SIG_SIZE environment variable must be set with signature size");
+
+            let mut sig_file = File::create(sig_path)?;
+            let memory_state = &final_memory_result.memory.memory;
+
+            // Read signature memory region
+            for i in 0..sig_size / 4 {
+                let addr = sig_begin + (i as u32) * 4;
+                // AddressMap get method takes (address_space, pointer) tuple
+                // RV32_MEMORY_AS (2) is for RISC-V memory with U8 cells
+                // Read 4 bytes and combine into a word (little-endian)
+                // SAFETY: We are reading from memory that was written by the guest program
+                let byte0: u8 = unsafe { memory_state.get((2, addr)) };
+                let byte1: u8 = unsafe { memory_state.get((2, addr + 1)) };
+                let byte2: u8 = unsafe { memory_state.get((2, addr + 2)) };
+                let byte3: u8 = unsafe { memory_state.get((2, addr + 3)) };
+                let word = (byte0 as u32)
+                    | ((byte1 as u32) << 8)
+                    | ((byte2 as u32) << 16)
+                    | ((byte3 as u32) << 24);
+                // Write as hex value
+                writeln!(sig_file, "{:08x}", word)?;
+            }
+        }
+
+        Ok(public_values)
+    }
+
     /// Executes with segmentation for proof generation.
     /// Returns both user public values and segments with instruction counts and trace heights.
     pub fn execute_metered(
