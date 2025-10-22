@@ -59,6 +59,8 @@ pub struct InterpretedInstance<'a, F, Ctx> {
     handlers: Vec<Handler<F, Ctx>>,
 
     pc_start: u32,
+    pc_base: u32,
+    pc_to_program_idx: std::collections::HashMap<u32, usize>,
 
     init_memory: SparseMemoryImage,
     #[cfg(feature = "tco")]
@@ -91,19 +93,20 @@ macro_rules! run {
             #[cfg(not(feature = "tco"))]
             {
                 unsafe {
-                    tracing::debug!("execute_trampoline");
+                    eprintln!("execute_trampoline");
                     execute_trampoline(
                         $instret,
                         $pc,
                         $arg,
                         &mut $exec_state,
                         &$interpreter.pre_compute_insns,
+                        &$interpreter.pc_to_program_idx,
+                        $interpreter.pc_base,
                     );
                 }
             }
             #[cfg(feature = "tco")]
             {
-                tracing::debug!("execute_tco");
                 let handler = $interpreter
                     .get_handler($pc)
                     .ok_or(ExecutionError::PcOutOfBounds($pc))?;
@@ -170,7 +173,14 @@ where
                 |(pc_idx, (inst_opt, pre_compute))| -> Result<Handler<F, Ctx>, StaticProgramError> {
                     if let Some((inst, _)) = inst_opt {
                         let pc = pc_idx as u32 * DEFAULT_PC_STEP;
+                        if pc == 0x10038 {
+                            eprintln!("[TCO_HANDLER] PC 0x10038: opcode={} (SystemOpcode::TERMINATE={})",
+                                inst.opcode, SystemOpcode::TERMINATE.global_opcode());
+                        }
                         if get_system_opcode_handler::<F, Ctx>(inst, pre_compute).is_some() {
+                            if pc == 0x10038 {
+                                eprintln!("[TCO_HANDLER] PC 0x10038: Registering terminate_execute_e12_tco_handler");
+                            }
                             Ok(terminate_execute_e12_tco_handler)
                         } else {
                             // unwrap because get_pre_compute_instructions would have errored
@@ -191,6 +201,8 @@ where
             #[cfg(not(feature = "tco"))]
             pre_compute_insns,
             pc_start,
+            pc_base: program.pc_base,
+            pc_to_program_idx: program.pc_to_program_idx.clone(),
             init_memory,
             #[cfg(feature = "tco")]
             pre_compute_max_size,
@@ -284,7 +296,14 @@ where
                 |(pc_idx, (inst_opt, pre_compute))| -> Result<Handler<F, Ctx>, StaticProgramError> {
                     if let Some((inst, _)) = inst_opt {
                         let pc = pc_idx as u32 * DEFAULT_PC_STEP;
+                        if pc == 0x10038 {
+                            eprintln!("[TCO_HANDLER] PC 0x10038: opcode={} (SystemOpcode::TERMINATE={})",
+                                inst.opcode, SystemOpcode::TERMINATE.global_opcode());
+                        }
                         if get_system_opcode_handler::<F, Ctx>(inst, pre_compute).is_some() {
+                            if pc == 0x10038 {
+                                eprintln!("[TCO_HANDLER] PC 0x10038: Registering terminate_execute_e12_tco_handler");
+                            }
                             Ok(terminate_execute_e12_tco_handler)
                         } else {
                             // unwrap because get_pre_compute_instructions would have errored
@@ -307,6 +326,8 @@ where
             #[cfg(not(feature = "tco"))]
             pre_compute_insns,
             pc_start,
+            pc_base: program.pc_base,
+            pc_to_program_idx: program.pc_to_program_idx.clone(),
             init_memory,
             #[cfg(feature = "tco")]
             pre_compute_max_size,
@@ -548,28 +569,133 @@ unsafe fn execute_trampoline<F: PrimeField32, Ctx: ExecutionCtxTrait>(
     arg: u64,
     exec_state: &mut VmExecState<F, GuestMemory, Ctx>,
     fn_ptrs: &[PreComputeInstruction<F, Ctx>],
+    pc_to_program_idx: &std::collections::HashMap<u32, usize>,
+    pc_base: u32,
 ) {
+    tracing::info!(
+        "execute_trampoline: STARTING at pc={:#x} instret={}",
+        pc,
+        instret
+    );
+
+    // When using PC mapping, we iterate through Program sequentially (program_idx),
+    // and only use PC for jumps/branches
+    let use_pc_mapping = !pc_to_program_idx.is_empty();
+    let mut program_idx = if use_pc_mapping {
+        let base_idx = get_pc_index(pc_base);
+        let prog_idx = pc_to_program_idx.get(&pc).copied().unwrap_or(0);
+        let final_idx = prog_idx + base_idx;
+        final_idx
+    } else {
+        get_pc_index(pc)
+    };
+
+    let mut loop_count = 0u64;
     while exec_state
         .exit_code
         .as_ref()
         .is_ok_and(|exit_code| exit_code.is_none())
     {
-        if Ctx::should_suspend(instret, pc, arg, exec_state) {
+        loop_count += 1;
+        if loop_count % 100 == 0 {
+            tracing::info!(
+                "execute_trampoline: loop_count={} pc={:#x} program_idx={} instret={}",
+                loop_count,
+                pc,
+                program_idx,
+                instret
+            );
+        }
+        if loop_count > 10000 {
+            tracing::error!(
+                "execute_trampoline: INFINITE LOOP DETECTED at pc={:#x} instret={}",
+                pc,
+                instret
+            );
+            exec_state.exit_code = Err(ExecutionError::PcOutOfBounds(pc));
             break;
         }
-        let pc_index = get_pc_index(pc);
-        if let Some(inst) = fn_ptrs.get(pc_index) {
+        if Ctx::should_suspend(instret, pc, arg, exec_state) {
+            tracing::info!(
+                "execute_trampoline: SUSPENDING at pc={:#x} instret={}",
+                pc,
+                instret
+            );
+            break;
+        }
+
+        if let Some(inst) = fn_ptrs.get(program_idx) {
+            // Log every executed instruction
+            eprintln!(
+                "EXEC: pc={:#x} instret={} program_idx={} handler_ptr={:p}",
+                pc, instret, program_idx, inst.handler as *const ()
+            );
+
+            let old_pc = pc;
             // SAFETY: pre_compute assumed to live long enough
             unsafe { (inst.handler)(inst.pre_compute, &mut instret, &mut pc, arg, exec_state) };
+
+            // Update program_idx based on whether PC changed
+            if use_pc_mapping {
+                // Check if the NEXT program_idx (sequential) is the start of a new RISC-V instruction
+                let next_prog_idx = program_idx + 1 - get_pc_index(pc_base);
+                let next_is_risc_v_start =
+                    pc_to_program_idx.values().any(|&idx| idx == next_prog_idx);
+
+                if pc != old_pc {
+                    // PC changed - determine if this is a real jump or just sequential increment
+                    let pc_diff = pc.wrapping_sub(old_pc);
+                    let is_sequential_increment = pc_diff == 4;
+
+                    if is_sequential_increment && next_is_risc_v_start {
+                        // Normal end of RISC-V instruction - move to next mapped instruction
+                        program_idx += 1;
+                    } else if !is_sequential_increment {
+                        // Non-sequential jump/branch - look up target PC
+                        if let Some(&prog_idx) = pc_to_program_idx.get(&pc) {
+                            program_idx = prog_idx + get_pc_index(pc_base);
+                        } else {
+                            tracing::error!("PC {:#x} not in mapping after jump", pc);
+                            program_idx = 0; // unreachable
+                        }
+                    } else {
+                        // Sequential increment but not at RISC-V boundary - within multi-insn sequence
+                        // Ignore the PC change and continue sequentially
+                        program_idx += 1;
+                    }
+                } else {
+                    // PC unchanged - continue sequentially
+                    program_idx += 1;
+                }
+            } else {
+                // Old behavior: use PC to index
+                program_idx = get_pc_index(pc);
+            }
+
+            // Leave this commented out unless it's truly necessary
+            // eprintln!("EXEC_AFTER: pc {:#x} -> {:#x}, instret changed={}", old_pc, pc, instret != loop_count);
         } else {
+            tracing::error!(
+                "execute_trampoline: PcOutOfBounds pc={:#x} program_idx={} fn_ptrs.len()={}",
+                pc,
+                program_idx,
+                fn_ptrs.len()
+            );
             exec_state.exit_code = Err(ExecutionError::PcOutOfBounds(pc));
         }
     }
+    tracing::info!(
+        "execute_trampoline: EXITING after {} iterations at pc={:#x} instret={}",
+        loop_count,
+        pc,
+        instret
+    );
     // Update the execution state with the final PC and instruction count
     exec_state.set_instret_and_pc(instret, pc);
 }
 
 #[inline(always)]
+/// division by 4 should be a shift by 2
 pub fn get_pc_index(pc: u32) -> usize {
     (pc / DEFAULT_PC_STEP) as usize
 }
@@ -636,6 +762,8 @@ unsafe fn terminate_execute_e12_tco_handler<F: PrimeField32, CTX: ExecutionCtxTr
     arg: u64,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
+    // Log every executed instruction
+    eprintln!("EXEC: pc={:#x} instret={} (TERMINATE)", pc, instret);
     let pre_compute = interpreter.get_pre_compute(pc);
     terminate_execute_e12_impl(pre_compute, &mut instret, &mut pc, arg, exec_state);
 }
@@ -726,6 +854,81 @@ where
         exec_state.exit_code = Err(ExecutionError::Unreachable(*pc));
     };
 
+    // When using PC mapping, fn_ptrs is built as a SEQUENTIAL array of Program instructions
+    // (not indexed by PC). The execution loop will iterate sequentially through this array.
+    if !program.pc_to_program_idx.is_empty() {
+        // Build fn_ptrs sequentially: fn_ptrs[i] = Program[i]
+        // We still need padding before pc_base
+        let padding_size = get_pc_index(program.pc_base);
+        let program_size = program.instructions_and_debug_infos.len();
+
+        let mut result: Vec<PreComputeInstruction<'a, F, Ctx>> =
+            Vec::with_capacity(padding_size + program_size);
+
+        // Add padding (unreachable handlers before pc_base)
+        for i in 0..padding_size {
+            let buf: &mut [u8] = unsafe { &mut *(pre_compute[i] as *mut [u8]) };
+            result.push(PreComputeInstruction {
+                handler: unreachable_handler,
+                pre_compute: buf,
+            });
+        }
+
+        // Add Program instructions sequentially
+        for (prog_idx, inst_opt) in program.instructions_and_debug_infos.iter().enumerate() {
+            let buf_idx = padding_size + prog_idx;
+            let buf: &mut [u8] = unsafe { &mut *(pre_compute[buf_idx] as *mut [u8]) };
+
+            if let Some((inst, _)) = inst_opt {
+                // Find which PC this Program instruction came from
+                // For multi-instruction sequences, find the RISC-V PC of the original instruction
+                // by looking backwards to find the nearest PC mapping
+                let pc = program
+                    .pc_to_program_idx
+                    .iter()
+                    .find(|(_, &idx)| idx == prog_idx)
+                    .map(|(pc, _)| *pc)
+                    .or_else(|| {
+                        // Not a direct mapping - this is within a multi-instruction sequence
+                        // Find the nearest RISC-V PC before this program_idx
+                        program
+                            .pc_to_program_idx
+                            .iter()
+                            .filter(|(_, &idx)| idx < prog_idx)
+                            .max_by_key(|(_, &idx)| idx)
+                            .map(|(pc, _)| *pc)
+                    })
+                    .unwrap_or(program.pc_base + (prog_idx as u32 * DEFAULT_PC_STEP));
+
+                let pre_inst = if let Some(handler) = get_system_opcode_handler(inst, buf) {
+                    PreComputeInstruction {
+                        handler,
+                        pre_compute: buf,
+                    }
+                } else if let Some(executor) = inventory.get_executor(inst.opcode) {
+                    PreComputeInstruction {
+                        handler: executor.pre_compute(pc, inst, buf)?,
+                        pre_compute: buf,
+                    }
+                } else {
+                    return Err(StaticProgramError::DisabledOperation {
+                        pc,
+                        opcode: inst.opcode,
+                    });
+                };
+                result.push(pre_inst);
+            } else {
+                result.push(PreComputeInstruction {
+                    handler: unreachable_handler,
+                    pre_compute: buf,
+                });
+            }
+        }
+
+        return Ok(result);
+    }
+
+    // Fallback to old sequential method when pc_to_program_idx is empty
     repeat_n(&None, get_pc_index(program.pc_base))
         .chain(program.instructions_and_debug_infos.iter())
         .zip_eq(pre_compute.iter_mut())
@@ -737,8 +940,31 @@ where
             // `PreComputeInstruction`s.
             let buf: &mut [u8] = unsafe { &mut *(*buf as *mut [u8]) };
             let pre_inst = if let Some((inst, _)) = inst_opt {
-                tracing::trace!("get_pre_compute_instruction {inst:?}");
                 let pc = program.pc_base + i as u32 * DEFAULT_PC_STEP;
+                let a_val = inst.a.as_canonical_u32();
+                let b_val = inst.b.as_canonical_u32();
+                // For STOREW operations, 'a' contains the raw RISC-V instruction
+                if pc == 0x10038 {
+                    eprintln!(
+                        "[PRE_COMPUTE] PC 0x10038: opcode={} (SystemOpcode::TERMINATE={}), c={}",
+                        inst.opcode,
+                        SystemOpcode::TERMINATE.global_opcode(),
+                        inst.c.as_canonical_u32()
+                    );
+                }
+                tracing::trace!(
+                    "pc: {:#x} | vm_opcode: {} | a: {:#x}, b: {:#x}, c: {:#x}, d: {:#x}, e: {:#x}, f: {:#x}, g: {:#x}",
+                    pc,
+                    inst.opcode,
+                    a_val,
+                    b_val,
+                    inst.c.as_canonical_u32(),
+                    inst.d.as_canonical_u32(),
+                    inst.e.as_canonical_u32(),
+                    inst.f.as_canonical_u32(),
+                    inst.g.as_canonical_u32(),
+                );
+
                 if let Some(handler) = get_system_opcode_handler(inst, buf) {
                     PreComputeInstruction {
                         handler,
@@ -782,6 +1008,71 @@ where
     let unreachable_handler: ExecuteFunc<F, Ctx> = |_, _, pc, _, exec_state| {
         exec_state.exit_code = Err(ExecutionError::Unreachable(*pc));
     };
+
+    // Build a vec where fn_ptrs[pc/4] points to the correct Program instruction
+    if !program.pc_to_program_idx.is_empty() {
+        // Build mapping from pc_idx to (pc, prog_idx)
+        let mut pc_idx_to_info: std::collections::HashMap<usize, (u32, usize)> =
+            std::collections::HashMap::new();
+        for (pc, prog_idx) in &program.pc_to_program_idx {
+            let pc_idx = get_pc_index(*pc);
+            pc_idx_to_info.insert(pc_idx, (*pc, *prog_idx));
+        }
+
+        // Build result vector using the mapping
+        let result: Vec<PreComputeInstruction<'a, F, Ctx>> = pre_compute
+            .iter_mut()
+            .enumerate()
+            .map(|(pc_idx, buf)| {
+                let buf: &mut [u8] = unsafe { &mut *(*buf as *mut [u8]) };
+
+                if let Some(&(pc, prog_idx)) = pc_idx_to_info.get(&pc_idx) {
+                    let inst_opt = &program.instructions_and_debug_infos[prog_idx];
+                    if let Some((inst, _)) = inst_opt {
+                        if let Some(handler) = get_system_opcode_handler(inst, buf) {
+                            Ok(PreComputeInstruction {
+                                handler,
+                                pre_compute: buf,
+                            })
+                        } else if let Some(&executor_idx) =
+                            inventory.instruction_lookup.get(&inst.opcode)
+                        {
+                            let executor_idx = executor_idx as usize;
+                            let executor = inventory
+                                .executors
+                                .get(executor_idx)
+                                .expect("ExecutorInventory ensures executor_idx is in bounds");
+                            let air_idx = executor_idx_to_air_idx[executor_idx];
+                            Ok(PreComputeInstruction {
+                                handler: executor.metered_pre_compute(air_idx, pc, inst, buf)?,
+                                pre_compute: buf,
+                            })
+                        } else {
+                            Err(StaticProgramError::DisabledOperation {
+                                pc,
+                                opcode: inst.opcode,
+                            })
+                        }
+                    } else {
+                        Ok(PreComputeInstruction {
+                            handler: unreachable_handler,
+                            pre_compute: buf,
+                        })
+                    }
+                } else {
+                    // PC not in mapping - use unreachable handler
+                    Ok(PreComputeInstruction {
+                        handler: unreachable_handler,
+                        pre_compute: buf,
+                    })
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        return Ok(result);
+    }
+
+    // Fallback to old sequential method
     repeat_n(&None, get_pc_index(program.pc_base))
         .chain(program.instructions_and_debug_infos.iter())
         .zip_eq(pre_compute.iter_mut())
@@ -832,7 +1123,14 @@ fn get_system_opcode_handler<F: PrimeField32, Ctx: ExecutionCtxTrait>(
     inst: &Instruction<F>,
     buf: &mut [u8],
 ) -> Option<ExecuteFunc<F, Ctx>> {
+    // eprintln!(
+    //     "[GET_SYSTEM_OPCODE_HANDLER] inst.opcode={}, SystemOpcode::TERMINATE={}, match={}",
+    //     inst.opcode,
+    //     SystemOpcode::TERMINATE.global_opcode(),
+    //     inst.opcode == SystemOpcode::TERMINATE.global_opcode()
+    // );
     if inst.opcode == SystemOpcode::TERMINATE.global_opcode() {
+        eprintln!("[GET_SYSTEM_OPCODE_HANDLER] MATCHED! Returning terminate handler");
         let pre_compute: &mut TerminatePreCompute = buf.borrow_mut();
         pre_compute.exit_code = inst.c.as_canonical_u32();
         return Some(terminate_execute_e12_impl);

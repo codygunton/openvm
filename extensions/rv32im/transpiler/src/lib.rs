@@ -55,14 +55,19 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
                         return Some(TranspilerOutput::one_to_one(nop()));
                     }
                 }
-                eprintln!(
+                tracing::trace!(
                     "Transpiling system / CSR instruction: {:b} (opcode = {:07b}, funct3 = {:03b}) to unimp",
                     instruction_u32, opcode, funct3
                 );
                 return Some(TranspilerOutput::one_to_one(unimp()));
             }
             (SYSTEM_OPCODE, TERMINATE_FUNCT3) => {
+                eprintln!(
+                    "[RV32I_TRANSPILER] MATCHED TERMINATE! instruction=0x{:08x}",
+                    instruction_u32
+                );
                 let dec_insn = IType::new(instruction_u32);
+                eprintln!("[RV32I_TRANSPILER] TERMINATE exit_code={}", dec_insn.imm);
                 Some(Instruction {
                     opcode: SystemOpcode::TERMINATE.global_opcode(),
                     c: F::from_canonical_u8(
@@ -112,7 +117,18 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
             _ => process_instruction(&mut transpiler, instruction_u32),
         };
 
-        instruction.map(TranspilerOutput::one_to_one)
+        let result = instruction.map(TranspilerOutput::one_to_one);
+        if let Some(ref output) = result {
+            if instruction_u32 == 0x0000000b {
+                if let Some(Some(ref inst)) = output.instructions.first() {
+                    eprintln!(
+                        "[RV32I_TRANSPILER] TERMINATE instruction opcode={}",
+                        inst.opcode
+                    );
+                }
+            }
+        }
+        result
     }
 }
 

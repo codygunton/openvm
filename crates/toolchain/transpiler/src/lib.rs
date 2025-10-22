@@ -25,8 +25,14 @@ pub trait FromElf {
 impl<F: PrimeField32> FromElf for VmExe<F> {
     type ElfContext = Transpiler<F>;
     fn from_elf(elf: Elf, transpiler: Self::ElfContext) -> Result<Self, TranspilerError> {
-        let instructions = transpiler.transpile(&elf.instructions)?;
-        let program = Program::new_without_debug_infos_with_option(&instructions, elf.pc_base);
+        let (instructions, pc_to_program_idx) =
+            transpiler.transpile_with_pc_base(&elf.instructions, elf.pc_base)?;
+        let program = Program::new_without_debug_infos_with_option_and_pc_map(
+            &instructions,
+            elf.pc_base,
+            pc_to_program_idx,
+        );
+
         let init_memory = elf_memory_image_to_openvm_memory_image(elf.memory_image);
 
         Ok(VmExe {

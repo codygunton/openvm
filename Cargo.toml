@@ -61,6 +61,9 @@ members = [
     "extensions/ecc/tests",
     "extensions/pairing/circuit",
     "extensions/pairing/guest",
+    "extensions/floats/circuit",
+    "extensions/floats/transpiler",
+    "extensions/floats/guest",
     "guest-libs/ff_derive/",
     "guest-libs/k256/",
     "guest-libs/p256/",
@@ -71,7 +74,7 @@ members = [
     "guest-libs/verify_stark/",
     "scripts"
 ]
-exclude = ["crates/sdk/example", "benchmarks/guest/**"]
+exclude = ["crates/sdk/example", "benchmarks/guest/**", "examples/floats"]
 resolver = "2"
 
 # Fastest runtime configuration
@@ -79,7 +82,7 @@ resolver = "2"
 opt-level = 3
 lto = "thin"
 debug = "line-tables-only"
-strip = true
+strip = "debuginfo"
 panic = "unwind"
 codegen-units = 16
 
@@ -171,6 +174,9 @@ openvm-ecc-sw-macros = { path = "extensions/ecc/sw-macros", default-features = f
 openvm-pairing-circuit = { path = "extensions/pairing/circuit", default-features = false }
 openvm-pairing-transpiler = { path = "extensions/pairing/transpiler", default-features = false }
 openvm-pairing-guest = { path = "extensions/pairing/guest", default-features = false }
+openvm-floats-circuit = { path = "extensions/floats/circuit", default-features = false }
+openvm-floats-transpiler = { path = "extensions/floats/transpiler", default-features = false }
+openvm-floats-guest = { path = "extensions/floats/guest", default-features = false }
 openvm-verify-stark = { path = "guest-libs/verify_stark", default-features = false }
 
 # Benchmarking

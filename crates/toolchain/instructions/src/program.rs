@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::{self, Display},
     ops::Deref,
     sync::Arc,
@@ -29,6 +30,11 @@ pub struct Program<F> {
     )]
     pub instructions_and_debug_infos: Vec<Option<(Instruction<F>, Option<DebugInfo>)>>,
     pub pc_base: u32,
+    /// Maps PC values to their corresponding Program instruction indices.
+    /// This is needed when RISC-V instructions expand to multiple OpenVM instructions,
+    /// breaking the simple PC/4 -> Program[i] mapping.
+    #[serde(default)]
+    pub pc_to_program_idx: HashMap<u32, usize>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -42,6 +48,7 @@ impl<F: Field> Program<F> {
         Self {
             instructions_and_debug_infos: vec![],
             pc_base,
+            pc_to_program_idx: HashMap::new(),
         }
     }
 
@@ -52,6 +59,7 @@ impl<F: Field> Program<F> {
                 .map(|instruction| Some((instruction.clone(), None)))
                 .collect(),
             pc_base,
+            pc_to_program_idx: HashMap::new(),
         }
     }
 
@@ -59,12 +67,25 @@ impl<F: Field> Program<F> {
         instructions: &[Option<Instruction<F>>],
         pc_base: u32,
     ) -> Self {
+        Self::new_without_debug_infos_with_option_and_pc_map(
+            instructions,
+            pc_base,
+            HashMap::new(),
+        )
+    }
+
+    pub fn new_without_debug_infos_with_option_and_pc_map(
+        instructions: &[Option<Instruction<F>>],
+        pc_base: u32,
+        pc_to_program_idx: HashMap<u32, usize>,
+    ) -> Self {
         Self {
             instructions_and_debug_infos: instructions
                 .iter()
                 .map(|instruction| instruction.clone().map(|instruction| (instruction, None)))
                 .collect(),
             pc_base,
+            pc_to_program_idx,
         }
     }
 
@@ -81,6 +102,7 @@ impl<F: Field> Program<F> {
                 .map(|(instruction, debug_info)| Some((instruction.clone(), debug_info.clone())))
                 .collect(),
             pc_base: 0,
+            pc_to_program_idx: HashMap::new(),
         }
     }
 
