@@ -900,14 +900,58 @@ where
                     })
                     .unwrap_or(program.pc_base + (prog_idx as u32 * DEFAULT_PC_STEP));
 
+                // Save opcode for JALR detection
+                const JALR_OPCODE: usize = 0x235; // Rv32JalrOpcode::JALR
+                let is_jalr = inst.opcode.as_usize() == JALR_OPCODE;
+
                 let pre_inst = if let Some(handler) = get_system_opcode_handler(inst, buf) {
                     PreComputeInstruction {
                         handler,
                         pre_compute: buf,
                     }
                 } else if let Some(executor) = inventory.get_executor(inst.opcode) {
+                    // Call pre_compute to initialize the buffer
+                    let handler = executor.pre_compute(pc, inst, buf)?;
+
+                    // Fix JALR return address for multi-instruction sequences
+                    // This must happen AFTER pre_compute initializes the buffer
+                    if is_jalr {
+                        let next_prog_idx = prog_idx + 1;
+                        if let Some((&next_pc, _)) = program
+                            .pc_to_program_idx
+                            .iter()
+                            .find(|(_, &idx)| idx == next_prog_idx)
+                        {
+                            // Next instruction is a RISC-V start - use its PC
+                            unsafe {
+                                let jalr_precompute = &mut *(buf.as_mut_ptr() as *mut [u8; 12]);
+                                let return_pc_offset = 8; // offset of return_pc in JalrPreCompute
+                                let return_pc_bytes = next_pc.to_le_bytes();
+                                jalr_precompute[return_pc_offset..return_pc_offset + 4]
+                                    .copy_from_slice(&return_pc_bytes);
+                            }
+                        } else {
+                            // Next instruction is within a sequence - find its PC
+                            if let Some((&seq_pc, _)) = program
+                                .pc_to_program_idx
+                                .iter()
+                                .filter(|(_, &idx)| idx < next_prog_idx)
+                                .max_by_key(|(_, &idx)| idx)
+                            {
+                                let return_pc = seq_pc + DEFAULT_PC_STEP;
+                                unsafe {
+                                    let jalr_precompute = &mut *(buf.as_mut_ptr() as *mut [u8; 12]);
+                                    let return_pc_offset = 8;
+                                    let return_pc_bytes = return_pc.to_le_bytes();
+                                    jalr_precompute[return_pc_offset..return_pc_offset + 4]
+                                        .copy_from_slice(&return_pc_bytes);
+                                }
+                            }
+                        }
+                    }
+
                     PreComputeInstruction {
-                        handler: executor.pre_compute(pc, inst, buf)?,
+                        handler,
                         pre_compute: buf,
                     }
                 } else {
@@ -916,6 +960,7 @@ where
                         opcode: inst.opcode,
                     });
                 };
+
                 result.push(pre_inst);
             } else {
                 result.push(PreComputeInstruction {

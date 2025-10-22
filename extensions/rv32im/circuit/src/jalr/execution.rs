@@ -20,6 +20,8 @@ struct JalrPreCompute {
     imm_extended: u32,
     a: u8,
     b: u8,
+    _padding: [u8; 2],
+    return_pc: u32,  // Pre-computed return PC (next instruction's PC)
 }
 
 impl<A> Rv32JalrExecutor<A> {
@@ -38,6 +40,8 @@ impl<A> Rv32JalrExecutor<A> {
             imm_extended,
             a: inst.a.as_canonical_u32() as u8,
             b: inst.b.as_canonical_u32() as u8,
+            _padding: [0, 0],
+            return_pc: pc + DEFAULT_PC_STEP,  // Default: next RISC-V instruction
         };
         let enabled = !inst.f.is_zero();
         Ok(enabled)
@@ -146,7 +150,7 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let to_pc = rs1.wrapping_add(pre_compute.imm_extended);
     let to_pc = to_pc - (to_pc & 1);
     debug_assert!(to_pc < (1 << PC_BITS));
-    let rd = (*pc + DEFAULT_PC_STEP).to_le_bytes();
+    let rd = pre_compute.return_pc.to_le_bytes();  // Use pre-computed return PC
 
     if ENABLED {
         exec_state.vm_write(RV32_REGISTER_AS, pre_compute.a as u32, &rd);
