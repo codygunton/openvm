@@ -48,4 +48,4 @@ profile.json.gz
 # test fixtures
 benchmarks/fixtures
 
-examples/float-minimal-test/build/
+examples/floats/build/
