@@ -558,7 +558,6 @@ unsafe fn execute_trampoline<F: PrimeField32, Ctx: ExecutionCtxTrait>(
             break;
         }
         let pc_index = get_pc_index(pc);
-        let pc_before = pc;
         eprintln!(
             "[EXEC] instret={}, PC=0x{:08x}, pc_index={}",
             instret, pc, pc_index

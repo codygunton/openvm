@@ -58,7 +58,6 @@ where
         size_of::<FloatLoadPreCompute>()
     }
 
-    #[cfg(not(feature = "tco"))]
     #[inline(always)]
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
@@ -66,21 +65,6 @@ where
         inst: &Instruction<F>,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<F, Ctx>, StaticProgramError> {
-        let data: &mut FloatLoadPreCompute = data.borrow_mut();
-        let enabled = self.pre_compute_impl(pc, inst, data)?;
-        dispatch!(execute_e1_handler, enabled)
-    }
-
-    #[cfg(feature = "tco")]
-    fn handler<Ctx>(
-        &self,
-        pc: u32,
-        inst: &Instruction<F>,
-        data: &mut [u8],
-    ) -> Result<Handler<F, Ctx>, StaticProgramError>
-    where
-        Ctx: ExecutionCtxTrait,
-    {
         let data: &mut FloatLoadPreCompute = data.borrow_mut();
         let enabled = self.pre_compute_impl(pc, inst, data)?;
         dispatch!(execute_e1_handler, enabled)
@@ -95,7 +79,6 @@ where
         size_of::<E2PreCompute<FloatLoadPreCompute>>()
     }
 
-    #[cfg(not(feature = "tco"))]
     fn metered_pre_compute<Ctx>(
         &self,
         chip_idx: usize,
@@ -103,23 +86,6 @@ where
         inst: &Instruction<F>,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<F, Ctx>, StaticProgramError>
-    where
-        Ctx: MeteredExecutionCtxTrait,
-    {
-        let data: &mut E2PreCompute<FloatLoadPreCompute> = data.borrow_mut();
-        data.chip_idx = chip_idx as u32;
-        let enabled = self.pre_compute_impl(pc, inst, &mut data.data)?;
-        dispatch!(execute_e2_handler, enabled)
-    }
-
-    #[cfg(feature = "tco")]
-    fn metered_handler<Ctx>(
-        &self,
-        chip_idx: usize,
-        pc: u32,
-        inst: &Instruction<F>,
-        data: &mut [u8],
-    ) -> Result<Handler<F, Ctx>, StaticProgramError>
     where
         Ctx: MeteredExecutionCtxTrait,
     {

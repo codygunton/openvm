@@ -32,3 +32,4 @@ openvm-circuit = { workspace = true, features = ["test-utils"] }
 default = ["parallel"]
 parallel = ["openvm-circuit/parallel"]
 test-utils = ["openvm-circuit/test-utils"]
+tco = []  # Tail-call optimization feature (currently unused but defined to silence warnings from derive macros)

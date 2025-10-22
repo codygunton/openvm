@@ -57,7 +57,6 @@ where
         size_of::<FloatAluPreCompute>()
     }
 
-    #[cfg(not(feature = "tco"))]
     #[inline(always)]
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
@@ -65,21 +64,6 @@ where
         inst: &Instruction<F>,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<F, Ctx>, StaticProgramError> {
-        let data: &mut FloatAluPreCompute = data.borrow_mut();
-        let enabled = self.pre_compute_impl(pc, inst, data)?;
-        dispatch!(execute_e1_handler, enabled)
-    }
-
-    #[cfg(feature = "tco")]
-    fn handler<Ctx>(
-        &self,
-        pc: u32,
-        inst: &Instruction<F>,
-        data: &mut [u8],
-    ) -> Result<Handler<F, Ctx>, StaticProgramError>
-    where
-        Ctx: ExecutionCtxTrait,
-    {
         let data: &mut FloatAluPreCompute = data.borrow_mut();
         let enabled = self.pre_compute_impl(pc, inst, data)?;
         dispatch!(execute_e1_handler, enabled)
@@ -94,7 +78,6 @@ where
         size_of::<E2PreCompute<FloatAluPreCompute>>()
     }
 
-    #[cfg(not(feature = "tco"))]
     fn metered_pre_compute<Ctx>(
         &self,
         chip_idx: usize,
@@ -102,23 +85,6 @@ where
         inst: &Instruction<F>,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<F, Ctx>, StaticProgramError>
-    where
-        Ctx: MeteredExecutionCtxTrait,
-    {
-        let data: &mut E2PreCompute<FloatAluPreCompute> = data.borrow_mut();
-        data.chip_idx = chip_idx as u32;
-        let enabled = self.pre_compute_impl(pc, inst, &mut data.data)?;
-        dispatch!(execute_e2_handler, enabled)
-    }
-
-    #[cfg(feature = "tco")]
-    fn metered_handler<Ctx>(
-        &self,
-        chip_idx: usize,
-        pc: u32,
-        inst: &Instruction<F>,
-        data: &mut [u8],
-    ) -> Result<Handler<F, Ctx>, StaticProgramError>
     where
         Ctx: MeteredExecutionCtxTrait,
     {
@@ -136,7 +102,10 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!("[FADD-ENTRY] PC=0x{:08x}, instret={}, ENABLED={}", *pc, *instret, ENABLED);
+    eprintln!(
+        "[FADD-ENTRY] PC=0x{:08x}, instret={}, ENABLED={}",
+        *pc, *instret, ENABLED
+    );
 
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
@@ -168,7 +137,10 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
     let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
 
-    eprintln!("[FADD] Calling handler at 0x{:08x}, instruction=0x{:08x}", handler_addr, riscv_inst);
+    eprintln!(
+        "[FADD] Calling handler at 0x{:08x}, instruction=0x{:08x}",
+        handler_addr, riscv_inst
+    );
 
     // Store return address in x1 (ra)
     let return_addr = *pc + DEFAULT_PC_STEP;
@@ -178,7 +150,10 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     *pc = handler_addr;
     *instret += 1;
 
-    eprintln!("[FADD-EXIT] Jumped to handler: 0x{:08x}, return_addr=0x{:08x}", handler_addr, return_addr);
+    eprintln!(
+        "[FADD-EXIT] Jumped to handler: 0x{:08x}, return_addr=0x{:08x}",
+        handler_addr, return_addr
+    );
 }
 
 #[create_handler]
