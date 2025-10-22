@@ -33,9 +33,9 @@ _start:
     # Add them: f2 = f0 + f1
     fadd.s f2, f0, f1          # f2 = 1.0 + 2.0 = 3.0
 
-    # Store result back to memory
-    la   a2, result
-    fsw  f2, 0(a2)             # Store f2 to result
+    # another addition
+    fadd.s f0, f1, f2 
+    
 
     # Terminate with exit code 0
     # OpenVM TERMINATE instruction: opcode=0x0b, funct3=0, imm=exit_code
