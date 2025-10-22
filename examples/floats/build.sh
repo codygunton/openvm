@@ -25,9 +25,11 @@ riscv64-elf-gcc $CFLAGS -c "$SCRIPT_DIR/test.S" -o "$OUT_DIR/test.o"
 echo "Compiling float.c..."
 riscv64-elf-gcc $CFLAGS -c "$FLOAT_LIB_DIR/src/float/float.c" -o "$OUT_DIR/float.o"
 
-# Compile __ucmpdi2 implementation for rv32
-echo "Compiling ucmpdi2.c..."
-riscv64-elf-gcc $CFLAGS -c "$SCRIPT_DIR/ucmpdi2.c" -o "$OUT_DIR/ucmpdi2.o"
+# Compile __ucmpdi2 implementation for rv32 (needed - libgcc doesn't provide it)
+# Use the shared implementation from the guest vendor directory
+echo "Compiling compiler_builtins.c (provides __ucmpdi2)..."
+COMPILER_BUILTINS="$SCRIPT_DIR/../../extensions/floats/guest/vendor/compiler_builtins.c"
+riscv64-elf-gcc $CFLAGS -c "$COMPILER_BUILTINS" -o "$OUT_DIR/compiler_builtins.o"
 
 # Compile essential SoftFloat files
 echo "Compiling SoftFloat files..."
@@ -147,11 +149,11 @@ riscv64-elf-ar rcs "$OUT_DIR/libsoftfloat.a" \
     "$OUT_DIR"/softfloat_*.o
 
 echo "Linking..."
-# Link with ucmpdi2.o and -lgcc
+# Link with compiler_builtins.o and -lgcc
 riscv64-elf-gcc $CFLAGS -T "$SCRIPT_DIR/link.ld" \
     "$OUT_DIR/test.o" \
     "$OUT_DIR/float.o" \
-    "$OUT_DIR/ucmpdi2.o" \
+    "$OUT_DIR/compiler_builtins.o" \
     "$OUT_DIR/libsoftfloat.a" \
     -lgcc \
     -o "$OUT_DIR/test.elf"

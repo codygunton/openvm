@@ -8,7 +8,6 @@ Minimal test for OpenVM RV32F (floating-point) extension with SoftFloat library.
 - **build.sh** - Build script that compiles test + float library + SoftFloat
 - **link.ld** - Linker script for RV32IMF
 - **openvm.toml** - OpenVM configuration enabling rv32f extension
-- **ucmpdi2.c** - RV32 implementation of `__ucmpdi2` (missing from libgcc)
 
 ## Build
 
@@ -20,7 +19,7 @@ This compiles:
 1. test.S (the minimal float test)
 2. float.c (zisk float handler library)
 3. 70+ SoftFloat source files
-4. ucmpdi2.c (compiler builtin for RV32)
+4. compiler_builtins.c (provides `__ucmpdi2` for RV32, shared from `extensions/floats/guest/vendor/`)
 
 Output: `build/test.elf`
 
