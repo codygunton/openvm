@@ -16,7 +16,6 @@ use openvm_ecc_circuit::{
     SECP256K1_CONFIG,
 };
 use openvm_ecc_transpiler::EccTranspilerExtension;
-use openvm_floats_transpiler::FloatsTranspilerExtension;
 use openvm_keccak256_circuit::{Keccak256, Keccak256CpuProverExt, Keccak256Executor};
 use openvm_keccak256_transpiler::Keccak256TranspilerExtension;
 use openvm_native_circuit::{
@@ -81,7 +80,6 @@ pub struct SdkVmConfig {
     pub system: SdkSystemConfig,
     pub rv32i: Option<UnitStruct>,
     pub io: Option<UnitStruct>,
-    pub rv32f: Option<UnitStruct>,
     pub keccak: Option<UnitStruct>,
     pub sha256: Option<UnitStruct>,
     pub native: Option<UnitStruct>,
@@ -192,11 +190,6 @@ impl AppConfig<SdkVmConfig> {
 impl TranspilerConfig<F> for SdkVmConfig {
     fn transpiler(&self) -> Transpiler<F> {
         let mut transpiler = Transpiler::default();
-        // IMPORTANT: Register FloatsTranspilerExtension BEFORE Rv32ITranspilerExtension
-        // because Rv32I has a catch-all that would claim float instructions first
-        if self.rv32f.is_some() {
-            transpiler = transpiler.with_extension(FloatsTranspilerExtension::new());
-        }
         if self.rv32i.is_some() {
             transpiler = transpiler.with_extension(Rv32ITranspilerExtension);
         }
@@ -275,7 +268,6 @@ impl SdkVmConfig {
         let system = config.system.config.clone();
         let rv32i = config.rv32i.map(|_| Rv32I);
         let io = config.io.map(|_| Rv32Io);
-        let rv32f = config.rv32f;
         let keccak = config.keccak.map(|_| Keccak256);
         let sha256 = config.sha256.map(|_| Sha256);
         let native = config.native.map(|_| Native);
@@ -291,7 +283,6 @@ impl SdkVmConfig {
             system,
             rv32i,
             io,
-            rv32f,
             keccak,
             sha256,
             native,
@@ -322,8 +313,6 @@ pub struct SdkVmConfigInner {
     pub rv32i: Option<Rv32I>,
     #[extension(executor = "Rv32IoExecutor")]
     pub io: Option<Rv32Io>,
-    // rv32f doesn't have an executor - it's handled by transpiler only
-    pub rv32f: Option<UnitStruct>,
     #[extension(executor = "Keccak256Executor")]
     pub keccak: Option<Keccak256>,
     #[extension(executor = "Sha256Executor")]
@@ -602,7 +591,6 @@ struct SdkVmConfigWithDefaultDeser {
 
     pub rv32i: Option<UnitStruct>,
     pub io: Option<UnitStruct>,
-    pub rv32f: Option<UnitStruct>,
     pub keccak: Option<UnitStruct>,
     pub sha256: Option<UnitStruct>,
     pub native: Option<UnitStruct>,
@@ -622,7 +610,6 @@ impl From<SdkVmConfigWithDefaultDeser> for SdkVmConfig {
             system: config.system,
             rv32i: config.rv32i,
             io: config.io,
-            rv32f: config.rv32f,
             keccak: config.keccak,
             sha256: config.sha256,
             native: config.native,

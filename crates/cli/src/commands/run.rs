@@ -11,7 +11,7 @@ use crate::{
     input::{read_to_stdin, Input},
     util::{
         get_app_pk_path, get_app_vk_path, get_manifest_path_and_dir, get_single_target_name,
-        get_target_dir, read_config_toml_or_default,
+        get_target_dir,
     },
 };
 
@@ -299,13 +299,11 @@ impl RunCmd {
         let (manifest_path, manifest_dir) =
             get_manifest_path_and_dir(&self.cargo_args.manifest_path)?;
 
-        // Load config from openvm.toml if provided, otherwise use default from manifest_dir
-        let config_path = self
-            .run_args
-            .config
-            .clone()
-            .unwrap_or_else(|| manifest_dir.join("openvm.toml"));
-        let app_config = read_config_toml_or_default(&config_path)?;
+        // Use riscv32 config for ELF files (RISCOF compliance testing)
+        let app_config = {
+            use openvm_sdk::config::AppConfig;
+            AppConfig::riscv32()
+        };
 
         // Read ELF file
         let exe_bytes = read(exe_path)?;

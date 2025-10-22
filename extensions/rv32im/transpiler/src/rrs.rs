@@ -272,13 +272,11 @@ impl<F: PrimeField32> InstructionProcessor for InstructionTranspiler<F> {
         if dec_insn.rd == 0 {
             return nop();
         }
-        let a_val = RV32_REGISTER_NUM_LIMBS * dec_insn.rd;
-        let c_val = ((dec_insn.imm as u32) & 0xfffff000) >> 8;
         Instruction::new(
             Rv32AuipcOpcode::AUIPC.global_opcode(),
-            F::from_canonical_usize(a_val),
+            F::from_canonical_usize(RV32_REGISTER_NUM_LIMBS * dec_insn.rd),
             F::ZERO,
-            F::from_canonical_u32(c_val),
+            F::from_canonical_u32(((dec_insn.imm as u32) & 0xfffff000) >> 8),
             F::ONE, // rd is a register
             F::ZERO,
             F::ZERO,

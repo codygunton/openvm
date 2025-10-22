@@ -6183,7 +6183,6 @@ dependencies = [
  "openvm-cuda-backend",
  "openvm-ecc-circuit",
  "openvm-ecc-transpiler",
- "openvm-floats-transpiler",
  "openvm-keccak256-circuit",
  "openvm-keccak256-transpiler",
  "openvm-native-circuit",

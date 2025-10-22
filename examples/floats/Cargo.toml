@@ -1,8 +1,0 @@
-[package]
-name = "floats-example"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-openvm = { path = "../../crates/toolchain/openvm" }
-openvm-floats-guest = { path = "../../extensions/floats/guest" }
