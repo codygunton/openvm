@@ -1,10 +1,10 @@
 #!/bin/bash
-set -e
+set -eu
 
 # Rebuild flags
 BTESTS=${BTESTS:-0}
 BBIN=${BBIN:-0}
-RUN=${RUN-1}
+RUN=${RUN:-1}
 
 PATTERN=${1:-fadd_b1}
 
@@ -23,24 +23,90 @@ cp target/debug/cargo-openvm $BINARY_TO_RUN
 # Run the test
 cd zkevm-test-monitor
 
-# Optionally rebuild tests (set REBUILD_TESTS=1 to enable)
+# Optionally rebuild tests (set BTESTS=1 to enable)
 if [ $BTESTS = "1" ]; then
     echo "📦 Rebuilding tests..."
     ./run test --arch openvm --build-only
 else
-    echo "⏭️  Skipping test rebuild (set REBUILD_TESTS=1 to rebuild)"
+    echo "⏭️  Skipping test rebuild (set BTESTS=1 to rebuild)"
 fi
 
 # Run the specific test in debug mode
 if [ $RUN = "1" ]; then
     echo "🐛 Running debug test: $PATTERN"
-    ./run debug --arch openvm "$PATTERN"
-fi
 
-EXIT_CODE=$?
-echo ""
-if [ $EXIT_CODE -ne 0 ]; then
-    echo "⚠️  Test exited with code: $EXIT_CODE"
-fi
+    # Create a temporary file to capture the debug script's output
+    TEMP_OUTPUT=$(mktemp)
 
-exit $EXIT_CODE
+    # Run test and capture exit code, redirect output to temp file
+    set +e # Temporarily disable exit on error
+    ./run debug --arch openvm "$PATTERN" &> "$TEMP_OUTPUT"
+    EXIT_CODE=$?
+    set -e # Re-enable exit on error
+
+    # Extract log file path from debug output
+    DEBUG_LOG=$(grep "Full log saved to:" "$TEMP_OUTPUT" | sed 's/.*: //')
+
+    # Show only essential info from the debug run
+    if grep -q "✓ Found test:" "$TEMP_OUTPUT"; then
+        grep "✓ Found test:" "$TEMP_OUTPUT"
+    fi
+    if grep -q "Test failed\|Test passed" "$TEMP_OUTPUT"; then
+        grep "Test failed\|Test passed" "$TEMP_OUTPUT" | tail -1
+    fi
+    if [ -n "$DEBUG_LOG" ]; then
+        echo "📝 Full log saved to: $DEBUG_LOG"
+    fi
+
+    # Clean up temp file
+    rm -f "$TEMP_OUTPUT"
+
+    # Find the test directory and files
+    # First try exact match (e.g., fadd_b1 matches fadd_b1-01.S but not fadd_b10-01.S)
+    TEST_DIR=$(find test-results/openvm -type d -path "*/${PATTERN}-*" -path "*/dut" | head -1)
+    # Fall back to substring match if exact fails
+    if [ -z "$TEST_DIR" ]; then
+        TEST_DIR=$(find test-results/openvm -type d -path "*${PATTERN}*" -path "*/dut" | head -1)
+    fi
+
+    if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
+        ELF_FILE="$TEST_DIR/my.elf"
+
+        # Generate objdump if ELF exists
+        if [ -f "$ELF_FILE" ]; then
+            echo ""
+            echo "📝 Generating objdump..."
+
+            # Create dump in a temp location first (in case test dir is read-only)
+            TEMP_DUMP="/tmp/riscof-test.dump"
+            riscv64-elf-objdump -S "$ELF_FILE" > "$TEMP_DUMP"
+
+            # Create symlinks in repo base directory
+            cd ..
+            rm -f riscof-test.elf riscof-test.dump riscof-test.log
+
+            ln -s "zkevm-test-monitor/$ELF_FILE" riscof-test.elf
+            ln -s "$TEMP_DUMP" riscof-test.dump
+
+            # Link to debug log if available
+            if [ -n "$DEBUG_LOG" ] && [ -f "zkevm-test-monitor/$DEBUG_LOG" ]; then
+                ln -s "zkevm-test-monitor/$DEBUG_LOG" riscof-test.log
+            fi
+
+            echo "✅ Created symlinks:"
+            ls -lh riscof-test.* 2>/dev/null | awk '{print "   " $9 " -> " $11}'
+            cd zkevm-test-monitor
+        fi
+    else
+        echo "⚠️  Could not find test directory for pattern: $PATTERN"
+    fi
+
+    echo ""
+    if [ $EXIT_CODE -ne 0 ]; then
+        echo "⚠️  Test exited with code: $EXIT_CODE"
+    else
+        echo "✅ Test passed"
+    fi
+
+    exit $EXIT_CODE
+fi
