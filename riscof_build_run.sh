@@ -7,7 +7,7 @@ BBIN=${BBIN:-0}
 RUN=${RUN:-1}
 SIGS=${SIGS:-0}
 
-PATTERN=${1:-add}
+PATTERN=${1:-fadd_b1}
 
 BINARY_TO_RUN=zkevm-test-monitor/binaries/openvm-binary
 rm -f $BINARY_TO_RUN
@@ -93,8 +93,8 @@ if [ $RUN = "1" ]; then
     if [ $SIGS = "1" ] && [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
         echo "🔍 Comparing signatures..."
 
-        # Get DUT signature from test results directory
-        DUT_SIG="$TEST_DIR/DUT-openvm.signature"
+        # Get DUT signature from debug output (more up-to-date than test results)
+        DUT_SIG="debug-output/openvm/debug.signature"
 
         # Look for reference signature in base directory
         cd ..
@@ -113,28 +113,15 @@ if [ $RUN = "1" ]; then
             echo "   ✓ DUT signature: zkevm-test-monitor/$DUT_SIG"
             echo "   ✓ REF signature: $REF_SIG"
 
-            # Compare the signatures
-            DIFF_OUTPUT=$(mktemp)
-            diff -y --suppress-common-lines "$REF_SIG" "zkevm-test-monitor/$DUT_SIG" > "$DIFF_OUTPUT" 2>&1 || true
+            # Compare the signatures using delta
+            echo "❌ Signature differences:"
+            diff -u "$REF_SIG" "zkevm-test-monitor/$DUT_SIG" | delta -w 48 | head -20 || true
 
-            if [ -s "$DIFF_OUTPUT" ]; then
-                MISMATCH_COUNT=$(wc -l < "$DIFF_OUTPUT")
-                echo "❌ Found $MISMATCH_COUNT mismatched lines (showing first 10):"
-
-                # Create formatted comparison output
-                {
-                    echo "   Line | DUT (actual)   | REF (expected)"
-                    echo "   ─────┼────────────────┼────────────────"
-                    head -n 10 "$DIFF_OUTPUT" | awk '{
-                        # Extract left (REF) and right (DUT) values
-                        split($0, parts, /[<>|]/)
-                        ref = parts[1]
-                        dut = parts[length(parts)]
-                        gsub(/^[ \t]+|[ \t]+$/, "", ref)
-                        gsub(/^[ \t]+|[ \t]+$/, "", dut)
-                        printf "   %4d │ %-14s │ %s\n", NR, dut, ref
-                    }'
-                }
+            # Count total differences
+            DIFF_COUNT=$(diff "$REF_SIG" "zkevm-test-monitor/$DUT_SIG" | wc -l || true)
+            if [ "$DIFF_COUNT" -gt 0 ]; then
+                echo ""
+                echo "   Total diff lines: $DIFF_COUNT"
 
                 # Create symlink to DUT signature for easy access
                 rm -f DUT-openvm.signature
@@ -146,15 +133,12 @@ if [ $RUN = "1" ]; then
                 echo "✅ Signatures match perfectly!"
             fi
 
-            rm -f "$DIFF_OUTPUT"
             cd zkevm-test-monitor
         fi
     fi
 
     if [ $EXIT_CODE -ne 0 ]; then
         echo "⚠️  Test exited with code: $EXIT_CODE"
-    else
-        echo "✅ Test passed"
     fi
 
     exit $EXIT_CODE
