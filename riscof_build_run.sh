@@ -4,6 +4,7 @@ set -e
 # Rebuild flags
 BTESTS=${BTESTS:-0}
 BBIN=${BBIN:-0}
+RUN=${RUN-1}
 
 PATTERN=${1:-fadd_b1}
 
@@ -31,8 +32,10 @@ else
 fi
 
 # Run the specific test in debug mode
-echo "🐛 Running debug test: $PATTERN"
-./run debug --arch openvm "$PATTERN"
+if [ $RUN = "1" ]; then
+    echo "🐛 Running debug test: $PATTERN"
+    ./run debug --arch openvm "$PATTERN"
+fi
 
 EXIT_CODE=$?
 echo ""
