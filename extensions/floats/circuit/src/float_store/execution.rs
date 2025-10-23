@@ -30,12 +30,18 @@ impl FloatStoreExecutor {
         data: &mut FloatStorePreCompute,
     ) -> Result<bool, StaticProgramError> {
         // Note: inst.b contains rs1 * RV32_REGISTER_NUM_LIMBS (from transpiler)
-        // We store this directly and use it as the memory address
+        // Reconstruct signed immediate from fields c and g (same pattern as rv32im):
+        // - Field c contains lower 16 bits
+        // - Field g contains sign bit
+        let imm_lower = inst.c.as_canonical_u32();
+        let imm_sign = inst.g.as_canonical_u32();
+        let imm = imm_lower + imm_sign * 0xffff0000;
+
         *data = FloatStorePreCompute {
             rs2: inst.a.as_canonical_u32() as u8,
             rs1: inst.b.as_canonical_u32() as u8, // This is rs1 * 4, used directly as address
             _padding: [0; 2],
-            imm: inst.c.as_canonical_u32() as i32,
+            imm: imm as i32,
         };
         Ok(true)
     }

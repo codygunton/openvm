@@ -3,7 +3,7 @@
 [1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 1  | num_queries: 100 | proof_of_work_bits: 16
 [1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 2  | num_queries: 44 | proof_of_work_bits: 16
 [1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 3  | num_queries: 30 | proof_of_work_bits: 16
-[1;34mDEBUG   [0m VmState::initial [ 2.70ms | 100.00% ]
+[1;34mDEBUG   [0m VmState::initial [ 3.22ms | 100.00% ]
 [EXEC] instret=0, PC=0x00010000, pc_index=16384
 [EXEC] instret=1, PC=0x00010004, pc_index=16385
 [EXEC] instret=2, PC=0x00010008, pc_index=16386
@@ -7365,7 +7365,7 @@
 [EXEC] instret=6868, PC=0x000107f4, pc_index=16893
 [EXEC] instret=6869, PC=0x000107f8, pc_index=16894
 [EXEC] instret=6870, PC=0x000107fc, pc_index=16895
-[1;32mINFO    [0m execute_e1 [ 53.5ms | 100.00% ]
+[1;32mINFO    [0m execute_e1 [ 66.1ms | 100.00% ]
 [1;34mDEBUG   [0m ┕━ 🐛 [debug]: execute_trampoline
 [1;32mINFO    [0m ｉ [info]: instructions_executed=6871
 Execution output: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

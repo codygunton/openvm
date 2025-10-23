@@ -38,16 +38,23 @@ impl FloatsTranspilerExtension {
         // Extract operands
         let rd = dec.rd;      // Float destination register
         let rs1 = dec.rs1;    // Base address register
-        let imm = dec.imm;    // Offset
+
+        // Encode immediate using the same pattern as rv32im load instructions:
+        // - Store lower 16 bits in field c
+        // - Store sign bit in field g for proper reconstruction in executor
+        let imm_lower = (dec.imm as u32) & 0xffff;
+        let imm_sign = dec.imm < 0;
 
         // Emit single FLW instruction
-        let instruction = Instruction::from_isize(
+        let instruction = Instruction::new(
             FloatOpcode::FLW.global_opcode(),
-            rd as isize,                               // a: float register index
-            (rs1 as isize) * (RV32_REGISTER_NUM_LIMBS as isize), // b: base register index * 4
-            imm as isize,                              // c: immediate offset
-            0,                                         // d: unused
-            0,                                         // e: unused
+            F::from_canonical_usize(rd),                          // a: float register index
+            F::from_canonical_usize(rs1 * RV32_REGISTER_NUM_LIMBS), // b: base register index * 4
+            F::from_canonical_u32(imm_lower),                     // c: immediate lower 16 bits
+            F::ZERO,                                              // d: unused
+            F::ZERO,                                              // e: unused
+            F::ZERO,                                              // f: unused
+            F::from_bool(imm_sign),                               // g: sign bit for extension
         );
 
         Some(TranspilerOutput {
@@ -62,16 +69,23 @@ impl FloatsTranspilerExtension {
         // Extract operands
         let rs2 = dec.rs2;    // Float source register
         let rs1 = dec.rs1;    // Base address register
-        let imm = dec.imm;    // Offset
+
+        // Encode immediate using the same pattern as rv32im store instructions:
+        // - Store lower 16 bits in field c
+        // - Store sign bit in field g for proper reconstruction in executor
+        let imm_lower = (dec.imm as u32) & 0xffff;
+        let imm_sign = dec.imm < 0;
 
         // Emit single FSW instruction
-        let instruction = Instruction::from_isize(
+        let instruction = Instruction::new(
             FloatOpcode::FSW.global_opcode(),
-            rs2 as isize,                              // a: float register index
-            (rs1 as isize) * (RV32_REGISTER_NUM_LIMBS as isize), // b: base register index * 4
-            imm as isize,                              // c: immediate offset
-            0,                                         // d: unused
-            0,                                         // e: unused
+            F::from_canonical_usize(rs2),                         // a: float register index
+            F::from_canonical_usize(rs1 * RV32_REGISTER_NUM_LIMBS), // b: base register index * 4
+            F::from_canonical_u32(imm_lower),                     // c: immediate lower 16 bits
+            F::ZERO,                                              // d: unused
+            F::ZERO,                                              // e: unused
+            F::ZERO,                                              // f: unused
+            F::from_bool(imm_sign),                               // g: sign bit for extension
         );
 
         Some(TranspilerOutput {
