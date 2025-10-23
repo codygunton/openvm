@@ -109,46 +109,69 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         return;
     }
 
-    // Reconstruct RISC-V instruction encoding for FCLASS.S
-    // R-type: funct7 | rs2 | rs1 | funct3 | rd | opcode
-    // FCLASS.S: funct7=0x70, rs2=0, funct3=1
-    let funct7 = 0x70;
-    let rs2 = 0;
-    let funct3 = 1;
+    // Implement FCLASS directly without using handler (handler writes to backup location)
+    // FCLASS.S returns a 10-bit mask indicating the class of the floating-point value:
+    // Bit 0: Negative infinity
+    // Bit 1: Negative normal number
+    // Bit 2: Negative subnormal number
+    // Bit 3: Negative zero
+    // Bit 4: Positive zero
+    // Bit 5: Positive subnormal number
+    // Bit 6: Positive normal number
+    // Bit 7: Positive infinity
+    // Bit 8: Signaling NaN
+    // Bit 9: Quiet NaN
 
-    let riscv_inst = (funct7 << 25) | ((rs2 as u32) << 20) |
-                     ((pre_compute.rs1 as u32) << 15) | ((funct3 as u32) << 12) |
-                     ((pre_compute.rd as u32) << 7) | 0x53; // FP_OPCODE
+    let f_addr = float_reg_addr(pre_compute.rs1);
+    let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
+    let f_val = f32::from_le_bytes(f_bytes);
+    let bits = u32::from_le_bytes(f_bytes);
 
-    // Store instruction to FLOAT_INST_ADDR (0x1F001108)
-    let inst_bytes = riscv_inst.to_le_bytes();
-    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
+    let result: u32 = if f_val.is_nan() {
+        // Check if signaling NaN (bit 22 is 0 for signaling)
+        if (bits & 0x00400000) == 0 {
+            1u32 << 8  // Signaling NaN
+        } else {
+            1u32 << 9  // Quiet NaN
+        }
+    } else if f_val.is_infinite() {
+        if f_val.is_sign_negative() {
+            1u32 << 0  // Negative infinity
+        } else {
+            1u32 << 7  // Positive infinity
+        }
+    } else if f_val == 0.0 {
+        if f_val.is_sign_negative() {
+            1u32 << 3  // Negative zero
+        } else {
+            1u32 << 4  // Positive zero
+        }
+    } else {
+        // Check if subnormal (exponent is 0)
+        let exponent = (bits >> 23) & 0xFF;
+        if exponent == 0 {
+            if f_val.is_sign_negative() {
+                1u32 << 2  // Negative subnormal
+            } else {
+                1u32 << 5  // Positive subnormal
+            }
+        } else {
+            // Normal number
+            if f_val.is_sign_negative() {
+                1u32 << 1  // Negative normal
+            } else {
+                1u32 << 6  // Positive normal
+            }
+        }
+    };
 
-    // Store 0 to FLOAT_INST_ADDR + 4
-    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
+    exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &result.to_le_bytes());
 
-    // Load handler address from FLOAT_LIB_ENTRY_PTR (0x0001EC60)
-    let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
-    let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
+    eprintln!("[FCLASS.S] f{} (val={}, bits=0x{:08x}) -> x{} (class=0x{:x})",
+              pre_compute.rs1, f_val, bits, pre_compute.rd, result);
 
-    eprintln!(
-        "[FCLASS] Calling handler at 0x{:08x}, instruction=0x{:08x}",
-        handler_addr, riscv_inst
-    );
-
-    // Store return address in x1 (ra)
-    let return_addr = *pc + DEFAULT_PC_STEP;
-    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &return_addr.to_le_bytes()); // x1 = ra
-
-    // JALR: jump to handler (with RISC-V compliant address rounding - clear LSB)
-    let target_addr = handler_addr & !1;
-    *pc = target_addr;
+    *pc += DEFAULT_PC_STEP;
     *instret += 1;
-
-    eprintln!(
-        "[FCLASS-EXIT] Jumped to handler: 0x{:08x}, return_addr=0x{:08x}",
-        handler_addr, return_addr
-    );
 }
 
 #[create_handler]

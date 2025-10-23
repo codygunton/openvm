@@ -149,7 +149,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let f_rs1_addr = FLOAT_REGISTER_BASE + (pre_compute.rs1 as u32) * 4;
     let f_rs2_addr = FLOAT_REGISTER_BASE + (pre_compute.rs2 as u32) * 4;
     let f_rs3_addr = FLOAT_REGISTER_BASE + (pre_compute.rs3 as u32) * 4;
-    let f_rd_addr = FLOAT_REGISTER_BASE + (pre_compute.rd as u32) * 4;
 
     let rs1_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_rs1_addr);
     let rs2_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_rs2_addr);

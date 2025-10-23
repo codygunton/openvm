@@ -108,8 +108,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
     eprintln!(
-        "[FCVT-ENTRY] PC=0x{:08x}, instret={}, direction={}, unsigned={}, ENABLED={}",
-        *pc, *instret, pre_compute.direction, pre_compute.unsigned_flag, ENABLED
+        "[FCVT-ENTRY] PC=0x{:08x}, instret={}, direction={}, unsigned={}, rm={}, ENABLED={}",
+        *pc, *instret, pre_compute.direction, pre_compute.unsigned_flag, pre_compute.rm, ENABLED
     );
 
     if !ENABLED {
@@ -118,48 +118,91 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         return;
     }
 
-    // Implement FCVT directly without using the handler
-    // This is needed because the handler writes to a backup location that doesn't
-    // get copied back to the actual integer register file
+    // Implement FCVT with manual rounding mode support
+    // For int→float: can use Rust `as` (no rounding issues for this direction)
+    // For float→int: need to implement rounding modes manually
 
-    match (pre_compute.direction, pre_compute.unsigned_flag) {
-        (0, 0) => { // FCVT.W.S (float to signed int)
-            let f_addr = float_reg_addr(pre_compute.rs1);
-            let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
-            let f_val = f32::from_le_bytes(f_bytes);
-            let i_val = f_val as i32;
-            exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &i_val.to_le_bytes());
-            eprintln!("[FCVT.W.S] f{} ({}=0x{:08x}) -> x{} ({}=0x{:08x})",
-                      pre_compute.rs1, f_val, f_val.to_bits(), pre_compute.rd, i_val, i_val as u32);
+    if pre_compute.direction == 1 {
+        // Int → Float conversions (simple, no rounding mode issues in practice for i32/u32 → f32)
+        match pre_compute.unsigned_flag {
+            0 => { // FCVT.S.W (signed int to float)
+                let i_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
+                let i_val = i32::from_le_bytes(i_bytes);
+                let f_val = i_val as f32;
+                let f_addr = float_reg_addr(pre_compute.rd);
+                exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
+                eprintln!("[FCVT.S.W] x{} ({}) -> f{} ({}=0x{:08x})",
+                          pre_compute.rs1, i_val, pre_compute.rd, f_val, f_val.to_bits());
+            }
+            1 => { // FCVT.S.WU (unsigned int to float)
+                let u_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
+                let u_val = u32::from_le_bytes(u_bytes);
+                let f_val = u_val as f32;
+                let f_addr = float_reg_addr(pre_compute.rd);
+                exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
+                eprintln!("[FCVT.S.WU] x{} ({}) -> f{} ({}=0x{:08x})",
+                          pre_compute.rs1, u_val, pre_compute.rd, f_val, f_val.to_bits());
+            }
+            _ => {}
         }
-        (0, 1) => { // FCVT.WU.S (float to unsigned int)
-            let f_addr = float_reg_addr(pre_compute.rs1);
-            let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
-            let f_val = f32::from_le_bytes(f_bytes);
-            let u_val = f_val as u32;
-            exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &u_val.to_le_bytes());
-            eprintln!("[FCVT.WU.S] f{} ({}=0x{:08x}) -> x{} ({})",
-                      pre_compute.rs1, f_val, f_val.to_bits(), pre_compute.rd, u_val);
+    } else {
+        // Float → Int conversions (need proper rounding mode handling)
+        let f_addr = float_reg_addr(pre_compute.rs1);
+        let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
+        let f_val = f32::from_le_bytes(f_bytes);
+
+        // Apply rounding based on rm field
+        // rm: 0=RNE (round to nearest, ties to even), 1=RTZ (round to zero),
+        //     2=RDN (round down), 3=RUP (round up), 4=RMM (round to nearest, ties to max magnitude)
+        //     7=DYN (dynamic - use fcsr, but we'll treat as RNE for now)
+
+        let rounded = match pre_compute.rm {
+            0 | 7 => {  // RNE or DYN - round to nearest, ties to even
+                let floored = f_val.floor();
+                let frac = f_val - floored;
+                if frac < 0.5 {
+                    floored
+                } else if frac > 0.5 {
+                    floored + 1.0
+                } else {
+                    // Exactly 0.5 - round to even
+                    if (floored as i32) % 2 == 0 {
+                        floored
+                    } else {
+                        floored + 1.0
+                    }
+                }
+            }
+            1 => f_val.trunc(),       // RTZ - round toward zero
+            2 => f_val.floor(),       // RDN - round down
+            3 => f_val.ceil(),        // RUP - round up
+            4 => {  // RMM - round to nearest, ties away from zero
+                let floored = f_val.floor();
+                let frac = f_val - floored;
+                if frac < 0.5 {
+                    floored
+                } else {
+                    floored + 1.0
+                }
+            }
+            _ => f_val.trunc(),
+        };
+
+        match pre_compute.unsigned_flag {
+            0 => { // FCVT.W.S (float to signed int)
+                let i_val = rounded as i32;
+                exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &i_val.to_le_bytes());
+                eprintln!("[FCVT.W.S] f{} ({}=0x{:08x}, rm={}) -> x{} ({})  [rounded={}]",
+                          pre_compute.rs1, f_val, f_val.to_bits(), pre_compute.rm, pre_compute.rd, i_val, rounded);
+            }
+            1 => { // FCVT.WU.S (float to unsigned int)
+                let u_val = rounded as u32;
+                exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &u_val.to_le_bytes());
+                eprintln!("[FCVT.WU.S] f{} ({}=0x{:08x}, rm={}) -> x{} ({})  [rounded={}]",
+                          pre_compute.rs1, f_val, f_val.to_bits(), pre_compute.rm, pre_compute.rd, u_val, rounded);
+            }
+            _ => {}
         }
-        (1, 0) => { // FCVT.S.W (signed int to float)
-            let i_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
-            let i_val = i32::from_le_bytes(i_bytes);
-            let f_val = i_val as f32;
-            let f_addr = float_reg_addr(pre_compute.rd);
-            exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
-            eprintln!("[FCVT.S.W] x{} ({}) -> f{} ({}=0x{:08x})",
-                      pre_compute.rs1, i_val, pre_compute.rd, f_val, f_val.to_bits());
-        }
-        (1, 1) => { // FCVT.S.WU (unsigned int to float)
-            let u_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
-            let u_val = u32::from_le_bytes(u_bytes);
-            let f_val = u_val as f32;
-            let f_addr = float_reg_addr(pre_compute.rd);
-            exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
-            eprintln!("[FCVT.S.WU] x{} ({}) -> f{} ({}=0x{:08x})",
-                      pre_compute.rs1, u_val, pre_compute.rd, f_val, f_val.to_bits());
-        }
-        _ => {}
     }
 
     *pc += DEFAULT_PC_STEP;
