@@ -145,9 +145,30 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
     let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
 
+    // Read the float register values to debug
+    let f_rs1_addr = FLOAT_REGISTER_BASE + (pre_compute.rs1 as u32) * 4;
+    let f_rs2_addr = FLOAT_REGISTER_BASE + (pre_compute.rs2 as u32) * 4;
+    let f_rs3_addr = FLOAT_REGISTER_BASE + (pre_compute.rs3 as u32) * 4;
+    let f_rd_addr = FLOAT_REGISTER_BASE + (pre_compute.rd as u32) * 4;
+
+    let rs1_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_rs1_addr);
+    let rs2_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_rs2_addr);
+    let rs3_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_rs3_addr);
+
+    let rs1_val = u32::from_le_bytes(rs1_bytes);
+    let rs2_val = u32::from_le_bytes(rs2_bytes);
+    let rs3_val = u32::from_le_bytes(rs3_bytes);
+
     eprintln!(
         "[FMA] Calling handler at 0x{:08x}, instruction=0x{:08x}",
         handler_addr, riscv_inst
+    );
+    eprintln!(
+        "[FMA] f{}=0x{:08x}, f{}=0x{:08x}, f{}=0x{:08x} -> f{}",
+        pre_compute.rs1, rs1_val,
+        pre_compute.rs2, rs2_val,
+        pre_compute.rs3, rs3_val,
+        pre_compute.rd
     );
 
     // Store return address in x1 (ra)

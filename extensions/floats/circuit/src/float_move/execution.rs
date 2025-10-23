@@ -27,10 +27,16 @@ impl FloatMoveExecutor {
         inst: &Instruction<F>,
         data: &mut FloatMovePreCompute,
     ) -> Result<bool, StaticProgramError> {
+        // The opcode is in field `d` and tells us which FMV instruction this is
+        // FMVXW (0x10) = float→int, direction=0
+        // FMVWX (0x11) = int→float, direction=1
+        let opcode = inst.d.as_canonical_u32() as u8;
+        let direction = if opcode == 0x10 { 0 } else { 1 };
+
         *data = FloatMovePreCompute {
             rd: inst.a.as_canonical_u32() as u8,
             rs1: inst.b.as_canonical_u32() as u8,
-            direction: inst.c.as_canonical_u32() as u8,
+            direction,
         };
         Ok(true)
     }
@@ -101,8 +107,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
     eprintln!(
-        "[FMOVE-ENTRY] PC=0x{:08x}, instret={}, ENABLED={}",
-        *pc, *instret, ENABLED
+        "[FMOVE-ENTRY] PC=0x{:08x}, instret={}, direction={}, ENABLED={}",
+        *pc, *instret, pre_compute.direction, ENABLED
     );
 
     if !ENABLED {
@@ -111,44 +117,28 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         return;
     }
 
-    // Reconstruct RISC-V instruction encoding
-    // FMV.X.W (direction=0): funct7=0x70, rs2=0, funct3=0
-    // FMV.W.X (direction=1): funct7=0x78, rs2=0, funct3=0
-    let funct7 = if pre_compute.direction == 0 { 0x70 } else { 0x78 };
+    // Implement FMV directly without using the handler
+    // FMV.X.W (direction=0): Move float register to integer register (bitwise copy)
+    // FMV.W.X (direction=1): Move integer register to float register (bitwise copy)
 
-    let riscv_inst = (funct7 << 25) | (0 << 20) | // rs2=0
-                     ((pre_compute.rs1 as u32) << 15) | (0 << 12) | // funct3=0
-                     ((pre_compute.rd as u32) << 7) | 0x53; // FP_OPCODE
+    if pre_compute.direction == 0 {
+        // FMV.X.W: float -> integer (bitwise copy)
+        let f_addr = float_reg_addr(pre_compute.rs1);
+        let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
+        exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &f_bytes);
+        let bits = u32::from_le_bytes(f_bytes);
+        eprintln!("[FMV.X.W] f{} (0x{:08x}) -> x{}", pre_compute.rs1, bits, pre_compute.rd);
+    } else {
+        // FMV.W.X: integer -> float (bitwise copy)
+        let i_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
+        let f_addr = float_reg_addr(pre_compute.rd);
+        exec_state.vm_write(FLOAT_MEM_AS, f_addr, &i_bytes);
+        let bits = u32::from_le_bytes(i_bytes);
+        eprintln!("[FMV.W.X] x{} (0x{:08x}) -> f{}", pre_compute.rs1, bits, pre_compute.rd);
+    }
 
-    // Store instruction to FLOAT_INST_ADDR (0x1F001108)
-    let inst_bytes = riscv_inst.to_le_bytes();
-    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
-
-    // Store 0 to FLOAT_INST_ADDR + 4
-    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
-
-    // Load handler address from FLOAT_LIB_ENTRY_PTR (0x0001EC60)
-    let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
-    let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
-
-    eprintln!(
-        "[FMOVE] Calling handler at 0x{:08x}, instruction=0x{:08x}, direction={}",
-        handler_addr, riscv_inst, pre_compute.direction
-    );
-
-    // Store return address in x1 (ra)
-    let return_addr = *pc + DEFAULT_PC_STEP;
-    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &return_addr.to_le_bytes()); // x1 = ra
-
-    // JALR: jump to handler (with RISC-V compliant address rounding - clear LSB)
-    let target_addr = handler_addr & !1;
-    *pc = target_addr;
+    *pc += DEFAULT_PC_STEP;
     *instret += 1;
-
-    eprintln!(
-        "[FMOVE-EXIT] Jumped to handler: 0x{:08x}, return_addr=0x{:08x}",
-        handler_addr, return_addr
-    );
 }
 
 #[create_handler]

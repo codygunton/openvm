@@ -160,5 +160,4 @@ riscv64-elf-gcc $CFLAGS -T "$SCRIPT_DIR/link.ld" \
 
 echo "Build complete: $OUT_DIR/test.elf"
 echo ""
-echo "Disassembly:"
 riscv64-elf-objdump -S "$OUT_DIR/test.elf" > "$SCRIPT_DIR/elf.dump"

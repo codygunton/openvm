@@ -688,13 +688,11 @@ _start:
     bne     t1, t2, fail
 
     # All tests passed - terminate with exit code 0
-    li   a0, 0
-    .insn 4, 0x000b            # TERMINATE
+    .insn i 0x0b, 0, x0, x0, 0
 
 fail:
-    # Test failed - terminate with exit code 1
-    li   a0, 1
-    .insn 4, 0x000b            # TERMINATE
+    # Test failed - terminate with exit code 1 encoded in instruction
+    .insn i 0x0b, 0, x0, x0, 1
 
 # Placeholder for float library (will be linked)
 .weak _zisk_float

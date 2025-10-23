@@ -103,8 +103,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
     eprintln!(
-        "[FCOMPARE-ENTRY] PC=0x{:08x}, instret={}, ENABLED={}",
-        *pc, *instret, ENABLED
+        "[FCOMPARE-ENTRY] PC=0x{:08x}, instret={}, comp_type={}, ENABLED={}",
+        *pc, *instret, pre_compute.comp_type, ENABLED
     );
 
     if !ENABLED {
@@ -113,49 +113,40 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         return;
     }
 
-    // Reconstruct RISC-V instruction encoding
-    // R-type: funct7 | rs2 | rs1 | funct3 | rd | opcode
-    // funct7=0x50 for all comparisons, funct3 determines which comparison
-    let funct3 = match pre_compute.comp_type {
-        0 => 0, // FLE.S
-        1 => 1, // FLT.S
-        2 => 2, // FEQ.S
+    // Implement compare directly without using the handler
+    // This is needed because the handler writes to a backup location that doesn't
+    // get copied back to the actual integer register file
+
+    let f1_addr = float_reg_addr(pre_compute.rs1);
+    let f2_addr = float_reg_addr(pre_compute.rs2);
+    let f1_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f1_addr);
+    let f2_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f2_addr);
+    let f1_val = f32::from_le_bytes(f1_bytes);
+    let f2_val = f32::from_le_bytes(f2_bytes);
+
+    let result = match pre_compute.comp_type {
+        0 => (f1_val <= f2_val) as u32, // FLE.S
+        1 => (f1_val < f2_val) as u32,  // FLT.S
+        2 => (f1_val == f2_val) as u32, // FEQ.S
         _ => 0,
     };
 
-    let riscv_inst = (0x50 << 25) | ((pre_compute.rs2 as u32) << 20) |
-                     ((pre_compute.rs1 as u32) << 15) | ((funct3 as u32) << 12) |
-                     ((pre_compute.rd as u32) << 7) | 0x53; // FP_OPCODE
+    exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &result.to_le_bytes());
 
-    // Store instruction to FLOAT_INST_ADDR (0x1F001108)
-    let inst_bytes = riscv_inst.to_le_bytes();
-    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
+    let comp_name = match pre_compute.comp_type {
+        0 => "FLE.S",
+        1 => "FLT.S",
+        2 => "FEQ.S",
+        _ => "UNKNOWN",
+    };
 
-    // Store 0 to FLOAT_INST_ADDR + 4
-    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
+    eprintln!("[{}] f{} ({}) {} f{} ({}) -> x{} ({})",
+              comp_name, pre_compute.rs1, f1_val,
+              match pre_compute.comp_type { 0 => "<=", 1 => "<", 2 => "==", _ => "?" },
+              pre_compute.rs2, f2_val, pre_compute.rd, result);
 
-    // Load handler address from FLOAT_LIB_ENTRY_PTR (0x0001EC60)
-    let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
-    let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
-
-    eprintln!(
-        "[FCOMPARE] Calling handler at 0x{:08x}, instruction=0x{:08x}",
-        handler_addr, riscv_inst
-    );
-
-    // Store return address in x1 (ra)
-    let return_addr = *pc + DEFAULT_PC_STEP;
-    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &return_addr.to_le_bytes()); // x1 = ra
-
-    // JALR: jump to handler (with RISC-V compliant address rounding - clear LSB)
-    let target_addr = handler_addr & !1;
-    *pc = target_addr;
+    *pc += DEFAULT_PC_STEP;
     *instret += 1;
-
-    eprintln!(
-        "[FCOMPARE-EXIT] Jumped to handler: 0x{:08x}, return_addr=0x{:08x}",
-        handler_addr, return_addr
-    );
 }
 
 #[create_handler]

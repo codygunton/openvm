@@ -15,9 +15,11 @@ pub const FLOAT_MEM_AS: u32 = 2;
 pub const RV32_REGISTER_AS: u32 = 1;
 
 /// Convert float register index (0-31) to memory address
+/// Note: The float handler (SoftFloat C code) expects registers to be 8 bytes apart
+/// (it uses uint64_t array), even though we only store 4 bytes per register.
 #[inline]
 pub const fn float_reg_addr(freg: u8) -> u32 {
-    FLOAT_REGISTER_BASE + (freg as u32) * 4
+    FLOAT_REGISTER_BASE + (freg as u32) * 8
 }
 
 /// Number of limbs per RV32 register
