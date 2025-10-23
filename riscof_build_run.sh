@@ -5,6 +5,7 @@ set -eu
 BTESTS=${BTESTS:-0}
 BBIN=${BBIN:-0}
 RUN=${RUN:-1}
+SIGS=${SIGS:-0}
 
 PATTERN=${1:-fadd_b1}
 
@@ -109,11 +110,77 @@ if [ $RUN = "1" ]; then
             fi
 
             echo "✅ Created symlinks:"
-            ls -lh riscof-test.* 2>/dev/null | awk '{print "   " $9 " -> " $11}'
+            ls -lh riscof-test.* 2> /dev/null | awk '{print "   " $9 " -> " $11}'
             cd zkevm-test-monitor
         fi
     else
         echo "⚠️  Could not find test directory for pattern: $PATTERN"
+    fi
+
+    # Compare signatures if SIGS=1
+    if [ $SIGS = "1" ] && [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
+        echo ""
+        echo "🔍 Comparing signatures..."
+
+        # Get DUT signature from debug output directory (written by debug script)
+        DUT_SIG="debug-output/openvm/debug.signature"
+
+        # Look for reference signature in base directory
+        cd ..
+        REF_SIG="riscof-test-ref.sig"
+
+        if [ ! -f "zkevm-test-monitor/$DUT_SIG" ]; then
+            echo "   ⚠️  DUT signature not found: zkevm-test-monitor/$DUT_SIG"
+            echo "   The debug script should have written it"
+            cd zkevm-test-monitor
+        elif [ ! -f "$REF_SIG" ]; then
+            echo "   ⚠️  Reference signature not found: $REF_SIG"
+            echo "   Copy it from test results first:"
+            echo "   cp zkevm-test-monitor/test-results/openvm/.../ref/Reference-sail_c_simulator.signature riscof-test-ref.sig"
+            cd zkevm-test-monitor
+        else
+            echo "   ✓ DUT signature: zkevm-test-monitor/$DUT_SIG"
+            echo "   ✓ REF signature: $REF_SIG"
+
+            # Compare the signatures
+            echo ""
+            DIFF_OUTPUT=$(mktemp)
+            diff -y --suppress-common-lines "$REF_SIG" "zkevm-test-monitor/$DUT_SIG" > "$DIFF_OUTPUT" 2>&1 || true
+
+            if [ -s "$DIFF_OUTPUT" ]; then
+                MISMATCH_COUNT=$(wc -l < "$DIFF_OUTPUT")
+                echo "❌ Found $MISMATCH_COUNT mismatched lines (showing first 10):"
+                echo ""
+
+                # Create formatted comparison output
+                {
+                    echo "   Line | DUT (actual)   | REF (expected)"
+                    echo "   ─────┼────────────────┼────────────────"
+                    head -n 10 "$DIFF_OUTPUT" | awk '{
+                        # Extract left (REF) and right (DUT) values
+                        split($0, parts, /[<>|]/)
+                        ref = parts[1]
+                        dut = parts[length(parts)]
+                        gsub(/^[ \t]+|[ \t]+$/, "", ref)
+                        gsub(/^[ \t]+|[ \t]+$/, "", dut)
+                        printf "   %4d │ %-14s │ %s\n", NR, dut, ref
+                    }'
+                }
+
+                # Create symlink to DUT signature for easy access
+                rm -f riscof-test-dut.sig
+                ln -s "zkevm-test-monitor/$DUT_SIG" riscof-test-dut.sig
+                echo ""
+                echo "   📝 Full signatures available:"
+                echo "      riscof-test-dut.sig (newly generated)"
+                echo "      riscof-test-ref.sig (reference)"
+            else
+                echo "✅ Signatures match perfectly!"
+            fi
+
+            rm -f "$DIFF_OUTPUT"
+            cd zkevm-test-monitor
+        fi
     fi
 
     echo ""
