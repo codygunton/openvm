@@ -51,12 +51,11 @@ fi
 if [ $RUN = "1" ]; then
     echo "🐛 Running debug test: $PATTERN"
 
-    # Run test and capture exit code, showing all output
+    # Run test and capture exit code, showing only last 20 lines
     set +e # Temporarily disable exit on error
-    ./run debug --arch openvm "$PATTERN"
-    EXIT_CODE=$?
+    ./run debug --arch openvm "$PATTERN" 2>&1 | tail -20
+    EXIT_CODE=${PIPESTATUS[0]}
     set -e # Re-enable exit on error
-    echo ""
 
     # Find the test directory and files
     # First try exact match (e.g., fadd_b1 matches fadd_b1-01.S but not fadd_b10-01.S)
@@ -71,7 +70,6 @@ if [ $RUN = "1" ]; then
 
         # Generate objdump if ELF exists
         if [ -f "$ELF_FILE" ]; then
-            echo ""
             echo "📝 Generating objdump..."
 
             # Create dump in a temp location first (in case test dir is read-only)
@@ -85,8 +83,6 @@ if [ $RUN = "1" ]; then
             ln -s "zkevm-test-monitor/$ELF_FILE" riscof-test.elf
             ln -s "$TEMP_DUMP" riscof-test.dump
 
-            echo "✅ Created symlinks:"
-            ls -lh riscof-test.* 2> /dev/null | awk '{print "   " $9 " -> " $11}'
             cd zkevm-test-monitor
         fi
     else
@@ -95,7 +91,6 @@ if [ $RUN = "1" ]; then
 
     # Compare signatures if SIGS=1
     if [ $SIGS = "1" ] && [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
-        echo ""
         echo "🔍 Comparing signatures..."
 
         # Get DUT signature from test results directory
@@ -119,14 +114,12 @@ if [ $RUN = "1" ]; then
             echo "   ✓ REF signature: $REF_SIG"
 
             # Compare the signatures
-            echo ""
             DIFF_OUTPUT=$(mktemp)
             diff -y --suppress-common-lines "$REF_SIG" "zkevm-test-monitor/$DUT_SIG" > "$DIFF_OUTPUT" 2>&1 || true
 
             if [ -s "$DIFF_OUTPUT" ]; then
                 MISMATCH_COUNT=$(wc -l < "$DIFF_OUTPUT")
                 echo "❌ Found $MISMATCH_COUNT mismatched lines (showing first 10):"
-                echo ""
 
                 # Create formatted comparison output
                 {
@@ -146,7 +139,6 @@ if [ $RUN = "1" ]; then
                 # Create symlink to DUT signature for easy access
                 rm -f DUT-openvm.signature
                 ln -s "zkevm-test-monitor/$DUT_SIG" DUT-openvm.signature
-                echo ""
                 echo "   📝 Full signatures available:"
                 echo "      DUT-openvm.signature (newly generated)"
                 echo "      Reference-sail_c_simulator.signature (reference)"
@@ -159,7 +151,6 @@ if [ $RUN = "1" ]; then
         fi
     fi
 
-    echo ""
     if [ $EXIT_CODE -ne 0 ]; then
         echo "⚠️  Test exited with code: $EXIT_CODE"
     else
