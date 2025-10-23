@@ -159,6 +159,25 @@ fn main() {
     println!("cargo:rustc-link-arg=-lziskfloat");
     println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
 
+    // Copy build artifacts to a known location for RISCOF tests
+    // This allows zkevm-test-monitor to use the same build artifacts
+    if let Ok(out_dir) = env::var("OUT_DIR") {
+        let out_path = PathBuf::from(&out_dir);
+
+        // Find the libziskfloat.a in the OUT_DIR
+        if let Some(lib_file) = std::fs::read_dir(&out_path)
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .find(|e| e.file_name().to_string_lossy().contains("libziskfloat.a"))
+            })
+        {
+            // Export path for downstream consumers
+            println!("cargo:float-lib-path={}", lib_file.path().display());
+        }
+    }
+
     // Tell cargo to recompile if library sources change
     println!("cargo:rerun-if-changed={}", lib_float_dir.display());
     println!("cargo:rerun-if-changed=vendor/zisk/lib-float/c/src/float/float.h");

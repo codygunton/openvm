@@ -1,8 +1,10 @@
 /// Base address for float register file in heap memory
-pub const FLOAT_REGISTER_BASE: u32 = 0x1F001000;
+/// Placed at 2MB to provide space for test code while staying well within 512MB limit
+pub const FLOAT_REGISTER_BASE: u32 = 0x00200000;
 
 /// Address where float instruction encoding is stored for handler
-pub const FLOAT_INST_ADDR: u32 = 0x1F001108;
+/// Placed 0x108 bytes after register base (after 32 registers * 8 bytes + padding)
+pub const FLOAT_INST_ADDR: u32 = 0x00200108;
 
 /// Address of pointer to float library entry point (_zisk_float)
 /// This should match where the linker places .float_lib_entry section

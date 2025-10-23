@@ -1,0 +1,172 @@
+[1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 1  | num_queries: 100 | proof_of_work_bits: 16
+[1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 1  | num_queries: 100 | proof_of_work_bits: 16
+[1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 1  | num_queries: 100 | proof_of_work_bits: 16
+[1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 2  | num_queries: 44 | proof_of_work_bits: 16
+[1;34mDEBUG   [0m 🐛 [debug]: FRI parameters | log_blowup: 3  | num_queries: 30 | proof_of_work_bits: 16
+[1;34mDEBUG   [0m VmState::initial [ 2.68ms | 100.00% ]
+[EXEC] instret=0, PC=0x00010000, pc_index=16384
+[EXEC] instret=1, PC=0x00010004, pc_index=16385
+[EXEC] instret=2, PC=0x00010008, pc_index=16386
+[EXEC] instret=3, PC=0x0001000c, pc_index=16387
+[FLW-ENTRY] PC=0x0001000c, instret=3, ENABLED=true
+[FLW] PC=0x0001000c, Reading x10 = 0x0001f440, imm=0
+[FLW] f0 <- mem[0x0001f440] = 0x3f800000 (1)
+[FLW-EXIT] PC: 0x0001000c -> 0x00010010, instret=4
+[EXEC] instret=4, PC=0x00010010, pc_index=16388
+[EXEC] instret=5, PC=0x00010014, pc_index=16389
+[EXEC] instret=6, PC=0x00010018, pc_index=16390
+[FLW-ENTRY] PC=0x00010018, instret=6, ENABLED=true
+[FLW] PC=0x00010018, Reading x11 = 0x0001f444, imm=0
+[FLW] f1 <- mem[0x0001f444] = 0x40000000 (2)
+[FLW-EXIT] PC: 0x00010018 -> 0x0001001c, instret=7
+[EXEC] instret=7, PC=0x0001001c, pc_index=16391
+[FADD-ENTRY] PC=0x0001001c, instret=7, ENABLED=true
+[FADD] Calling handler at 0x000108d4, instruction=0x00100153
+[FADD-EXIT] Jumped to handler: 0x000108d4, return_addr=0x00010020
+[EXEC] instret=8, PC=0x000108d4, pc_index=16949
+[EXEC] instret=9, PC=0x000108d8, pc_index=16950
+[EXEC] instret=10, PC=0x000108dc, pc_index=16951
+[EXEC] instret=11, PC=0x000108e0, pc_index=16952
+[EXEC] instret=12, PC=0x000108e4, pc_index=16953
+[EXEC] instret=13, PC=0x000108e8, pc_index=16954
+[EXEC] instret=14, PC=0x000108ec, pc_index=16955
+[EXEC] instret=15, PC=0x000108f0, pc_index=16956
+[EXEC] instret=16, PC=0x000108f4, pc_index=16957
+[EXEC] instret=17, PC=0x000108f8, pc_index=16958
+[EXEC] instret=18, PC=0x000108fc, pc_index=16959
+[EXEC] instret=19, PC=0x00010900, pc_index=16960
+[EXEC] instret=20, PC=0x00010904, pc_index=16961
+[EXEC] instret=21, PC=0x00010908, pc_index=16962
+[EXEC] instret=22, PC=0x0001090c, pc_index=16963
+[EXEC] instret=23, PC=0x00010910, pc_index=16964
+[EXEC] instret=24, PC=0x00010914, pc_index=16965
+[EXEC] instret=25, PC=0x00010918, pc_index=16966
+[EXEC] instret=26, PC=0x000109c0, pc_index=17008
+[EXEC] instret=27, PC=0x000109c4, pc_index=17009
+[EXEC] instret=28, PC=0x000109c8, pc_index=17010
+[EXEC] instret=29, PC=0x00010928, pc_index=16970
+[EXEC] instret=30, PC=0x0001092c, pc_index=16971
+[EXEC] instret=31, PC=0x00010930, pc_index=16972
+[EXEC] instret=32, PC=0x00010934, pc_index=16973
+[EXEC] instret=33, PC=0x00010938, pc_index=16974
+[EXEC] instret=34, PC=0x0001093c, pc_index=16975
+[EXEC] instret=35, PC=0x00010940, pc_index=16976
+[EXEC] instret=36, PC=0x00010944, pc_index=16977
+[EXEC] instret=37, PC=0x00010948, pc_index=16978
+[EXEC] instret=38, PC=0x0001094c, pc_index=16979
+[EXEC] instret=39, PC=0x00010950, pc_index=16980
+[EXEC] instret=40, PC=0x00010954, pc_index=16981
+[EXEC] instret=41, PC=0x0001a664, pc_index=27033
+[EXEC] instret=42, PC=0x0001a668, pc_index=27034
+[EXEC] instret=43, PC=0x0001a66c, pc_index=27035
+[EXEC] instret=44, PC=0x0001a670, pc_index=27036
+[EXEC] instret=45, PC=0x0001a68c, pc_index=27043
+[EXEC] instret=46, PC=0x00010958, pc_index=16982
+[EXEC] instret=47, PC=0x0001095c, pc_index=16983
+[EXEC] instret=48, PC=0x00010994, pc_index=16997
+[EXEC] instret=49, PC=0x00010998, pc_index=16998
+[EXEC] instret=50, PC=0x0001099c, pc_index=16999
+[EXEC] instret=51, PC=0x000109a0, pc_index=17000
+[EXEC] instret=52, PC=0x000109a4, pc_index=17001
+[EXEC] instret=53, PC=0x000109a8, pc_index=17002
+[EXEC] instret=54, PC=0x000109ac, pc_index=17003
+[EXEC] instret=55, PC=0x000109b0, pc_index=17004
+[EXEC] instret=56, PC=0x000109b4, pc_index=17005
+[EXEC] instret=57, PC=0x000109b8, pc_index=17006
+[EXEC] instret=58, PC=0x000109bc, pc_index=17007
+[EXEC] instret=59, PC=0x00010020, pc_index=16392
+[EXEC] instret=60, PC=0x00010024, pc_index=16393
+[EXEC] instret=61, PC=0x00010028, pc_index=16394
+[EXEC] instret=62, PC=0x0001002c, pc_index=16395
+[EXEC] instret=63, PC=0x00010030, pc_index=16396
+[EXEC] instret=64, PC=0x00010034, pc_index=16397
+[EXEC] instret=65, PC=0x00010038, pc_index=16398
+[EXEC] instret=66, PC=0x0001003c, pc_index=16399
+[EXEC] instret=67, PC=0x00010040, pc_index=16400
+[EXEC] instret=68, PC=0x00010044, pc_index=16401
+[FLW-ENTRY] PC=0x00010044, instret=68, ENABLED=true
+[FLW] PC=0x00010044, Reading x2 = 0x00080000, imm=0
+[FLW] f0 <- mem[0x00080000] = 0x40000000 (2)
+[FLW-EXIT] PC: 0x00010044 -> 0x00010048, instret=69
+[EXEC] instret=69, PC=0x00010048, pc_index=16402
+[FLW-ENTRY] PC=0x00010048, instret=69, ENABLED=true
+[FLW] PC=0x00010048, Reading x2 = 0x00080000, imm=4
+[FLW] f1 <- mem[0x00080004] = 0x40400000 (3)
+[FLW-EXIT] PC: 0x00010048 -> 0x0001004c, instret=70
+[EXEC] instret=70, PC=0x0001004c, pc_index=16403
+[FLW-ENTRY] PC=0x0001004c, instret=70, ENABLED=true
+[FLW] PC=0x0001004c, Reading x2 = 0x00080000, imm=8
+[FLW] f3 <- mem[0x00080008] = 0x40800000 (4)
+[FLW-EXIT] PC: 0x0001004c -> 0x00010050, instret=71
+[EXEC] instret=71, PC=0x00010050, pc_index=16404
+[FMA-ENTRY] PC=0x00010050, instret=71, ENABLED=true
+[FMA] Calling handler at 0x000108d4, instruction=0x18107243
+[FMA] f0=0x40000000, f1=0x00000000, f3=0x00000000 -> f4
+[FMA-EXIT] Jumped to handler: 0x000108d4, return_addr=0x00010054
+[EXEC] instret=72, PC=0x000108d4, pc_index=16949
+[EXEC] instret=73, PC=0x000108d8, pc_index=16950
+[EXEC] instret=74, PC=0x000108dc, pc_index=16951
+[EXEC] instret=75, PC=0x000108e0, pc_index=16952
+[EXEC] instret=76, PC=0x000108e4, pc_index=16953
+[EXEC] instret=77, PC=0x000108e8, pc_index=16954
+[EXEC] instret=78, PC=0x000108ec, pc_index=16955
+[EXEC] instret=79, PC=0x000108f0, pc_index=16956
+[EXEC] instret=80, PC=0x000108f4, pc_index=16957
+[EXEC] instret=81, PC=0x000108f8, pc_index=16958
+[EXEC] instret=82, PC=0x000108fc, pc_index=16959
+[EXEC] instret=83, PC=0x00010900, pc_index=16960
+[EXEC] instret=84, PC=0x00010904, pc_index=16961
+[EXEC] instret=85, PC=0x00010908, pc_index=16962
+[EXEC] instret=86, PC=0x0001090c, pc_index=16963
+[EXEC] instret=87, PC=0x00010910, pc_index=16964
+[EXEC] instret=88, PC=0x00010914, pc_index=16965
+[EXEC] instret=89, PC=0x00010918, pc_index=16966
+[EXEC] instret=90, PC=0x000109c0, pc_index=17008
+[EXEC] instret=91, PC=0x000109c4, pc_index=17009
+[EXEC] instret=92, PC=0x000109c8, pc_index=17010
+[EXEC] instret=93, PC=0x00010928, pc_index=16970
+[EXEC] instret=94, PC=0x0001092c, pc_index=16971
+[EXEC] instret=95, PC=0x00010930, pc_index=16972
+[EXEC] instret=96, PC=0x00010934, pc_index=16973
+[EXEC] instret=97, PC=0x00010938, pc_index=16974
+[EXEC] instret=98, PC=0x0001093c, pc_index=16975
+[EXEC] instret=99, PC=0x00010940, pc_index=16976
+[EXEC] instret=100, PC=0x00010944, pc_index=16977
+[EXEC] instret=101, PC=0x00010948, pc_index=16978
+[EXEC] instret=102, PC=0x0001094c, pc_index=16979
+[EXEC] instret=103, PC=0x00010950, pc_index=16980
+[EXEC] instret=104, PC=0x00010954, pc_index=16981
+[EXEC] instret=105, PC=0x0001a664, pc_index=27033
+[EXEC] instret=106, PC=0x0001a668, pc_index=27034
+[EXEC] instret=107, PC=0x0001a66c, pc_index=27035
+[EXEC] instret=108, PC=0x0001a670, pc_index=27036
+[EXEC] instret=109, PC=0x0001a68c, pc_index=27043
+[EXEC] instret=110, PC=0x00010958, pc_index=16982
+[EXEC] instret=111, PC=0x0001095c, pc_index=16983
+[EXEC] instret=112, PC=0x00010994, pc_index=16997
+[EXEC] instret=113, PC=0x00010998, pc_index=16998
+[EXEC] instret=114, PC=0x0001099c, pc_index=16999
+[EXEC] instret=115, PC=0x000109a0, pc_index=17000
+[EXEC] instret=116, PC=0x000109a4, pc_index=17001
+[EXEC] instret=117, PC=0x000109a8, pc_index=17002
+[EXEC] instret=118, PC=0x000109ac, pc_index=17003
+[EXEC] instret=119, PC=0x000109b0, pc_index=17004
+[EXEC] instret=120, PC=0x000109b4, pc_index=17005
+[EXEC] instret=121, PC=0x000109b8, pc_index=17006
+[EXEC] instret=122, PC=0x000109bc, pc_index=17007
+[EXEC] instret=123, PC=0x00010054, pc_index=16405
+[EXEC] instret=124, PC=0x00010058, pc_index=16406
+[EXEC] instret=125, PC=0x0001005c, pc_index=16407
+[EXEC] instret=126, PC=0x00010060, pc_index=16408
+[EXEC] instret=127, PC=0x00010800, pc_index=16896
+[1;32mINFO    [0m execute_e1 [ 1.53ms | 100.00% ]
+[1;34mDEBUG   [0m ┕━ 🐛 [debug]: execute_trampoline
+[1;32mINFO    [0m ｉ [info]: instructions_executed=128
+Error: VM error: execution error: program exit code 1
+
+Caused by:
+   0: execution error: program exit code 1
+   1: program exit code 1
+
+Location:
+    crates/cli/src/commands/run.rs:369:34

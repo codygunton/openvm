@@ -24,8 +24,17 @@ cp target/debug/cargo-openvm $BINARY_TO_RUN
 cd zkevm-test-monitor
 
 # Build float library if needed
-if [ ! -f "riscof/plugins/openvm/env/libziskfloat.a" ] || [ ! -f "riscof/plugins/openvm/env/float.o" ]; then
-    echo "🔧 Building float library..."
+# Prefer using artifacts from cargo-openvm build (single source of truth)
+if [ -f "binaries/float-libs/libziskfloat.a" ]; then
+    echo "🔧 Using float library from cargo-openvm build..."
+    cp binaries/float-libs/libziskfloat.a riscof/plugins/openvm/env/
+    # Also compile the small local files (float.o, compiler_builtins.o)
+    # These are quick to compile and need to match the exact compiler flags
+    if [ ! -f "riscof/plugins/openvm/env/float.o" ]; then
+        riscof/plugins/openvm/env/build_float_lib.sh
+    fi
+elif [ ! -f "riscof/plugins/openvm/env/libziskfloat.a" ]; then
+    echo "🔧 Building float library locally..."
     riscof/plugins/openvm/env/build_float_lib.sh
 fi
 

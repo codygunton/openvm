@@ -15,10 +15,11 @@ pub const FNMSUB_OPCODE: u8 = 0x4B; // FNMSUB.S
 pub const FNMADD_OPCODE: u8 = 0x4F; // FNMADD.S
 pub const FP_OPCODE: u8 = 0x53; // FADD.S, FMUL.S, etc.
 
-// Memory map (must match float.h values)
-pub const FLOAT_REGISTER_BASE: u32 = 0x1F001000;
-pub const FLOAT_INST_ADDR: u32 = 0x1F001108;
-pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x0001_F440;
+// Memory map (must match circuit constants)
+// Placed at 2MB to provide space for test code while staying well within 512MB limit
+pub const FLOAT_REGISTER_BASE: u32 = 0x00200000;
+pub const FLOAT_INST_ADDR: u32 = 0x00200108;
+pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x00100000;
 
 // OpenVM addressing constants
 pub const RV32_MEMORY_AS: u32 = 2; // Heap memory address space
