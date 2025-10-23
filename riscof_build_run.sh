@@ -7,7 +7,7 @@ BBIN=${BBIN:-0}
 RUN=${RUN:-1}
 SIGS=${SIGS:-0}
 
-PATTERN=${1:-fadd_b1}
+PATTERN=${1:-add}
 
 BINARY_TO_RUN=zkevm-test-monitor/binaries/openvm-binary
 rm -f $BINARY_TO_RUN
@@ -51,31 +51,12 @@ fi
 if [ $RUN = "1" ]; then
     echo "🐛 Running debug test: $PATTERN"
 
-    # Create a temporary file to capture the debug script's output
-    TEMP_OUTPUT=$(mktemp)
-
-    # Run test and capture exit code, redirect output to temp file
+    # Run test and capture exit code, showing all output
     set +e # Temporarily disable exit on error
-    ./run debug --arch openvm "$PATTERN" &> "$TEMP_OUTPUT"
+    ./run debug --arch openvm "$PATTERN"
     EXIT_CODE=$?
     set -e # Re-enable exit on error
-
-    # Extract log file path from debug output
-    DEBUG_LOG=$(grep "Full log saved to:" "$TEMP_OUTPUT" | sed 's/.*: //')
-
-    # Show only essential info from the debug run
-    if grep -q "✓ Found test:" "$TEMP_OUTPUT"; then
-        grep "✓ Found test:" "$TEMP_OUTPUT"
-    fi
-    if grep -q "Test failed\|Test passed" "$TEMP_OUTPUT"; then
-        grep "Test failed\|Test passed" "$TEMP_OUTPUT" | tail -1
-    fi
-    if [ -n "$DEBUG_LOG" ]; then
-        echo "📝 Full log saved to: $DEBUG_LOG"
-    fi
-
-    # Clean up temp file
-    rm -f "$TEMP_OUTPUT"
+    echo ""
 
     # Find the test directory and files
     # First try exact match (e.g., fadd_b1 matches fadd_b1-01.S but not fadd_b10-01.S)
@@ -99,15 +80,10 @@ if [ $RUN = "1" ]; then
 
             # Create symlinks in repo base directory
             cd ..
-            rm -f riscof-test.elf riscof-test.dump riscof-test.log
+            rm -f riscof-test.elf riscof-test.dump
 
             ln -s "zkevm-test-monitor/$ELF_FILE" riscof-test.elf
             ln -s "$TEMP_DUMP" riscof-test.dump
-
-            # Link to debug log if available
-            if [ -n "$DEBUG_LOG" ] && [ -f "zkevm-test-monitor/$DEBUG_LOG" ]; then
-                ln -s "zkevm-test-monitor/$DEBUG_LOG" riscof-test.log
-            fi
 
             echo "✅ Created symlinks:"
             ls -lh riscof-test.* 2> /dev/null | awk '{print "   " $9 " -> " $11}'
@@ -122,21 +98,21 @@ if [ $RUN = "1" ]; then
         echo ""
         echo "🔍 Comparing signatures..."
 
-        # Get DUT signature from debug output directory (written by debug script)
-        DUT_SIG="debug-output/openvm/debug.signature"
+        # Get DUT signature from test results directory
+        DUT_SIG="$TEST_DIR/DUT-openvm.signature"
 
         # Look for reference signature in base directory
         cd ..
-        REF_SIG="riscof-test-ref.sig"
+        REF_SIG="Reference-sail_c_simulator.signature"
 
         if [ ! -f "zkevm-test-monitor/$DUT_SIG" ]; then
             echo "   ⚠️  DUT signature not found: zkevm-test-monitor/$DUT_SIG"
-            echo "   The debug script should have written it"
+            echo "   The test may not have generated a signature file"
             cd zkevm-test-monitor
         elif [ ! -f "$REF_SIG" ]; then
             echo "   ⚠️  Reference signature not found: $REF_SIG"
             echo "   Copy it from test results first:"
-            echo "   cp zkevm-test-monitor/test-results/openvm/.../ref/Reference-sail_c_simulator.signature riscof-test-ref.sig"
+            echo "   cp zkevm-test-monitor/test-results/openvm/.../ref/Reference-sail_c_simulator.signature ."
             cd zkevm-test-monitor
         else
             echo "   ✓ DUT signature: zkevm-test-monitor/$DUT_SIG"
@@ -168,12 +144,12 @@ if [ $RUN = "1" ]; then
                 }
 
                 # Create symlink to DUT signature for easy access
-                rm -f riscof-test-dut.sig
-                ln -s "zkevm-test-monitor/$DUT_SIG" riscof-test-dut.sig
+                rm -f DUT-openvm.signature
+                ln -s "zkevm-test-monitor/$DUT_SIG" DUT-openvm.signature
                 echo ""
                 echo "   📝 Full signatures available:"
-                echo "      riscof-test-dut.sig (newly generated)"
-                echo "      riscof-test-ref.sig (reference)"
+                echo "      DUT-openvm.signature (newly generated)"
+                echo "      Reference-sail_c_simulator.signature (reference)"
             else
                 echo "✅ Signatures match perfectly!"
             fi
