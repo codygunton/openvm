@@ -576,8 +576,8 @@ Disassembly of section .text:
    108d0:	00008067          	ret
 
 000108d4 <_zisk_float>:
-   108d4:	1f0087b7          	lui	a5,0x1f008
-   108d8:	01878793          	addi	a5,a5,24 # 1f008018 <_float_lib_entry+0x1ef08018>
+   108d4:	002087b7          	lui	a5,0x208
+   108d8:	01878793          	addi	a5,a5,24 # 208018 <_float_lib_entry+0x108018>
    108dc:	0007a783          	lw	a5,0(a5)
    108e0:	f6010113          	addi	sp,sp,-160
    108e4:	08112e23          	sw	ra,156(sp)
@@ -597,8 +597,8 @@ Disassembly of section .text:
    1091c:	00400793          	li	a5,4
    10920:	0000f717          	auipc	a4,0xf
    10924:	b4f72c23          	sw	a5,-1192(a4) # 1f478 <softfloat_roundingMode>
-   10928:	1f0017b7          	lui	a5,0x1f001
-   1092c:	1087ab03          	lw	s6,264(a5) # 1f001108 <_float_lib_entry+0x1ef01108>
+   10928:	002007b7          	lui	a5,0x200
+   1092c:	1087ab03          	lw	s6,264(a5) # 200108 <_float_lib_entry+0x100108>
    10930:	00000693          	li	a3,0
    10934:	01000613          	li	a2,16
    10938:	07fb7593          	andi	a1,s6,127
@@ -625,8 +625,8 @@ Disassembly of section .text:
    1098c:	09412483          	lw	s1,148(sp)
    10990:	09012903          	lw	s2,144(sp)
    10994:	00000313          	li	t1,0
-   10998:	1f008737          	lui	a4,0x1f008
-   1099c:	01872783          	lw	a5,24(a4) # 1f008018 <_float_lib_entry+0x1ef08018>
+   10998:	00208737          	lui	a4,0x208
+   1099c:	01872783          	lw	a5,24(a4) # 208018 <_float_lib_entry+0x108018>
    109a0:	09c12083          	lw	ra,156(sp)
    109a4:	08012b03          	lw	s6,128(sp)
    109a8:	fe07f793          	andi	a5,a5,-32
@@ -685,7 +685,7 @@ Disassembly of section .text:
    10a7c:	fcd710e3          	bne	a4,a3,10a3c <_zisk_float+0x168>
    10a80:	00cb5913          	srli	s2,s6,0xc
    10a84:	0f897913          	andi	s2,s2,248
-   10a88:	1f001537          	lui	a0,0x1f001
+   10a88:	00200537          	lui	a0,0x200
    10a8c:	00a90933          	add	s2,s2,a0
    10a90:	00092803          	lw	a6,0(s2)
    10a94:	00492883          	lw	a7,4(s2)
@@ -711,7 +711,7 @@ Disassembly of section .text:
    10ae4:	00c8f5b3          	and	a1,a7,a2
    10ae8:	0105e5b3          	or	a1,a1,a6
    10aec:	66059263          	bnez	a1,11150 <_zisk_float+0x87c>
-   10af0:	1f001837          	lui	a6,0x1f001
+   10af0:	00200837          	lui	a6,0x200
    10af4:	00371593          	slli	a1,a4,0x3
    10af8:	010585b3          	add	a1,a1,a6
    10afc:	0005a803          	lw	a6,0(a1)
@@ -724,7 +724,7 @@ Disassembly of section .text:
    10b18:	00a66633          	or	a2,a2,a0
    10b1c:	62061a63          	bnez	a2,11150 <_zisk_float+0x87c>
    10b20:	00399793          	slli	a5,s3,0x3
-   10b24:	1f001737          	lui	a4,0x1f001
+   10b24:	00200737          	lui	a4,0x200
    10b28:	00e787b3          	add	a5,a5,a4
    10b2c:	00000613          	li	a2,0
    10b30:	7ff806b7          	lui	a3,0x7ff80
@@ -748,7 +748,7 @@ Disassembly of section .text:
    10b78:	00100693          	li	a3,1
    10b7c:	12d71ce3          	bne	a4,a3,114b4 <_zisk_float+0xbe0>
    10b80:	00cb5493          	srli	s1,s6,0xc
-   10b84:	1f001737          	lui	a4,0x1f001
+   10b84:	00200737          	lui	a4,0x200
    10b88:	0f84f493          	andi	s1,s1,248
    10b8c:	00e484b3          	add	s1,s1,a4
    10b90:	0004a503          	lw	a0,0(s1)
@@ -763,7 +763,7 @@ Disassembly of section .text:
    10bb4:	00c59463          	bne	a1,a2,10bbc <_zisk_float+0x2e8>
    10bb8:	0180106f          	j	11bd0 <_zisk_float+0x12fc>
    10bbc:	00371713          	slli	a4,a4,0x3
-   10bc0:	1f0016b7          	lui	a3,0x1f001
+   10bc0:	002006b7          	lui	a3,0x200
    10bc4:	00d70433          	add	s0,a4,a3
    10bc8:	00042603          	lw	a2,0(s0)
    10bcc:	00442683          	lw	a3,4(s0)
@@ -771,7 +771,7 @@ Disassembly of section .text:
    10bd4:	00e6f6b3          	and	a3,a3,a4
    10bd8:	00e69463          	bne	a3,a4,10be0 <_zisk_float+0x30c>
    10bdc:	2dc0106f          	j	11eb8 <_zisk_float+0x15e4>
-   10be0:	1f001737          	lui	a4,0x1f001
+   10be0:	00200737          	lui	a4,0x200
    10be4:	003a1a13          	slli	s4,s4,0x3
    10be8:	00ea0a33          	add	s4,s4,a4
    10bec:	000a2603          	lw	a2,0(s4)
@@ -876,7 +876,7 @@ Disassembly of section .text:
    10d78:	00100693          	li	a3,1
    10d7c:	cad71ee3          	bne	a4,a3,10a38 <_zisk_float+0x164>
    10d80:	00cb5493          	srli	s1,s6,0xc
-   10d84:	1f001737          	lui	a4,0x1f001
+   10d84:	00200737          	lui	a4,0x200
    10d88:	0f84f493          	andi	s1,s1,248
    10d8c:	00e484b3          	add	s1,s1,a4
    10d90:	0004a503          	lw	a0,0(s1)
@@ -890,7 +890,7 @@ Disassembly of section .text:
    10db0:	01bb5913          	srli	s2,s6,0x1b
    10db4:	5ac58ae3          	beq	a1,a2,11b68 <_zisk_float+0x1294>
    10db8:	00371713          	slli	a4,a4,0x3
-   10dbc:	1f001637          	lui	a2,0x1f001
+   10dbc:	00200637          	lui	a2,0x200
    10dc0:	00c70433          	add	s0,a4,a2
    10dc4:	00042503          	lw	a0,0(s0)
    10dc8:	00442583          	lw	a1,4(s0)
@@ -898,7 +898,7 @@ Disassembly of section .text:
    10dd0:	00e5f633          	and	a2,a1,a4
    10dd4:	00e61463          	bne	a2,a4,10ddc <_zisk_float+0x508>
    10dd8:	1b00106f          	j	11f88 <_zisk_float+0x16b4>
-   10ddc:	1f001737          	lui	a4,0x1f001
+   10ddc:	00200737          	lui	a4,0x200
    10de0:	00391913          	slli	s2,s2,0x3
    10de4:	00e90933          	add	s2,s2,a4
    10de8:	00092503          	lw	a0,0(s2)
@@ -912,7 +912,7 @@ Disassembly of section .text:
    10e08:	7ff00737          	lui	a4,0x7ff00
    10e0c:	09312623          	sw	s3,140(sp)
    10e10:	00369693          	slli	a3,a3,0x3
-   10e14:	1f0015b7          	lui	a1,0x1f001
+   10e14:	002005b7          	lui	a1,0x200
    10e18:	00e8f633          	and	a2,a7,a4
    10e1c:	00b689b3          	add	s3,a3,a1
    10e20:	00e61463          	bne	a2,a4,10e28 <_zisk_float+0x554>
@@ -1007,7 +1007,7 @@ Disassembly of section .text:
    10f84:	aad71ae3          	bne	a4,a3,10a38 <_zisk_float+0x164>
    10f88:	00cb5713          	srli	a4,s6,0xc
    10f8c:	0f877713          	andi	a4,a4,248
-   10f90:	1f0016b7          	lui	a3,0x1f001
+   10f90:	002006b7          	lui	a3,0x200
    10f94:	00d704b3          	add	s1,a4,a3
    10f98:	0004a503          	lw	a0,0(s1)
    10f9c:	0044a583          	lw	a1,4(s1)
@@ -1020,14 +1020,14 @@ Disassembly of section .text:
    10fb8:	01bb5913          	srli	s2,s6,0x1b
    10fbc:	2cc58ee3          	beq	a1,a2,11a98 <_zisk_float+0x11c4>
    10fc0:	00371713          	slli	a4,a4,0x3
-   10fc4:	1f001637          	lui	a2,0x1f001
+   10fc4:	00200637          	lui	a2,0x200
    10fc8:	00c70433          	add	s0,a4,a2
    10fcc:	00042503          	lw	a0,0(s0)
    10fd0:	00442583          	lw	a1,4(s0)
    10fd4:	7ff00737          	lui	a4,0x7ff00
    10fd8:	00e5f633          	and	a2,a1,a4
    10fdc:	6ae608e3          	beq	a2,a4,11e8c <_zisk_float+0x15b8>
-   10fe0:	1f001737          	lui	a4,0x1f001
+   10fe0:	00200737          	lui	a4,0x200
    10fe4:	00391913          	slli	s2,s2,0x3
    10fe8:	00e90933          	add	s2,s2,a4
    10fec:	00092503          	lw	a0,0(s2)
@@ -1041,7 +1041,7 @@ Disassembly of section .text:
    1100c:	7ff00737          	lui	a4,0x7ff00
    11010:	09312623          	sw	s3,140(sp)
    11014:	00369693          	slli	a3,a3,0x3
-   11018:	1f0015b7          	lui	a1,0x1f001
+   11018:	002005b7          	lui	a1,0x200
    1101c:	00e8f633          	and	a2,a7,a4
    11020:	00b689b3          	add	s3,a3,a1
    11024:	00e61463          	bne	a2,a4,1102c <_zisk_float+0x758>
@@ -1124,7 +1124,7 @@ Disassembly of section .text:
    11158:	7ff00637          	lui	a2,0x7ff00
    1115c:	00c5f5b3          	and	a1,a1,a2
    11160:	42c588e3          	beq	a1,a2,11d90 <_zisk_float+0x14bc>
-   11164:	1f001637          	lui	a2,0x1f001
+   11164:	00200637          	lui	a2,0x200
    11168:	09412423          	sw	s4,136(sp)
    1116c:	00371a13          	slli	s4,a4,0x3
    11170:	00ca0a33          	add	s4,s4,a2
@@ -1134,7 +1134,7 @@ Disassembly of section .text:
    11180:	00c5f5b3          	and	a1,a1,a2
    11184:	00c59463          	bne	a1,a2,1118c <_zisk_float+0x8b8>
    11188:	4a80306f          	j	14630 <_zisk_float+0x3d5c>
-   1118c:	1f001637          	lui	a2,0x1f001
+   1118c:	00200637          	lui	a2,0x200
    11190:	09512223          	sw	s5,132(sp)
    11194:	00369a93          	slli	s5,a3,0x3
    11198:	00ca8ab3          	add	s5,s5,a2
@@ -1148,7 +1148,7 @@ Disassembly of section .text:
    111b8:	00492803          	lw	a6,4(s2)
    111bc:	7ff00737          	lui	a4,0x7ff00
    111c0:	00399993          	slli	s3,s3,0x3
-   111c4:	1f001637          	lui	a2,0x1f001
+   111c4:	00200637          	lui	a2,0x200
    111c8:	00e876b3          	and	a3,a6,a4
    111cc:	00c989b3          	add	s3,s3,a2
    111d0:	00e69463          	bne	a3,a4,111d8 <_zisk_float+0x904>
@@ -1199,7 +1199,7 @@ Disassembly of section .text:
    11284:	00078067          	jr	a5
    11288:	00cb5413          	srli	s0,s6,0xc
    1128c:	0f847413          	andi	s0,s0,248
-   11290:	1f001837          	lui	a6,0x1f001
+   11290:	00200837          	lui	a6,0x200
    11294:	01040433          	add	s0,s0,a6
    11298:	00042703          	lw	a4,0(s0)
    1129c:	7f800537          	lui	a0,0x7f800
@@ -1222,7 +1222,7 @@ Disassembly of section .text:
    112e0:	00442883          	lw	a7,4(s0)
    112e4:	00c87833          	and	a6,a6,a2
    112e8:	06081863          	bnez	a6,11358 <_zisk_float+0xa84>
-   112ec:	1f001837          	lui	a6,0x1f001
+   112ec:	00200837          	lui	a6,0x200
    112f0:	00371513          	slli	a0,a4,0x3
    112f4:	01050533          	add	a0,a0,a6
    112f8:	00052803          	lw	a6,0(a0) # 7f800000 <_float_lib_entry+0x7f700000>
@@ -1234,7 +1234,7 @@ Disassembly of section .text:
    11310:	00c87833          	and	a6,a6,a2
    11314:	04081263          	bnez	a6,11358 <_zisk_float+0xa84>
    11318:	00391793          	slli	a5,s2,0x3
-   1131c:	1f001737          	lui	a4,0x1f001
+   1131c:	00200737          	lui	a4,0x200
    11320:	00e787b3          	add	a5,a5,a4
    11324:	7fc00637          	lui	a2,0x7fc00
    11328:	00000693          	li	a3,0
@@ -1254,7 +1254,7 @@ Disassembly of section .text:
    11360:	00442683          	lw	a3,4(s0)
    11364:	00f67633          	and	a2,a2,a5
    11368:	38f600e3          	beq	a2,a5,11ee8 <_zisk_float+0x1614>
-   1136c:	1f0016b7          	lui	a3,0x1f001
+   1136c:	002006b7          	lui	a3,0x200
    11370:	00371493          	slli	s1,a4,0x3
    11374:	00d484b3          	add	s1,s1,a3
    11378:	0004a603          	lw	a2,0(s1)
@@ -1263,7 +1263,7 @@ Disassembly of section .text:
    11384:	00f67633          	and	a2,a2,a5
    11388:	00f61463          	bne	a2,a5,11390 <_zisk_float+0xabc>
    1138c:	2c80306f          	j	14654 <_zisk_float+0x3d80>
-   11390:	1f0016b7          	lui	a3,0x1f001
+   11390:	002006b7          	lui	a3,0x200
    11394:	09412423          	sw	s4,136(sp)
    11398:	00359a13          	slli	s4,a1,0x3
    1139c:	00da0a33          	add	s4,s4,a3
@@ -1278,7 +1278,7 @@ Disassembly of section .text:
    113c0:	00442803          	lw	a6,4(s0)
    113c4:	09312623          	sw	s3,140(sp)
    113c8:	00391693          	slli	a3,s2,0x3
-   113cc:	1f0015b7          	lui	a1,0x1f001
+   113cc:	002005b7          	lui	a1,0x200
    113d0:	00e7f633          	and	a2,a5,a4
    113d4:	00b689b3          	add	s3,a3,a1
    113d8:	00e61463          	bne	a2,a4,113e0 <_zisk_float+0xb0c>
@@ -1340,7 +1340,7 @@ Disassembly of section .text:
    114b8:	d8cff06f          	j	10a44 <_zisk_float+0x170>
    114bc:	00cb5713          	srli	a4,s6,0xc
    114c0:	0f877713          	andi	a4,a4,248
-   114c4:	1f0016b7          	lui	a3,0x1f001
+   114c4:	002006b7          	lui	a3,0x200
    114c8:	00d704b3          	add	s1,a4,a3
    114cc:	0004a783          	lw	a5,0(s1)
    114d0:	7f800537          	lui	a0,0x7f800
@@ -1354,14 +1354,14 @@ Disassembly of section .text:
    114f0:	01bb5593          	srli	a1,s6,0x1b
    114f4:	60a60663          	beq	a2,a0,11b00 <_zisk_float+0x122c>
    114f8:	00371713          	slli	a4,a4,0x3
-   114fc:	1f0016b7          	lui	a3,0x1f001
+   114fc:	002006b7          	lui	a3,0x200
    11500:	00d70433          	add	s0,a4,a3
    11504:	00042603          	lw	a2,0(s0)
    11508:	7f800737          	lui	a4,0x7f800
    1150c:	00442683          	lw	a3,4(s0)
    11510:	00e67633          	and	a2,a2,a4
    11514:	12e604e3          	beq	a2,a4,11e3c <_zisk_float+0x1568>
-   11518:	1f001737          	lui	a4,0x1f001
+   11518:	00200737          	lui	a4,0x200
    1151c:	00359593          	slli	a1,a1,0x3
    11520:	00e58933          	add	s2,a1,a4
    11524:	00092603          	lw	a2,0(s2)
@@ -1459,7 +1459,7 @@ Disassembly of section .text:
    11694:	00078067          	jr	a5
    11698:	00cb5713          	srli	a4,s6,0xc
    1169c:	0f877713          	andi	a4,a4,248
-   116a0:	1f0016b7          	lui	a3,0x1f001
+   116a0:	002006b7          	lui	a3,0x200
    116a4:	00d70933          	add	s2,a4,a3
    116a8:	00092603          	lw	a2,0(s2)
    116ac:	00492683          	lw	a3,4(s2)
@@ -1472,14 +1472,14 @@ Disassembly of section .text:
    116c8:	01bb5593          	srli	a1,s6,0x1b
    116cc:	5ca60a63          	beq	a2,a0,11ca0 <_zisk_float+0x13cc>
    116d0:	00369693          	slli	a3,a3,0x3
-   116d4:	1f001637          	lui	a2,0x1f001
+   116d4:	00200637          	lui	a2,0x200
    116d8:	00c68433          	add	s0,a3,a2
    116dc:	00042603          	lw	a2,0(s0)
    116e0:	7f8007b7          	lui	a5,0x7f800
    116e4:	00442683          	lw	a3,4(s0)
    116e8:	00f67633          	and	a2,a2,a5
    116ec:	76f60c63          	beq	a2,a5,11e64 <_zisk_float+0x1590>
-   116f0:	1f0016b7          	lui	a3,0x1f001
+   116f0:	002006b7          	lui	a3,0x200
    116f4:	00359593          	slli	a1,a1,0x3
    116f8:	09312623          	sw	s3,140(sp)
    116fc:	00d589b3          	add	s3,a1,a3
@@ -1493,7 +1493,7 @@ Disassembly of section .text:
    1171c:	7f8007b7          	lui	a5,0x7f800
    11720:	00492683          	lw	a3,4(s2)
    11724:	00371713          	slli	a4,a4,0x3
-   11728:	1f0015b7          	lui	a1,0x1f001
+   11728:	002005b7          	lui	a1,0x200
    1172c:	00f67633          	and	a2,a2,a5
    11730:	00b704b3          	add	s1,a4,a1
    11734:	00f61463          	bne	a2,a5,1173c <_zisk_float+0xe68>
@@ -1577,7 +1577,7 @@ Disassembly of section .text:
    1186c:	92cff06f          	j	10998 <_zisk_float+0xc4>
    11870:	00cb5713          	srli	a4,s6,0xc
    11874:	0f877713          	andi	a4,a4,248
-   11878:	1f0016b7          	lui	a3,0x1f001
+   11878:	002006b7          	lui	a3,0x200
    1187c:	00d70933          	add	s2,a4,a3
    11880:	00092603          	lw	a2,0(s2)
    11884:	00492683          	lw	a3,4(s2)
@@ -1590,14 +1590,14 @@ Disassembly of section .text:
    118a0:	01bb5593          	srli	a1,s6,0x1b
    118a4:	46a60063          	beq	a2,a0,11d04 <_zisk_float+0x1430>
    118a8:	00369693          	slli	a3,a3,0x3
-   118ac:	1f001637          	lui	a2,0x1f001
+   118ac:	00200637          	lui	a2,0x200
    118b0:	00c68433          	add	s0,a3,a2
    118b4:	00042603          	lw	a2,0(s0)
    118b8:	7f8007b7          	lui	a5,0x7f800
    118bc:	00442683          	lw	a3,4(s0)
    118c0:	00f67633          	and	a2,a2,a5
    118c4:	4af60263          	beq	a2,a5,11d68 <_zisk_float+0x1494>
-   118c8:	1f0016b7          	lui	a3,0x1f001
+   118c8:	002006b7          	lui	a3,0x200
    118cc:	00359593          	slli	a1,a1,0x3
    118d0:	09312623          	sw	s3,140(sp)
    118d4:	00d589b3          	add	s3,a1,a3
@@ -1611,7 +1611,7 @@ Disassembly of section .text:
    118f4:	7f8007b7          	lui	a5,0x7f800
    118f8:	00492683          	lw	a3,4(s2)
    118fc:	00371713          	slli	a4,a4,0x3
-   11900:	1f0015b7          	lui	a1,0x1f001
+   11900:	002005b7          	lui	a1,0x200
    11904:	00f67633          	and	a2,a2,a5
    11908:	00b704b3          	add	s1,a4,a1
    1190c:	00f61463          	bne	a2,a5,11914 <_zisk_float+0x1040>
@@ -1724,11 +1724,11 @@ Disassembly of section .text:
    11ab8:	00c59613          	slli	a2,a1,0xc
    11abc:	d0064263          	bltz	a2,10fc0 <_zisk_float+0x6ec>
    11ac0:	00369693          	slli	a3,a3,0x3
-   11ac4:	1f0017b7          	lui	a5,0x1f001
+   11ac4:	002007b7          	lui	a5,0x200
    11ac8:	00f687b3          	add	a5,a3,a5
    11acc:	00000613          	li	a2,0
    11ad0:	7ff806b7          	lui	a3,0x7ff80
-   11ad4:	00c7a023          	sw	a2,0(a5) # 1f001000 <_float_lib_entry+0x1ef01000>
+   11ad4:	00c7a023          	sw	a2,0(a5) # 200000 <_float_lib_entry+0x100000>
    11ad8:	00d7a223          	sw	a3,4(a5)
    11adc:	01000513          	li	a0,16
    11ae0:	2ec0d0ef          	jal	1edcc <softfloat_raiseFlags>
@@ -1753,7 +1753,7 @@ Disassembly of section .text:
    11b2c:	0000e697          	auipc	a3,0xe
    11b30:	9486a683          	lw	a3,-1720(a3) # 1f474 <softfloat_exceptionFlags>
    11b34:	00399793          	slli	a5,s3,0x3
-   11b38:	1f001737          	lui	a4,0x1f001
+   11b38:	00200737          	lui	a4,0x200
    11b3c:	00e787b3          	add	a5,a5,a4
    11b40:	7fc00537          	lui	a0,0x7fc00
    11b44:	00000593          	li	a1,0
@@ -1776,11 +1776,11 @@ Disassembly of section .text:
    11b88:	00c59613          	slli	a2,a1,0xc
    11b8c:	a2064663          	bltz	a2,10db8 <_zisk_float+0x4e4>
    11b90:	00369693          	slli	a3,a3,0x3
-   11b94:	1f0017b7          	lui	a5,0x1f001
+   11b94:	002007b7          	lui	a5,0x200
    11b98:	00f687b3          	add	a5,a3,a5
    11b9c:	00000613          	li	a2,0
    11ba0:	7ff806b7          	lui	a3,0x7ff80
-   11ba4:	00c7a023          	sw	a2,0(a5) # 1f001000 <_float_lib_entry+0x1ef01000>
+   11ba4:	00c7a023          	sw	a2,0(a5) # 200000 <_float_lib_entry+0x100000>
    11ba8:	00d7a223          	sw	a3,4(a5)
    11bac:	01000513          	li	a0,16
    11bb0:	21c0d0ef          	jal	1edcc <softfloat_raiseFlags>
@@ -1808,7 +1808,7 @@ Disassembly of section .text:
    11c08:	0000e697          	auipc	a3,0xe
    11c0c:	86c6a683          	lw	a3,-1940(a3) # 1f474 <softfloat_exceptionFlags>
    11c10:	003a9793          	slli	a5,s5,0x3
-   11c14:	1f001737          	lui	a4,0x1f001
+   11c14:	00200737          	lui	a4,0x200
    11c18:	00e787b3          	add	a5,a5,a4
    11c1c:	00000513          	li	a0,0
    11c20:	7ff805b7          	lui	a1,0x7ff80
@@ -1853,7 +1853,7 @@ Disassembly of section .text:
    11cbc:	00c87833          	and	a6,a6,a2
    11cc0:	a00818e3          	bnez	a6,116d0 <_zisk_float+0xdfc>
    11cc4:	00371793          	slli	a5,a4,0x3
-   11cc8:	1f001737          	lui	a4,0x1f001
+   11cc8:	00200737          	lui	a4,0x200
    11ccc:	00e787b3          	add	a5,a5,a4
    11cd0:	7fc00637          	lui	a2,0x7fc00
    11cd4:	00000693          	li	a3,0
@@ -1878,7 +1878,7 @@ Disassembly of section .text:
    11d20:	00c87833          	and	a6,a6,a2
    11d24:	b80812e3          	bnez	a6,118a8 <_zisk_float+0xfd4>
    11d28:	00371793          	slli	a5,a4,0x3
-   11d2c:	1f001737          	lui	a4,0x1f001
+   11d2c:	00200737          	lui	a4,0x200
    11d30:	00e787b3          	add	a5,a5,a4
    11d34:	7fc00637          	lui	a2,0x7fc00
    11d38:	00000693          	li	a3,0
@@ -1916,7 +1916,7 @@ Disassembly of section .text:
    11db8:	00f61463          	bne	a2,a5,11dc0 <_zisk_float+0x14ec>
    11dbc:	7300306f          	j	154ec <_zisk_float+0x4c18>
    11dc0:	00371793          	slli	a5,a4,0x3
-   11dc4:	1f001737          	lui	a4,0x1f001
+   11dc4:	00200737          	lui	a4,0x200
    11dc8:	00e787b3          	add	a5,a5,a4
    11dcc:	0007a503          	lw	a0,0(a5) # 7ff00000 <_float_lib_entry+0x7fe00000>
    11dd0:	0047a583          	lw	a1,4(a5)
@@ -1924,7 +1924,7 @@ Disassembly of section .text:
    11dd8:	00e5f633          	and	a2,a1,a4
    11ddc:	00e61463          	bne	a2,a4,11de4 <_zisk_float+0x1510>
    11de0:	7980306f          	j	15578 <_zisk_float+0x4ca4>
-   11de4:	1f001737          	lui	a4,0x1f001
+   11de4:	00200737          	lui	a4,0x200
    11de8:	00369793          	slli	a5,a3,0x3
    11dec:	00e787b3          	add	a5,a5,a4
    11df0:	0007a503          	lw	a0,0(a5)
@@ -1934,7 +1934,7 @@ Disassembly of section .text:
    11e00:	00e5f633          	and	a2,a1,a4
    11e04:	00e61463          	bne	a2,a4,11e0c <_zisk_float+0x1538>
    11e08:	0a10306f          	j	156a8 <_zisk_float+0x4dd4>
-   11e0c:	1f0017b7          	lui	a5,0x1f001
+   11e0c:	002007b7          	lui	a5,0x200
    11e10:	00399993          	slli	s3,s3,0x3
    11e14:	00f989b3          	add	s3,s3,a5
    11e18:	00000713          	li	a4,0
@@ -2000,7 +2000,7 @@ Disassembly of section .text:
    11f08:	00f61463          	bne	a2,a5,11f10 <_zisk_float+0x163c>
    11f0c:	6280306f          	j	15534 <_zisk_float+0x4c60>
    11f10:	00371793          	slli	a5,a4,0x3
-   11f14:	1f001737          	lui	a4,0x1f001
+   11f14:	00200737          	lui	a4,0x200
    11f18:	00e787b3          	add	a5,a5,a4
    11f1c:	0007a603          	lw	a2,0(a5) # 7f800000 <_float_lib_entry+0x7f700000>
    11f20:	7f800737          	lui	a4,0x7f800
@@ -2008,7 +2008,7 @@ Disassembly of section .text:
    11f28:	00e67633          	and	a2,a2,a4
    11f2c:	00e61463          	bne	a2,a4,11f34 <_zisk_float+0x1660>
    11f30:	6780306f          	j	155a8 <_zisk_float+0x4cd4>
-   11f34:	1f001737          	lui	a4,0x1f001
+   11f34:	00200737          	lui	a4,0x200
    11f38:	00359793          	slli	a5,a1,0x3
    11f3c:	00e787b3          	add	a5,a5,a4
    11f40:	0007a603          	lw	a2,0(a5)
@@ -2018,7 +2018,7 @@ Disassembly of section .text:
    11f50:	00000313          	li	t1,0
    11f54:	00e61463          	bne	a2,a4,11f5c <_zisk_float+0x1688>
    11f58:	7200306f          	j	15678 <_zisk_float+0x4da4>
-   11f5c:	1f0017b7          	lui	a5,0x1f001
+   11f5c:	002007b7          	lui	a5,0x200
    11f60:	00391913          	slli	s2,s2,0x3
    11f64:	00f90933          	add	s2,s2,a5
    11f68:	7fc00737          	lui	a4,0x7fc00
@@ -2099,15 +2099,15 @@ Disassembly of section .text:
    12094:	00070463          	beqz	a4,1209c <_zisk_float+0x17c8>
    12098:	9a1fe06f          	j	10a38 <_zisk_float+0x164>
    1209c:	00cb5713          	srli	a4,s6,0xc
-   120a0:	1f0016b7          	lui	a3,0x1f001
-   120a4:	11868693          	addi	a3,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   120a0:	002006b7          	lui	a3,0x200
+   120a4:	11868693          	addi	a3,a3,280 # 200118 <_float_lib_entry+0x100118>
    120a8:	0f877713          	andi	a4,a4,248
    120ac:	00d70733          	add	a4,a4,a3
    120b0:	004b5793          	srli	a5,s6,0x4
    120b4:	00072603          	lw	a2,0(a4)
    120b8:	0f87f793          	andi	a5,a5,248
    120bc:	00472683          	lw	a3,4(a4)
-   120c0:	1f001737          	lui	a4,0x1f001
+   120c0:	00200737          	lui	a4,0x200
    120c4:	00e787b3          	add	a5,a5,a4
    120c8:	00c7a023          	sw	a2,0(a5)
    120cc:	09812403          	lw	s0,152(sp)
@@ -2143,7 +2143,7 @@ Disassembly of section .text:
    12144:	ffd6f693          	andi	a3,a3,-3
    12148:	00d7a023          	sw	a3,0(a5)
    1214c:	00399793          	slli	a5,s3,0x3
-   12150:	1f001737          	lui	a4,0x1f001
+   12150:	00200737          	lui	a4,0x200
    12154:	00e787b3          	add	a5,a5,a4
    12158:	0107a023          	sw	a6,0(a5)
    1215c:	09812403          	lw	s0,152(sp)
@@ -2186,7 +2186,7 @@ Disassembly of section .text:
    121f0:	ffd6f693          	andi	a3,a3,-3
    121f4:	00d82023          	sw	a3,0(a6)
    121f8:	003a9793          	slli	a5,s5,0x3
-   121fc:	1f001737          	lui	a4,0x1f001
+   121fc:	00200737          	lui	a4,0x200
    12200:	00e787b3          	add	a5,a5,a4
    12204:	0127a023          	sw	s2,0(a5) # 80000000 <_float_lib_entry+0x7ff00000>
    12208:	0137a223          	sw	s3,4(a5)
@@ -2230,7 +2230,7 @@ Disassembly of section .text:
    122a0:	f98fe06f          	j	10a38 <_zisk_float+0x164>
    122a4:	00cb5713          	srli	a4,s6,0xc
    122a8:	0f877713          	andi	a4,a4,248
-   122ac:	1f001637          	lui	a2,0x1f001
+   122ac:	00200637          	lui	a2,0x200
    122b0:	00c70433          	add	s0,a4,a2
    122b4:	00042503          	lw	a0,0(s0)
    122b8:	00442583          	lw	a1,4(s0)
@@ -2290,7 +2290,7 @@ Disassembly of section .text:
    12390:	ea8fe06f          	j	10a38 <_zisk_float+0x164>
    12394:	00cb5713          	srli	a4,s6,0xc
    12398:	0f877713          	andi	a4,a4,248
-   1239c:	1f0015b7          	lui	a1,0x1f001
+   1239c:	002005b7          	lui	a1,0x200
    123a0:	00b70433          	add	s0,a4,a1
    123a4:	00042603          	lw	a2,0(s0)
    123a8:	004b5713          	srli	a4,s6,0x4
@@ -2340,7 +2340,7 @@ Disassembly of section .text:
    12458:	d40fe06f          	j	10998 <_zisk_float+0xc4>
    1245c:	00cb5713          	srli	a4,s6,0xc
    12460:	0f877713          	andi	a4,a4,248
-   12464:	1f001637          	lui	a2,0x1f001
+   12464:	00200637          	lui	a2,0x200
    12468:	00c704b3          	add	s1,a4,a2
    1246c:	0004a503          	lw	a0,0(s1)
    12470:	0044a583          	lw	a1,4(s1)
@@ -2361,7 +2361,7 @@ Disassembly of section .text:
    124ac:	02059c63          	bnez	a1,124e4 <_zisk_float+0x1c10>
    124b0:	00371593          	slli	a1,a4,0x3
    124b4:	00c58633          	add	a2,a1,a2
-   124b8:	00062503          	lw	a0,0(a2) # 1f001000 <_float_lib_entry+0x1ef01000>
+   124b8:	00062503          	lw	a0,0(a2) # 200000 <_float_lib_entry+0x100000>
    124bc:	00462583          	lw	a1,4(a2)
    124c0:	0145d513          	srli	a0,a1,0x14
    124c4:	7ff57513          	andi	a0,a0,2047
@@ -2390,7 +2390,7 @@ Disassembly of section .text:
    12520:	00d5f633          	and	a2,a1,a3
    12524:	00d61463          	bne	a2,a3,1252c <_zisk_float+0x1c58>
    12528:	3f40406f          	j	1691c <_zisk_float+0x6048>
-   1252c:	1f0016b7          	lui	a3,0x1f001
+   1252c:	002006b7          	lui	a3,0x200
    12530:	09312623          	sw	s3,140(sp)
    12534:	00371993          	slli	s3,a4,0x3
    12538:	00d989b3          	add	s3,s3,a3
@@ -2438,7 +2438,7 @@ Disassembly of section .text:
    125e0:	00078067          	jr	a5
    125e4:	00cb5713          	srli	a4,s6,0xc
    125e8:	0f877713          	andi	a4,a4,248
-   125ec:	1f0015b7          	lui	a1,0x1f001
+   125ec:	002005b7          	lui	a1,0x200
    125f0:	00b704b3          	add	s1,a4,a1
    125f4:	0004a603          	lw	a2,0(s1)
    125f8:	0044a683          	lw	a3,4(s1)
@@ -2485,7 +2485,7 @@ Disassembly of section .text:
    1269c:	00f67633          	and	a2,a2,a5
    126a0:	00f61463          	bne	a2,a5,126a8 <_zisk_float+0x1dd4>
    126a4:	2f40406f          	j	16998 <_zisk_float+0x60c4>
-   126a8:	1f0016b7          	lui	a3,0x1f001
+   126a8:	002006b7          	lui	a3,0x200
    126ac:	09312623          	sw	s3,140(sp)
    126b0:	00371993          	slli	s3,a4,0x3
    126b4:	00d989b3          	add	s3,s3,a3
@@ -2530,7 +2530,7 @@ Disassembly of section .text:
    12750:	00078067          	jr	a5
    12754:	00cb5713          	srli	a4,s6,0xc
    12758:	0f877713          	andi	a4,a4,248
-   1275c:	1f001537          	lui	a0,0x1f001
+   1275c:	00200537          	lui	a0,0x200
    12760:	00a704b3          	add	s1,a4,a0
    12764:	0004a803          	lw	a6,0(s1)
    12768:	0044a883          	lw	a7,4(s1)
@@ -2554,7 +2554,7 @@ Disassembly of section .text:
    127b0:	00d5f633          	and	a2,a1,a3
    127b4:	00d61463          	bne	a2,a3,127bc <_zisk_float+0x1ee8>
    127b8:	6250306f          	j	165dc <_zisk_float+0x5d08>
-   127bc:	1f0016b7          	lui	a3,0x1f001
+   127bc:	002006b7          	lui	a3,0x200
    127c0:	09312623          	sw	s3,140(sp)
    127c4:	00371993          	slli	s3,a4,0x3
    127c8:	00d989b3          	add	s3,s3,a3
@@ -2567,7 +2567,7 @@ Disassembly of section .text:
    127e4:	0004a783          	lw	a5,0(s1)
    127e8:	0044a803          	lw	a6,4(s1)
    127ec:	00341713          	slli	a4,s0,0x3
-   127f0:	1f001637          	lui	a2,0x1f001
+   127f0:	00200637          	lui	a2,0x200
    127f4:	00c70933          	add	s2,a4,a2
    127f8:	01485713          	srli	a4,a6,0x14
    127fc:	7ff77713          	andi	a4,a4,2047
@@ -2628,7 +2628,7 @@ Disassembly of section .text:
    128d8:	00078067          	jr	a5
    128dc:	00cb5713          	srli	a4,s6,0xc
    128e0:	0f877713          	andi	a4,a4,248
-   128e4:	1f0016b7          	lui	a3,0x1f001
+   128e4:	002006b7          	lui	a3,0x200
    128e8:	00d704b3          	add	s1,a4,a3
    128ec:	0004a503          	lw	a0,0(s1)
    128f0:	0044a583          	lw	a1,4(s1)
@@ -2640,7 +2640,7 @@ Disassembly of section .text:
    12908:	01f77713          	andi	a4,a4,31
    1290c:	00c59463          	bne	a1,a2,12914 <_zisk_float+0x2040>
    12910:	5880306f          	j	15e98 <_zisk_float+0x55c4>
-   12914:	1f0016b7          	lui	a3,0x1f001
+   12914:	002006b7          	lui	a3,0x200
    12918:	09312623          	sw	s3,140(sp)
    1291c:	00371993          	slli	s3,a4,0x3
    12920:	00d989b3          	add	s3,s3,a3
@@ -2654,7 +2654,7 @@ Disassembly of section .text:
    12940:	0044a883          	lw	a7,4(s1)
    12944:	7ff00737          	lui	a4,0x7ff00
    12948:	00341693          	slli	a3,s0,0x3
-   1294c:	1f0015b7          	lui	a1,0x1f001
+   1294c:	002005b7          	lui	a1,0x200
    12950:	00e8f633          	and	a2,a7,a4
    12954:	00b68933          	add	s2,a3,a1
    12958:	00e61463          	bne	a2,a4,12960 <_zisk_float+0x208c>
@@ -2702,7 +2702,7 @@ Disassembly of section .text:
    12a00:	00078067          	jr	a5
    12a04:	00cb5713          	srli	a4,s6,0xc
    12a08:	0f877713          	andi	a4,a4,248
-   12a0c:	1f0016b7          	lui	a3,0x1f001
+   12a0c:	002006b7          	lui	a3,0x200
    12a10:	00d704b3          	add	s1,a4,a3
    12a14:	0004a783          	lw	a5,0(s1)
    12a18:	7f8005b7          	lui	a1,0x7f800
@@ -2714,7 +2714,7 @@ Disassembly of section .text:
    12a30:	01f77713          	andi	a4,a4,31
    12a34:	00b61463          	bne	a2,a1,12a3c <_zisk_float+0x2168>
    12a38:	3400306f          	j	15d78 <_zisk_float+0x54a4>
-   12a3c:	1f0016b7          	lui	a3,0x1f001
+   12a3c:	002006b7          	lui	a3,0x200
    12a40:	09312623          	sw	s3,140(sp)
    12a44:	00371993          	slli	s3,a4,0x3
    12a48:	00d989b3          	add	s3,s3,a3
@@ -2728,7 +2728,7 @@ Disassembly of section .text:
    12a68:	7f800737          	lui	a4,0x7f800
    12a6c:	0044a803          	lw	a6,4(s1)
    12a70:	00341693          	slli	a3,s0,0x3
-   12a74:	1f0015b7          	lui	a1,0x1f001
+   12a74:	002005b7          	lui	a1,0x200
    12a78:	00e7f633          	and	a2,a5,a4
    12a7c:	00b68933          	add	s2,a3,a1
    12a80:	00e61463          	bne	a2,a4,12a88 <_zisk_float+0x21b4>
@@ -2783,7 +2783,7 @@ Disassembly of section .text:
    12b44:	00078067          	jr	a5
    12b48:	00cb5713          	srli	a4,s6,0xc
    12b4c:	0f877713          	andi	a4,a4,248
-   12b50:	1f0015b7          	lui	a1,0x1f001
+   12b50:	002005b7          	lui	a1,0x200
    12b54:	00b704b3          	add	s1,a4,a1
    12b58:	0004a603          	lw	a2,0(s1)
    12b5c:	7f8007b7          	lui	a5,0x7f800
@@ -2807,7 +2807,7 @@ Disassembly of section .text:
    12ba4:	00f67633          	and	a2,a2,a5
    12ba8:	00f61463          	bne	a2,a5,12bb0 <_zisk_float+0x22dc>
    12bac:	1190306f          	j	164c4 <_zisk_float+0x5bf0>
-   12bb0:	1f0016b7          	lui	a3,0x1f001
+   12bb0:	002006b7          	lui	a3,0x200
    12bb4:	09312623          	sw	s3,140(sp)
    12bb8:	00371993          	slli	s3,a4,0x3
    12bbc:	00d989b3          	add	s3,s3,a3
@@ -2821,7 +2821,7 @@ Disassembly of section .text:
    12bdc:	7f800737          	lui	a4,0x7f800
    12be0:	0044a803          	lw	a6,4(s1)
    12be4:	00341413          	slli	s0,s0,0x3
-   12be8:	1f0016b7          	lui	a3,0x1f001
+   12be8:	002006b7          	lui	a3,0x200
    12bec:	00e7f633          	and	a2,a5,a4
    12bf0:	00d40933          	add	s2,s0,a3
    12bf4:	02061863          	bnez	a2,12c24 <_zisk_float+0x2350>
@@ -2874,7 +2874,7 @@ Disassembly of section .text:
    12cb0:	00e787b3          	add	a5,a5,a4
    12cb4:	00078067          	jr	a5
    12cb8:	00cb5413          	srli	s0,s6,0xc
-   12cbc:	1f001737          	lui	a4,0x1f001
+   12cbc:	00200737          	lui	a4,0x200
    12cc0:	0f847413          	andi	s0,s0,248
    12cc4:	00e40433          	add	s0,s0,a4
    12cc8:	00042503          	lw	a0,0(s0)
@@ -2887,7 +2887,7 @@ Disassembly of section .text:
    12ce4:	01f77713          	andi	a4,a4,31
    12ce8:	00c59463          	bne	a1,a2,12cf0 <_zisk_float+0x241c>
    12cec:	2dc0306f          	j	15fc8 <_zisk_float+0x56f4>
-   12cf0:	1f0016b7          	lui	a3,0x1f001
+   12cf0:	002006b7          	lui	a3,0x200
    12cf4:	09312623          	sw	s3,140(sp)
    12cf8:	00371993          	slli	s3,a4,0x3
    12cfc:	00d989b3          	add	s3,s3,a3
@@ -2901,7 +2901,7 @@ Disassembly of section .text:
    12d1c:	00442803          	lw	a6,4(s0)
    12d20:	7ff00737          	lui	a4,0x7ff00
    12d24:	00349493          	slli	s1,s1,0x3
-   12d28:	1f001637          	lui	a2,0x1f001
+   12d28:	00200637          	lui	a2,0x200
    12d2c:	00e876b3          	and	a3,a6,a4
    12d30:	00c484b3          	add	s1,s1,a2
    12d34:	00e69463          	bne	a3,a4,12d3c <_zisk_float+0x2468>
@@ -2977,7 +2977,7 @@ Disassembly of section .text:
    12e4c:	00000313          	li	t1,0
    12e50:	b49fd06f          	j	10998 <_zisk_float+0xc4>
    12e54:	00cb5493          	srli	s1,s6,0xc
-   12e58:	1f001737          	lui	a4,0x1f001
+   12e58:	00200737          	lui	a4,0x200
    12e5c:	0f84f493          	andi	s1,s1,248
    12e60:	00e484b3          	add	s1,s1,a4
    12e64:	0004a783          	lw	a5,0(s1)
@@ -2990,7 +2990,7 @@ Disassembly of section .text:
    12e80:	01f77713          	andi	a4,a4,31
    12e84:	00b61463          	bne	a2,a1,12e8c <_zisk_float+0x25b8>
    12e88:	0980306f          	j	15f20 <_zisk_float+0x564c>
-   12e8c:	1f0016b7          	lui	a3,0x1f001
+   12e8c:	002006b7          	lui	a3,0x200
    12e90:	09312623          	sw	s3,140(sp)
    12e94:	00371993          	slli	s3,a4,0x3
    12e98:	00d989b3          	add	s3,s3,a3
@@ -3004,7 +3004,7 @@ Disassembly of section .text:
    12eb8:	7f800737          	lui	a4,0x7f800
    12ebc:	0044a803          	lw	a6,4(s1)
    12ec0:	00341693          	slli	a3,s0,0x3
-   12ec4:	1f0015b7          	lui	a1,0x1f001
+   12ec4:	002005b7          	lui	a1,0x200
    12ec8:	00e7f633          	and	a2,a5,a4
    12ecc:	00b68933          	add	s2,a3,a1
    12ed0:	00e61463          	bne	a2,a4,12ed8 <_zisk_float+0x2604>
@@ -3073,7 +3073,7 @@ Disassembly of section .text:
    12fcc:	9bdfd06f          	j	10988 <_zisk_float+0xb4>
    12fd0:	00cb5793          	srli	a5,s6,0xc
    12fd4:	0f87f793          	andi	a5,a5,248
-   12fd8:	1f0016b7          	lui	a3,0x1f001
+   12fd8:	002006b7          	lui	a3,0x200
    12fdc:	00d787b3          	add	a5,a5,a3
    12fe0:	0007a503          	lw	a0,0(a5)
    12fe4:	0047a583          	lw	a1,4(a5)
@@ -3119,9 +3119,9 @@ Disassembly of section .text:
    13084:	0f40706f          	j	1a178 <_zisk_float+0x98a4>
    13088:	0007a503          	lw	a0,0(a5)
    1308c:	0047a583          	lw	a1,4(a5)
-   13090:	1f0016b7          	lui	a3,0x1f001
+   13090:	002006b7          	lui	a3,0x200
    13094:	00371793          	slli	a5,a4,0x3
-   13098:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   13098:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    1309c:	00e787b3          	add	a5,a5,a4
    130a0:	0005d463          	bgez	a1,130a8 <_zisk_float+0x27d4>
    130a4:	2b90606f          	j	19b5c <_zisk_float+0x9288>
@@ -3144,7 +3144,7 @@ Disassembly of section .text:
    130e8:	00071463          	bnez	a4,130f0 <_zisk_float+0x281c>
    130ec:	89dfd06f          	j	10988 <_zisk_float+0xb4>
    130f0:	00cb5793          	srli	a5,s6,0xc
-   130f4:	1f0016b7          	lui	a3,0x1f001
+   130f4:	002006b7          	lui	a3,0x200
    130f8:	0f87f793          	andi	a5,a5,248
    130fc:	00d787b3          	add	a5,a5,a3
    13100:	0007a603          	lw	a2,0(a5)
@@ -3175,9 +3175,9 @@ Disassembly of section .text:
    13164:	00069663          	bnez	a3,13170 <_zisk_float+0x289c>
    13168:	00064463          	bltz	a2,13170 <_zisk_float+0x289c>
    1316c:	79c0606f          	j	19908 <_zisk_float+0x9034>
-   13170:	1f0016b7          	lui	a3,0x1f001
+   13170:	002006b7          	lui	a3,0x200
    13174:	00371793          	slli	a5,a4,0x3
-   13178:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   13178:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    1317c:	00e787b3          	add	a5,a5,a4
    13180:	00800613          	li	a2,8
    13184:	00000693          	li	a3,0
@@ -3202,21 +3202,21 @@ Disassembly of section .text:
    131d0:	0000c617          	auipc	a2,0xc
    131d4:	2a862603          	lw	a2,680(a2) # 1f478 <softfloat_roundingMode>
    131d8:	00f67633          	and	a2,a2,a5
-   131dc:	1f0017b7          	lui	a5,0x1f001
+   131dc:	002007b7          	lui	a5,0x200
    131e0:	00349493          	slli	s1,s1,0x3
    131e4:	00f484b3          	add	s1,s1,a5
    131e8:	0004a503          	lw	a0,0(s1)
    131ec:	0044a583          	lw	a1,4(s1)
    131f0:	00100693          	li	a3,1
    131f4:	351080ef          	jal	1bd44 <f64_to_ui32>
-   131f8:	1f001737          	lui	a4,0x1f001
+   131f8:	00200737          	lui	a4,0x200
    131fc:	0000c597          	auipc	a1,0xc
    13200:	2785a583          	lw	a1,632(a1) # 1f474 <softfloat_exceptionFlags>
-   13204:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   13204:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    13208:	00341793          	slli	a5,s0,0x3
    1320c:	00e787b3          	add	a5,a5,a4
    13210:	00000693          	li	a3,0
-   13214:	00a7a023          	sw	a0,0(a5) # 1f001000 <_float_lib_entry+0x1ef01000>
+   13214:	00a7a023          	sw	a0,0(a5) # 200000 <_float_lib_entry+0x100000>
    13218:	00d7a223          	sw	a3,4(a5)
    1321c:	0105f713          	andi	a4,a1,16
    13220:	00071463          	bnez	a4,13228 <_zisk_float+0x2954>
@@ -3260,7 +3260,7 @@ Disassembly of section .text:
    132b8:	0000c597          	auipc	a1,0xc
    132bc:	1c05a583          	lw	a1,448(a1) # 1f478 <softfloat_roundingMode>
    132c0:	00f5f5b3          	and	a1,a1,a5
-   132c4:	1f0017b7          	lui	a5,0x1f001
+   132c4:	002007b7          	lui	a5,0x200
    132c8:	00349493          	slli	s1,s1,0x3
    132cc:	00f484b3          	add	s1,s1,a5
    132d0:	0004a703          	lw	a4,0(s1)
@@ -3268,14 +3268,14 @@ Disassembly of section .text:
    132d8:	00100613          	li	a2,1
    132dc:	00070513          	mv	a0,a4
    132e0:	481070ef          	jal	1af60 <f32_to_ui32>
-   132e4:	1f001737          	lui	a4,0x1f001
+   132e4:	00200737          	lui	a4,0x200
    132e8:	0000c597          	auipc	a1,0xc
    132ec:	18c5a583          	lw	a1,396(a1) # 1f474 <softfloat_exceptionFlags>
-   132f0:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   132f0:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    132f4:	00341793          	slli	a5,s0,0x3
    132f8:	00e787b3          	add	a5,a5,a4
    132fc:	00000693          	li	a3,0
-   13300:	00a7a023          	sw	a0,0(a5) # 1f001000 <_float_lib_entry+0x1ef01000>
+   13300:	00a7a023          	sw	a0,0(a5) # 200000 <_float_lib_entry+0x100000>
    13304:	00d7a223          	sw	a3,4(a5)
    13308:	0105f713          	andi	a4,a1,16
    1330c:	00071463          	bnez	a4,13314 <_zisk_float+0x2a40>
@@ -3312,7 +3312,7 @@ Disassembly of section .text:
    13388:	eb0fd06f          	j	10a38 <_zisk_float+0x164>
    1338c:	00cb5693          	srli	a3,s6,0xc
    13390:	011b5713          	srli	a4,s6,0x11
-   13394:	1f001637          	lui	a2,0x1f001
+   13394:	00200637          	lui	a2,0x200
    13398:	0f86f693          	andi	a3,a3,248
    1339c:	0f877713          	andi	a4,a4,248
    133a0:	00c686b3          	add	a3,a3,a2
@@ -3323,11 +3323,11 @@ Disassembly of section .text:
    133b4:	00472683          	lw	a3,4(a4)
    133b8:	10c080ef          	jal	1b4c4 <f64_le>
    133bc:	004b5793          	srli	a5,s6,0x4
-   133c0:	1f001737          	lui	a4,0x1f001
+   133c0:	00200737          	lui	a4,0x200
    133c4:	0000c597          	auipc	a1,0xc
    133c8:	0b05a583          	lw	a1,176(a1) # 1f474 <softfloat_exceptionFlags>
    133cc:	0f87f793          	andi	a5,a5,248
-   133d0:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   133d0:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    133d4:	00e787b3          	add	a5,a5,a4
    133d8:	00000693          	li	a3,0
    133dc:	00a7a023          	sw	a0,0(a5)
@@ -3349,7 +3349,7 @@ Disassembly of section .text:
    1341c:	e1cfd06f          	j	10a38 <_zisk_float+0x164>
    13420:	00cb5693          	srli	a3,s6,0xc
    13424:	011b5713          	srli	a4,s6,0x11
-   13428:	1f001637          	lui	a2,0x1f001
+   13428:	00200637          	lui	a2,0x200
    1342c:	0f86f693          	andi	a3,a3,248
    13430:	0f877713          	andi	a4,a4,248
    13434:	00c686b3          	add	a3,a3,a2
@@ -3361,11 +3361,11 @@ Disassembly of section .text:
    1344c:	00060593          	mv	a1,a2
    13450:	504070ef          	jal	1a954 <f32_le>
    13454:	004b5793          	srli	a5,s6,0x4
-   13458:	1f001737          	lui	a4,0x1f001
+   13458:	00200737          	lui	a4,0x200
    1345c:	0000c597          	auipc	a1,0xc
    13460:	0185a583          	lw	a1,24(a1) # 1f474 <softfloat_exceptionFlags>
    13464:	0f87f793          	andi	a5,a5,248
-   13468:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   13468:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    1346c:	00e787b3          	add	a5,a5,a4
    13470:	00000693          	li	a3,0
    13474:	00a7a023          	sw	a0,0(a5)
@@ -3384,7 +3384,7 @@ Disassembly of section .text:
    134a8:	d90fd06f          	j	10a38 <_zisk_float+0x164>
    134ac:	00cb5713          	srli	a4,s6,0xc
    134b0:	0f877713          	andi	a4,a4,248
-   134b4:	1f0015b7          	lui	a1,0x1f001
+   134b4:	002005b7          	lui	a1,0x200
    134b8:	00b704b3          	add	s1,a4,a1
    134bc:	0004a603          	lw	a2,0(s1)
    134c0:	0044a683          	lw	a3,4(s1)
@@ -3412,7 +3412,7 @@ Disassembly of section .text:
    13518:	0004a783          	lw	a5,0(s1)
    1351c:	0044a803          	lw	a6,4(s1)
    13520:	00341413          	slli	s0,s0,0x3
-   13524:	1f0016b7          	lui	a3,0x1f001
+   13524:	002006b7          	lui	a3,0x200
    13528:	00d40433          	add	s0,s0,a3
    1352c:	00079463          	bnez	a5,13534 <_zisk_float+0x2c60>
    13530:	2500606f          	j	19780 <_zisk_float+0x8eac>
@@ -3451,7 +3451,7 @@ Disassembly of section .text:
    135b4:	00d70463          	beq	a4,a3,135bc <_zisk_float+0x2ce8>
    135b8:	c80fd06f          	j	10a38 <_zisk_float+0x164>
    135bc:	00cb5413          	srli	s0,s6,0xc
-   135c0:	1f001737          	lui	a4,0x1f001
+   135c0:	00200737          	lui	a4,0x200
    135c4:	0f847413          	andi	s0,s0,248
    135c8:	00e40433          	add	s0,s0,a4
    135cc:	00042803          	lw	a6,0(s0)
@@ -3572,7 +3572,7 @@ Disassembly of section .text:
    13798:	aa0fd06f          	j	10a38 <_zisk_float+0x164>
    1379c:	00cb5713          	srli	a4,s6,0xc
    137a0:	0f877713          	andi	a4,a4,248
-   137a4:	1f0016b7          	lui	a3,0x1f001
+   137a4:	002006b7          	lui	a3,0x200
    137a8:	00d70433          	add	s0,a4,a3
    137ac:	00042503          	lw	a0,0(s0)
    137b0:	00442583          	lw	a1,4(s0)
@@ -3675,7 +3675,7 @@ Disassembly of section .text:
    13934:	00070463          	beqz	a4,1393c <_zisk_float+0x3068>
    13938:	900fd06f          	j	10a38 <_zisk_float+0x164>
    1393c:	011b5713          	srli	a4,s6,0x11
-   13940:	1f0016b7          	lui	a3,0x1f001
+   13940:	002006b7          	lui	a3,0x200
    13944:	0f877713          	andi	a4,a4,248
    13948:	00d70733          	add	a4,a4,a3
    1394c:	00072503          	lw	a0,0(a4) # 7f800000 <_float_lib_entry+0x7f700000>
@@ -3705,7 +3705,7 @@ Disassembly of section .text:
    139ac:	00070463          	beqz	a4,139b4 <_zisk_float+0x30e0>
    139b0:	888fd06f          	j	10a38 <_zisk_float+0x164>
    139b4:	011b5713          	srli	a4,s6,0x11
-   139b8:	1f0016b7          	lui	a3,0x1f001
+   139b8:	002006b7          	lui	a3,0x200
    139bc:	0f877713          	andi	a4,a4,248
    139c0:	00d70733          	add	a4,a4,a3
    139c4:	00072503          	lw	a0,0(a4)
@@ -3734,7 +3734,7 @@ Disassembly of section .text:
    13a20:	818fd06f          	j	10a38 <_zisk_float+0x164>
    13a24:	00cb5713          	srli	a4,s6,0xc
    13a28:	0f877713          	andi	a4,a4,248
-   13a2c:	1f001637          	lui	a2,0x1f001
+   13a2c:	00200637          	lui	a2,0x200
    13a30:	00c70933          	add	s2,a4,a2
    13a34:	00092503          	lw	a0,0(s2)
    13a38:	00492583          	lw	a1,4(s2)
@@ -4036,13 +4036,13 @@ Disassembly of section .text:
    13ed8:	00300793          	li	a5,3
    13edc:	0000b717          	auipc	a4,0xb
    13ee0:	58f72e23          	sw	a5,1436(a4) # 1f478 <softfloat_roundingMode>
-   13ee4:	1f001737          	lui	a4,0x1f001
-   13ee8:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   13ee4:	00200737          	lui	a4,0x200
+   13ee8:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    13eec:	00349793          	slli	a5,s1,0x3
    13ef0:	00e787b3          	add	a5,a5,a4
    13ef4:	0007a503          	lw	a0,0(a5)
    13ef8:	0047a583          	lw	a1,4(a5)
-   13efc:	1f001437          	lui	s0,0x1f001
+   13efc:	00200437          	lui	s0,0x200
    13f00:	210080ef          	jal	1c110 <ui32_to_f32>
    13f04:	0000b717          	auipc	a4,0xb
    13f08:	57072703          	lw	a4,1392(a4) # 1f474 <softfloat_exceptionFlags>
@@ -4058,13 +4058,13 @@ Disassembly of section .text:
    13f30:	a69fc06f          	j	10998 <_zisk_float+0xc4>
    13f34:	0000b797          	auipc	a5,0xb
    13f38:	5407a223          	sw	zero,1348(a5) # 1f478 <softfloat_roundingMode>
-   13f3c:	1f001737          	lui	a4,0x1f001
+   13f3c:	00200737          	lui	a4,0x200
    13f40:	00349793          	slli	a5,s1,0x3
-   13f44:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   13f44:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    13f48:	00e787b3          	add	a5,a5,a4
    13f4c:	0007a503          	lw	a0,0(a5)
    13f50:	0047a583          	lw	a1,4(a5)
-   13f54:	1f001437          	lui	s0,0x1f001
+   13f54:	00200437          	lui	s0,0x200
    13f58:	1ec080ef          	jal	1c144 <ui32_to_f64>
    13f5c:	04a12023          	sw	a0,64(sp)
    13f60:	04b12223          	sw	a1,68(sp)
@@ -4131,7 +4131,7 @@ Disassembly of section .text:
    14054:	00300793          	li	a5,3
    14058:	0000b717          	auipc	a4,0xb
    1405c:	42f72023          	sw	a5,1056(a4) # 1f478 <softfloat_roundingMode>
-   14060:	00042503          	lw	a0,0(s0) # 1f001000 <_float_lib_entry+0x1ef01000>
+   14060:	00042503          	lw	a0,0(s0) # 200000 <_float_lib_entry+0x100000>
    14064:	00442583          	lw	a1,4(s0)
    14068:	0004a703          	lw	a4,0(s1)
    1406c:	0044a783          	lw	a5,4(s1)
@@ -4452,7 +4452,7 @@ Disassembly of section .text:
    14558:	00070463          	beqz	a4,14560 <_zisk_float+0x3c8c>
    1455c:	ec0fc06f          	j	10c1c <_zisk_float+0x348>
    14560:	003a9793          	slli	a5,s5,0x3
-   14564:	1f001737          	lui	a4,0x1f001
+   14564:	00200737          	lui	a4,0x200
    14568:	00e787b3          	add	a5,a5,a4
    1456c:	00000613          	li	a2,0
    14570:	7ff806b7          	lui	a3,0x7ff80
@@ -4487,7 +4487,7 @@ Disassembly of section .text:
    145e4:	00060463          	beqz	a2,145ec <_zisk_float+0x3d18>
    145e8:	f6dfc06f          	j	11554 <_zisk_float+0xc80>
    145ec:	00399793          	slli	a5,s3,0x3
-   145f0:	1f001737          	lui	a4,0x1f001
+   145f0:	00200737          	lui	a4,0x200
    145f4:	00e787b3          	add	a5,a5,a4
    145f8:	7fc00637          	lui	a2,0x7fc00
    145fc:	00000693          	li	a3,0
@@ -4565,7 +4565,7 @@ Disassembly of section .text:
    1471c:	00961613          	slli	a2,a2,0x9
    14720:	00061463          	bnez	a2,14728 <_zisk_float+0x3e54>
    14724:	e89fc06f          	j	115ac <_zisk_float+0xcd8>
-   14728:	1f0017b7          	lui	a5,0x1f001
+   14728:	002007b7          	lui	a5,0x200
    1472c:	00399693          	slli	a3,s3,0x3
    14730:	00f686b3          	add	a3,a3,a5
    14734:	7fc00737          	lui	a4,0x7fc00
@@ -4585,7 +4585,7 @@ Disassembly of section .text:
    1476c:	00c76733          	or	a4,a4,a2
    14770:	00071463          	bnez	a4,14778 <_zisk_float+0x3ea4>
    14774:	d08fc06f          	j	10c7c <_zisk_float+0x3a8>
-   14778:	1f0017b7          	lui	a5,0x1f001
+   14778:	002007b7          	lui	a5,0x200
    1477c:	003a9693          	slli	a3,s5,0x3
    14780:	00f686b3          	add	a3,a3,a5
    14784:	00000713          	li	a4,0
@@ -5397,7 +5397,7 @@ Disassembly of section .text:
    1541c:	0044a583          	lw	a1,4(s1)
    15420:	00042683          	lw	a3,0(s0)
    15424:	00442703          	lw	a4,4(s0)
-   15428:	1f001637          	lui	a2,0x1f001
+   15428:	00200637          	lui	a2,0x200
    1542c:	003a9793          	slli	a5,s5,0x3
    15430:	00c787b3          	add	a5,a5,a2
    15434:	000a2603          	lw	a2,0(s4)
@@ -5423,7 +5423,7 @@ Disassembly of section .text:
    15484:	00042603          	lw	a2,0(s0)
    15488:	00442683          	lw	a3,4(s0)
    1548c:	00399993          	slli	s3,s3,0x3
-   15490:	1f0017b7          	lui	a5,0x1f001
+   15490:	002007b7          	lui	a5,0x200
    15494:	00f989b3          	add	s3,s3,a5
    15498:	00100713          	li	a4,1
    1549c:	00059663          	bnez	a1,154a8 <_zisk_float+0x4bd4>
@@ -5588,7 +5588,7 @@ Disassembly of section .text:
    15718:	00051463          	bnez	a0,15720 <_zisk_float+0x4e4c>
    1571c:	99dfe06f          	j	140b8 <_zisk_float+0x37e4>
    15720:	0026e693          	ori	a3,a3,2
-   15724:	00d62023          	sw	a3,0(a2) # 1f001000 <_float_lib_entry+0x1ef01000>
+   15724:	00d62023          	sw	a3,0(a2) # 200000 <_float_lib_entry+0x100000>
    15728:	991fe06f          	j	140b8 <_zisk_float+0x37e4>
    1572c:	00c59713          	slli	a4,a1,0xc
    15730:	00c75713          	srli	a4,a4,0xc
@@ -5629,14 +5629,14 @@ Disassembly of section .text:
    157bc:	00070463          	beqz	a4,157c4 <_zisk_float+0x4ef0>
    157c0:	a78fb06f          	j	10a38 <_zisk_float+0x164>
    157c4:	00cb5713          	srli	a4,s6,0xc
-   157c8:	1f0016b7          	lui	a3,0x1f001
+   157c8:	002006b7          	lui	a3,0x200
    157cc:	0f877713          	andi	a4,a4,248
    157d0:	00d70733          	add	a4,a4,a3
    157d4:	004b5793          	srli	a5,s6,0x4
    157d8:	00072503          	lw	a0,0(a4) # 7ff00000 <_float_lib_entry+0x7fe00000>
    157dc:	0f87f793          	andi	a5,a5,248
    157e0:	00472583          	lw	a1,4(a4)
-   157e4:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   157e4:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    157e8:	00e787b3          	add	a5,a5,a4
    157ec:	00a7a023          	sw	a0,0(a5)
    157f0:	09812403          	lw	s0,152(sp)
@@ -5655,7 +5655,7 @@ Disassembly of section .text:
    15824:	000a2803          	lw	a6,0(s4)
    15828:	004a2883          	lw	a7,4(s4)
    1582c:	003a9693          	slli	a3,s5,0x3
-   15830:	1f0015b7          	lui	a1,0x1f001
+   15830:	002005b7          	lui	a1,0x200
    15834:	00c8f7b3          	and	a5,a7,a2
    15838:	00b686b3          	add	a3,a3,a1
    1583c:	00c79463          	bne	a5,a2,15844 <_zisk_float+0x4f70>
@@ -5675,7 +5675,7 @@ Disassembly of section .text:
    15874:	00092503          	lw	a0,0(s2)
    15878:	00492583          	lw	a1,4(s2)
    1587c:	00399793          	slli	a5,s3,0x3
-   15880:	1f0016b7          	lui	a3,0x1f001
+   15880:	002006b7          	lui	a3,0x200
    15884:	00c57533          	and	a0,a0,a2
    15888:	00d787b3          	add	a5,a5,a3
    1588c:	00c51463          	bne	a0,a2,15894 <_zisk_float+0x4fc0>
@@ -5934,7 +5934,7 @@ Disassembly of section .text:
    15c80:	b04ff06f          	j	14f84 <_zisk_float+0x46b0>
    15c84:	00cb5713          	srli	a4,s6,0xc
    15c88:	0f877713          	andi	a4,a4,248
-   15c8c:	1f0015b7          	lui	a1,0x1f001
+   15c8c:	002005b7          	lui	a1,0x200
    15c90:	00b704b3          	add	s1,a4,a1
    15c94:	0004a603          	lw	a2,0(s1)
    15c98:	0044a683          	lw	a3,4(s1)
@@ -5962,7 +5962,7 @@ Disassembly of section .text:
    15cf0:	0004a783          	lw	a5,0(s1)
    15cf4:	0044a803          	lw	a6,4(s1)
    15cf8:	00341413          	slli	s0,s0,0x3
-   15cfc:	1f0016b7          	lui	a3,0x1f001
+   15cfc:	002006b7          	lui	a3,0x200
    15d00:	00d40433          	add	s0,s0,a3
    15d04:	00079463          	bnez	a5,15d0c <_zisk_float+0x5438>
    15d08:	2b50306f          	j	197bc <_zisk_float+0x8ee8>
@@ -6005,7 +6005,7 @@ Disassembly of section .text:
    15d9c:	00f61463          	bne	a2,a5,15da4 <_zisk_float+0x54d0>
    15da0:	35c0306f          	j	190fc <_zisk_float+0x8828>
    15da4:	00371793          	slli	a5,a4,0x3
-   15da8:	1f001737          	lui	a4,0x1f001
+   15da8:	00200737          	lui	a4,0x200
    15dac:	00e787b3          	add	a5,a5,a4
    15db0:	0007a603          	lw	a2,0(a5) # 7f800000 <_float_lib_entry+0x7f700000>
    15db4:	7f800737          	lui	a4,0x7f800
@@ -6015,7 +6015,7 @@ Disassembly of section .text:
    15dc4:	00e61463          	bne	a2,a4,15dcc <_zisk_float+0x54f8>
    15dc8:	6500306f          	j	19418 <_zisk_float+0x8b44>
    15dcc:	00341793          	slli	a5,s0,0x3
-   15dd0:	1f001737          	lui	a4,0x1f001
+   15dd0:	00200737          	lui	a4,0x200
    15dd4:	00e787b3          	add	a5,a5,a4
    15dd8:	7fc00537          	lui	a0,0x7fc00
    15ddc:	00000593          	li	a1,0
@@ -6054,7 +6054,7 @@ Disassembly of section .text:
    15e60:	00009697          	auipc	a3,0x9
    15e64:	6146a683          	lw	a3,1556(a3) # 1f474 <softfloat_exceptionFlags>
    15e68:	00341793          	slli	a5,s0,0x3
-   15e6c:	1f001737          	lui	a4,0x1f001
+   15e6c:	00200737          	lui	a4,0x200
    15e70:	00e787b3          	add	a5,a5,a4
    15e74:	00000513          	li	a0,0
    15e78:	7ff805b7          	lui	a1,0x7ff80
@@ -6079,7 +6079,7 @@ Disassembly of section .text:
    15ec4:	00f69463          	bne	a3,a5,15ecc <_zisk_float+0x55f8>
    15ec8:	1900306f          	j	19058 <_zisk_float+0x8784>
    15ecc:	00371793          	slli	a5,a4,0x3
-   15ed0:	1f001737          	lui	a4,0x1f001
+   15ed0:	00200737          	lui	a4,0x200
    15ed4:	00e787b3          	add	a5,a5,a4
    15ed8:	0007a503          	lw	a0,0(a5) # 7ff00000 <_float_lib_entry+0x7fe00000>
    15edc:	0047a583          	lw	a1,4(a5)
@@ -6089,7 +6089,7 @@ Disassembly of section .text:
    15eec:	00e61463          	bne	a2,a4,15ef4 <_zisk_float+0x5620>
    15ef0:	3740306f          	j	19264 <_zisk_float+0x8990>
    15ef4:	00341793          	slli	a5,s0,0x3
-   15ef8:	1f001737          	lui	a4,0x1f001
+   15ef8:	00200737          	lui	a4,0x200
    15efc:	00e787b3          	add	a5,a5,a4
    15f00:	00000513          	li	a0,0
    15f04:	7ff805b7          	lui	a1,0x7ff80
@@ -6111,7 +6111,7 @@ Disassembly of section .text:
    15f44:	00f61463          	bne	a2,a5,15f4c <_zisk_float+0x5678>
    15f48:	4910206f          	j	18bd8 <_zisk_float+0x8304>
    15f4c:	00371793          	slli	a5,a4,0x3
-   15f50:	1f001737          	lui	a4,0x1f001
+   15f50:	00200737          	lui	a4,0x200
    15f54:	00e787b3          	add	a5,a5,a4
    15f58:	0007a603          	lw	a2,0(a5) # 7f800000 <_float_lib_entry+0x7f700000>
    15f5c:	7f800737          	lui	a4,0x7f800
@@ -6121,7 +6121,7 @@ Disassembly of section .text:
    15f6c:	00e61463          	bne	a2,a4,15f74 <_zisk_float+0x56a0>
    15f70:	2b80306f          	j	19228 <_zisk_float+0x8954>
    15f74:	00341793          	slli	a5,s0,0x3
-   15f78:	1f001737          	lui	a4,0x1f001
+   15f78:	00200737          	lui	a4,0x200
    15f7c:	00e787b3          	add	a5,a5,a4
    15f80:	7fc00537          	lui	a0,0x7fc00
    15f84:	00000593          	li	a1,0
@@ -6155,7 +6155,7 @@ Disassembly of section .text:
    15ff4:	00f69463          	bne	a3,a5,15ffc <_zisk_float+0x5728>
    15ff8:	5750206f          	j	18d6c <_zisk_float+0x8498>
    15ffc:	00371793          	slli	a5,a4,0x3
-   16000:	1f001737          	lui	a4,0x1f001
+   16000:	00200737          	lui	a4,0x200
    16004:	00e787b3          	add	a5,a5,a4
    16008:	0007a503          	lw	a0,0(a5) # 7ff00000 <_float_lib_entry+0x7fe00000>
    1600c:	0047a583          	lw	a1,4(a5)
@@ -6165,7 +6165,7 @@ Disassembly of section .text:
    1601c:	00e61463          	bne	a2,a4,16024 <_zisk_float+0x5750>
    16020:	2bc0306f          	j	192dc <_zisk_float+0x8a08>
    16024:	00349793          	slli	a5,s1,0x3
-   16028:	1f001737          	lui	a4,0x1f001
+   16028:	00200737          	lui	a4,0x200
    1602c:	00e787b3          	add	a5,a5,a4
    16030:	00000513          	li	a0,0
    16034:	7ff805b7          	lui	a1,0x7ff80
@@ -6202,7 +6202,7 @@ Disassembly of section .text:
    160b0:	00009697          	auipc	a3,0x9
    160b4:	3c46a683          	lw	a3,964(a3) # 1f474 <softfloat_exceptionFlags>
    160b8:	00341793          	slli	a5,s0,0x3
-   160bc:	1f001737          	lui	a4,0x1f001
+   160bc:	00200737          	lui	a4,0x200
    160c0:	00e787b3          	add	a5,a5,a4
    160c4:	7fc00537          	lui	a0,0x7fc00
    160c8:	00000593          	li	a1,0
@@ -6214,7 +6214,7 @@ Disassembly of section .text:
    160e0:	01f6f313          	andi	t1,a3,31
    160e4:	8b5fa06f          	j	10998 <_zisk_float+0xc4>
    160e8:	00cb5413          	srli	s0,s6,0xc
-   160ec:	1f001737          	lui	a4,0x1f001
+   160ec:	00200737          	lui	a4,0x200
    160f0:	0f847413          	andi	s0,s0,248
    160f4:	00e40433          	add	s0,s0,a4
    160f8:	00042803          	lw	a6,0(s0)
@@ -6334,7 +6334,7 @@ Disassembly of section .text:
    162c0:	00d57533          	and	a0,a0,a3
    162c4:	00051463          	bnez	a0,162cc <_zisk_float+0x59f8>
    162c8:	8d1fc06f          	j	12b98 <_zisk_float+0x22c4>
-   162cc:	1f0015b7          	lui	a1,0x1f001
+   162cc:	002005b7          	lui	a1,0x200
    162d0:	00371813          	slli	a6,a4,0x3
    162d4:	00b80833          	add	a6,a6,a1
    162d8:	00082503          	lw	a0,0(a6)
@@ -6355,7 +6355,7 @@ Disassembly of section .text:
    16314:	00009697          	auipc	a3,0x9
    16318:	1606a683          	lw	a3,352(a3) # 1f474 <softfloat_exceptionFlags>
    1631c:	00341793          	slli	a5,s0,0x3
-   16320:	1f001737          	lui	a4,0x1f001
+   16320:	00200737          	lui	a4,0x200
    16324:	00e787b3          	add	a5,a5,a4
    16328:	7fc00537          	lui	a0,0x7fc00
    1632c:	00000593          	li	a1,0
@@ -6374,10 +6374,10 @@ Disassembly of section .text:
    16360:	00f5e5b3          	or	a1,a1,a5
    16364:	00059463          	bnez	a1,1636c <_zisk_float+0x5a98>
    16368:	c3cfc06f          	j	127a4 <_zisk_float+0x1ed0>
-   1636c:	1f001537          	lui	a0,0x1f001
+   1636c:	00200537          	lui	a0,0x200
    16370:	00371593          	slli	a1,a4,0x3
    16374:	00a585b3          	add	a1,a1,a0
-   16378:	0005a803          	lw	a6,0(a1) # 1f001000 <_float_lib_entry+0x1ef01000>
+   16378:	0005a803          	lw	a6,0(a1) # 200000 <_float_lib_entry+0x100000>
    1637c:	0045a883          	lw	a7,4(a1)
    16380:	00c8f533          	and	a0,a7,a2
    16384:	00c50463          	beq	a0,a2,1638c <_zisk_float+0x5ab8>
@@ -6396,7 +6396,7 @@ Disassembly of section .text:
    163b8:	00009697          	auipc	a3,0x9
    163bc:	0bc6a683          	lw	a3,188(a3) # 1f474 <softfloat_exceptionFlags>
    163c0:	00341793          	slli	a5,s0,0x3
-   163c4:	1f001737          	lui	a4,0x1f001
+   163c4:	00200737          	lui	a4,0x200
    163c8:	00e787b3          	add	a5,a5,a4
    163cc:	00000513          	li	a0,0
    163d0:	7ff805b7          	lui	a1,0x7ff80
@@ -6472,7 +6472,7 @@ Disassembly of section .text:
    164e8:	00f61463          	bne	a2,a5,164f0 <_zisk_float+0x5c1c>
    164ec:	6d50206f          	j	193c0 <_zisk_float+0x8aec>
    164f0:	00371793          	slli	a5,a4,0x3
-   164f4:	1f001737          	lui	a4,0x1f001
+   164f4:	00200737          	lui	a4,0x200
    164f8:	00e787b3          	add	a5,a5,a4
    164fc:	0007a603          	lw	a2,0(a5) # 7f800000 <_float_lib_entry+0x7f700000>
    16500:	7f800737          	lui	a4,0x7f800
@@ -6482,7 +6482,7 @@ Disassembly of section .text:
    16510:	00e61463          	bne	a2,a4,16518 <_zisk_float+0x5c44>
    16514:	6690206f          	j	1937c <_zisk_float+0x8aa8>
    16518:	00341793          	slli	a5,s0,0x3
-   1651c:	1f001737          	lui	a4,0x1f001
+   1651c:	00200737          	lui	a4,0x200
    16520:	00e787b3          	add	a5,a5,a4
    16524:	7fc00537          	lui	a0,0x7fc00
    16528:	00000593          	li	a1,0
@@ -6500,7 +6500,7 @@ Disassembly of section .text:
    16558:	00f5e5b3          	or	a1,a1,a5
    1655c:	00058463          	beqz	a1,16564 <_zisk_float+0x5c90>
    16560:	f9dfb06f          	j	124fc <_zisk_float+0x1c28>
-   16564:	1f001537          	lui	a0,0x1f001
+   16564:	00200537          	lui	a0,0x200
    16568:	00371593          	slli	a1,a4,0x3
    1656c:	00a585b3          	add	a1,a1,a0
    16570:	0005a803          	lw	a6,0(a1) # 7ff80000 <_float_lib_entry+0x7fe80000>
@@ -6544,7 +6544,7 @@ Disassembly of section .text:
    16608:	00f69463          	bne	a3,a5,16610 <_zisk_float+0x5d3c>
    1660c:	6c10206f          	j	194cc <_zisk_float+0x8bf8>
    16610:	00371793          	slli	a5,a4,0x3
-   16614:	1f001737          	lui	a4,0x1f001
+   16614:	00200737          	lui	a4,0x200
    16618:	00e787b3          	add	a5,a5,a4
    1661c:	0007a503          	lw	a0,0(a5) # 7ff00000 <_float_lib_entry+0x7fe00000>
    16620:	0047a583          	lw	a1,4(a5)
@@ -6554,7 +6554,7 @@ Disassembly of section .text:
    16630:	00e61463          	bne	a2,a4,16638 <_zisk_float+0x5d64>
    16634:	6510206f          	j	19484 <_zisk_float+0x8bb0>
    16638:	00341793          	slli	a5,s0,0x3
-   1663c:	1f001737          	lui	a4,0x1f001
+   1663c:	00200737          	lui	a4,0x200
    16640:	00e787b3          	add	a5,a5,a4
    16644:	00000513          	li	a0,0
    16648:	7ff805b7          	lui	a1,0x7ff80
@@ -6571,7 +6571,7 @@ Disassembly of section .text:
    16674:	00d57533          	and	a0,a0,a3
    16678:	00051463          	bnez	a0,16680 <_zisk_float+0x5dac>
    1667c:	814fc06f          	j	12690 <_zisk_float+0x1dbc>
-   16680:	1f0015b7          	lui	a1,0x1f001
+   16680:	002005b7          	lui	a1,0x200
    16684:	00371813          	slli	a6,a4,0x3
    16688:	00b80833          	add	a6,a6,a1
    1668c:	00082503          	lw	a0,0(a6)
@@ -6608,9 +6608,9 @@ Disassembly of section .text:
    16708:	00050463          	beqz	a0,16710 <_zisk_float+0x5e3c>
    1670c:	f6dfb06f          	j	12678 <_zisk_float+0x1da4>
    16710:	00371593          	slli	a1,a4,0x3
-   16714:	1f001537          	lui	a0,0x1f001
+   16714:	00200537          	lui	a0,0x200
    16718:	00a585b3          	add	a1,a1,a0
-   1671c:	0005a803          	lw	a6,0(a1) # 1f001000 <_float_lib_entry+0x1ef01000>
+   1671c:	0005a803          	lw	a6,0(a1) # 200000 <_float_lib_entry+0x100000>
    16720:	0045a883          	lw	a7,4(a1)
    16724:	00c87833          	and	a6,a6,a2
    16728:	00c80463          	beq	a6,a2,16730 <_zisk_float+0x5e5c>
@@ -6708,7 +6708,7 @@ Disassembly of section .text:
    16898:	00f5e5b3          	or	a1,a1,a5
    1689c:	00059463          	bnez	a1,168a4 <_zisk_float+0x5fd0>
    168a0:	c75fb06f          	j	12514 <_zisk_float+0x1c40>
-   168a4:	1f001537          	lui	a0,0x1f001
+   168a4:	00200537          	lui	a0,0x200
    168a8:	00371593          	slli	a1,a4,0x3
    168ac:	00a585b3          	add	a1,a1,a0
    168b0:	0005a803          	lw	a6,0(a1)
@@ -6752,7 +6752,7 @@ Disassembly of section .text:
    16948:	00f69463          	bne	a3,a5,16950 <_zisk_float+0x607c>
    1694c:	3fd0206f          	j	19548 <_zisk_float+0x8c74>
    16950:	00371793          	slli	a5,a4,0x3
-   16954:	1f001737          	lui	a4,0x1f001
+   16954:	00200737          	lui	a4,0x200
    16958:	00e787b3          	add	a5,a5,a4
    1695c:	0007a503          	lw	a0,0(a5) # 7ff00000 <_float_lib_entry+0x7fe00000>
    16960:	0047a583          	lw	a1,4(a5)
@@ -6781,7 +6781,7 @@ Disassembly of section .text:
    169bc:	00f61463          	bne	a2,a5,169c4 <_zisk_float+0x60f0>
    169c0:	0250206f          	j	191e4 <_zisk_float+0x8910>
    169c4:	00371793          	slli	a5,a4,0x3
-   169c8:	1f001737          	lui	a4,0x1f001
+   169c8:	00200737          	lui	a4,0x200
    169cc:	00e787b3          	add	a5,a5,a4
    169d0:	0007a603          	lw	a2,0(a5) # 7f800000 <_float_lib_entry+0x7f700000>
    169d4:	7f800737          	lui	a4,0x7f800
@@ -6812,12 +6812,12 @@ Disassembly of section .text:
    16a38:	00009597          	auipc	a1,0x9
    16a3c:	a405a583          	lw	a1,-1472(a1) # 1f478 <softfloat_roundingMode>
    16a40:	00f5f5b3          	and	a1,a1,a5
-   16a44:	1f0017b7          	lui	a5,0x1f001
+   16a44:	002007b7          	lui	a5,0x200
    16a48:	00349493          	slli	s1,s1,0x3
    16a4c:	00f484b3          	add	s1,s1,a5
    16a50:	0004a683          	lw	a3,0(s1)
    16a54:	0044a703          	lw	a4,4(s1)
-   16a58:	11878793          	addi	a5,a5,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   16a58:	11878793          	addi	a5,a5,280 # 200118 <_float_lib_entry+0x100118>
    16a5c:	00068513          	mv	a0,a3
    16a60:	00341413          	slli	s0,s0,0x3
    16a64:	00100613          	li	a2,1
@@ -6906,13 +6906,13 @@ Disassembly of section .text:
    16bb0:	00300793          	li	a5,3
    16bb4:	00009717          	auipc	a4,0x9
    16bb8:	8cf72223          	sw	a5,-1852(a4) # 1f478 <softfloat_roundingMode>
-   16bbc:	1f001737          	lui	a4,0x1f001
-   16bc0:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   16bbc:	00200737          	lui	a4,0x200
+   16bc0:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    16bc4:	00349793          	slli	a5,s1,0x3
    16bc8:	00e787b3          	add	a5,a5,a4
    16bcc:	0007a503          	lw	a0,0(a5)
    16bd0:	0047a583          	lw	a1,4(a5)
-   16bd4:	1f001437          	lui	s0,0x1f001
+   16bd4:	00200437          	lui	s0,0x200
    16bd8:	5ec050ef          	jal	1c1c4 <ui64_to_f32>
    16bdc:	00009717          	auipc	a4,0x9
    16be0:	89872703          	lw	a4,-1896(a4) # 1f474 <softfloat_exceptionFlags>
@@ -6955,12 +6955,12 @@ Disassembly of section .text:
    16c74:	00009617          	auipc	a2,0x9
    16c78:	80462603          	lw	a2,-2044(a2) # 1f478 <softfloat_roundingMode>
    16c7c:	00e67633          	and	a2,a2,a4
-   16c80:	1f001737          	lui	a4,0x1f001
+   16c80:	00200737          	lui	a4,0x200
    16c84:	00379793          	slli	a5,a5,0x3
    16c88:	00e784b3          	add	s1,a5,a4
    16c8c:	0004a503          	lw	a0,0(s1)
    16c90:	0044a583          	lw	a1,4(s1)
-   16c94:	11870793          	addi	a5,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   16c94:	11870793          	addi	a5,a4,280 # 200118 <_float_lib_entry+0x100118>
    16c98:	00100693          	li	a3,1
    16c9c:	00341413          	slli	s0,s0,0x3
    16ca0:	00f40433          	add	s0,s0,a5
@@ -6971,7 +6971,7 @@ Disassembly of section .text:
    16cb4:	00008697          	auipc	a3,0x8
    16cb8:	7c06a683          	lw	a3,1984(a3) # 1f474 <softfloat_exceptionFlags>
    16cbc:	02c12803          	lw	a6,44(sp)
-   16cc0:	00f42023          	sw	a5,0(s0) # 1f001000 <_float_lib_entry+0x1ef01000>
+   16cc0:	00f42023          	sw	a5,0(s0) # 200000 <_float_lib_entry+0x100000>
    16cc4:	0106f793          	andi	a5,a3,16
    16cc8:	01042223          	sw	a6,4(s0)
    16ccc:	02078e63          	beqz	a5,16d08 <_zisk_float+0x6434>
@@ -7020,13 +7020,13 @@ Disassembly of section .text:
    16d78:	00300793          	li	a5,3
    16d7c:	00008717          	auipc	a4,0x8
    16d80:	6ef72e23          	sw	a5,1788(a4) # 1f478 <softfloat_roundingMode>
-   16d84:	1f001737          	lui	a4,0x1f001
+   16d84:	00200737          	lui	a4,0x200
    16d88:	00349793          	slli	a5,s1,0x3
-   16d8c:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   16d8c:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    16d90:	00e787b3          	add	a5,a5,a4
    16d94:	0007a503          	lw	a0,0(a5)
    16d98:	0047a583          	lw	a1,4(a5)
-   16d9c:	1f001437          	lui	s0,0x1f001
+   16d9c:	00200437          	lui	s0,0x200
    16da0:	4dc050ef          	jal	1c27c <ui64_to_f64>
    16da4:	02a12823          	sw	a0,48(sp)
    16da8:	02b12a23          	sw	a1,52(sp)
@@ -7256,7 +7256,7 @@ Disassembly of section .text:
    17128:	f69ff06f          	j	17090 <_zisk_float+0x67bc>
    1712c:	00cb5693          	srli	a3,s6,0xc
    17130:	011b5713          	srli	a4,s6,0x11
-   17134:	1f001637          	lui	a2,0x1f001
+   17134:	00200637          	lui	a2,0x200
    17138:	0f86f693          	andi	a3,a3,248
    1713c:	0f877713          	andi	a4,a4,248
    17140:	00c686b3          	add	a3,a3,a2
@@ -7267,11 +7267,11 @@ Disassembly of section .text:
    17154:	00472683          	lw	a3,4(a4)
    17158:	270040ef          	jal	1b3c8 <f64_eq>
    1715c:	004b5793          	srli	a5,s6,0x4
-   17160:	1f001737          	lui	a4,0x1f001
+   17160:	00200737          	lui	a4,0x200
    17164:	00008597          	auipc	a1,0x8
    17168:	3105a583          	lw	a1,784(a1) # 1f474 <softfloat_exceptionFlags>
    1716c:	0f87f793          	andi	a5,a5,248
-   17170:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   17170:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    17174:	00e787b3          	add	a5,a5,a4
    17178:	00000693          	li	a3,0
    1717c:	00a7a023          	sw	a0,0(a5)
@@ -7283,7 +7283,7 @@ Disassembly of section .text:
    17194:	805f906f          	j	10998 <_zisk_float+0xc4>
    17198:	00cb5693          	srli	a3,s6,0xc
    1719c:	011b5713          	srli	a4,s6,0x11
-   171a0:	1f001637          	lui	a2,0x1f001
+   171a0:	00200637          	lui	a2,0x200
    171a4:	0f86f693          	andi	a3,a3,248
    171a8:	0f877713          	andi	a4,a4,248
    171ac:	00c686b3          	add	a3,a3,a2
@@ -7294,11 +7294,11 @@ Disassembly of section .text:
    171c0:	00472683          	lw	a3,4(a4)
    171c4:	3ec040ef          	jal	1b5b0 <f64_lt>
    171c8:	004b5793          	srli	a5,s6,0x4
-   171cc:	1f001737          	lui	a4,0x1f001
+   171cc:	00200737          	lui	a4,0x200
    171d0:	00008597          	auipc	a1,0x8
    171d4:	2a45a583          	lw	a1,676(a1) # 1f474 <softfloat_exceptionFlags>
    171d8:	0f87f793          	andi	a5,a5,248
-   171dc:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   171dc:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    171e0:	00e787b3          	add	a5,a5,a4
    171e4:	00000693          	li	a3,0
    171e8:	00a7a023          	sw	a0,0(a5)
@@ -7315,7 +7315,7 @@ Disassembly of section .text:
    17214:	0109a223          	sw	a6,4(s3)
    17218:	f21f906f          	j	11138 <_zisk_float+0x864>
    1721c:	011b5713          	srli	a4,s6,0x11
-   17220:	1f0016b7          	lui	a3,0x1f001
+   17220:	002006b7          	lui	a3,0x200
    17224:	0f877713          	andi	a4,a4,248
    17228:	00d70733          	add	a4,a4,a3
    1722c:	00072503          	lw	a0,0(a4)
@@ -7338,7 +7338,7 @@ Disassembly of section .text:
    17270:	00472683          	lw	a3,4(a4)
    17274:	e55fa06f          	j	120c8 <_zisk_float+0x17f4>
    17278:	011b5713          	srli	a4,s6,0x11
-   1727c:	1f0016b7          	lui	a3,0x1f001
+   1727c:	002006b7          	lui	a3,0x200
    17280:	0f877713          	andi	a4,a4,248
    17284:	00d70733          	add	a4,a4,a3
    17288:	00072803          	lw	a6,0(a4)
@@ -7358,7 +7358,7 @@ Disassembly of section .text:
    172c0:	00155613          	srli	a2,a0,0x1
    172c4:	e05fa06f          	j	120c8 <_zisk_float+0x17f4>
    172c8:	011b5713          	srli	a4,s6,0x11
-   172cc:	1f0016b7          	lui	a3,0x1f001
+   172cc:	002006b7          	lui	a3,0x200
    172d0:	0f877713          	andi	a4,a4,248
    172d4:	00d70733          	add	a4,a4,a3
    172d8:	00072503          	lw	a0,0(a4)
@@ -7378,7 +7378,7 @@ Disassembly of section .text:
    17310:	00e5e6b3          	or	a3,a1,a4
    17314:	db5fa06f          	j	120c8 <_zisk_float+0x17f4>
    17318:	011b5713          	srli	a4,s6,0x11
-   1731c:	1f0016b7          	lui	a3,0x1f001
+   1731c:	002006b7          	lui	a3,0x200
    17320:	0f877713          	andi	a4,a4,248
    17324:	00d70733          	add	a4,a4,a3
    17328:	00072503          	lw	a0,0(a4) # 80000000 <_float_lib_entry+0x7ff00000>
@@ -7398,23 +7398,23 @@ Disassembly of section .text:
    17360:	d69fa06f          	j	120c8 <_zisk_float+0x17f4>
    17364:	00cb5693          	srli	a3,s6,0xc
    17368:	011b5713          	srli	a4,s6,0x11
-   1736c:	1f001637          	lui	a2,0x1f001
+   1736c:	00200637          	lui	a2,0x200
    17370:	0f86f693          	andi	a3,a3,248
    17374:	0f877713          	andi	a4,a4,248
    17378:	00c686b3          	add	a3,a3,a2
    1737c:	00c70733          	add	a4,a4,a2
-   17380:	0006a503          	lw	a0,0(a3) # 1f001000 <_float_lib_entry+0x1ef01000>
+   17380:	0006a503          	lw	a0,0(a3) # 200000 <_float_lib_entry+0x100000>
    17384:	0046a583          	lw	a1,4(a3)
    17388:	00072603          	lw	a2,0(a4) # 80000000 <_float_lib_entry+0x7ff00000>
    1738c:	00472683          	lw	a3,4(a4)
    17390:	00060593          	mv	a1,a2
    17394:	50c030ef          	jal	1a8a0 <f32_eq>
    17398:	004b5793          	srli	a5,s6,0x4
-   1739c:	1f001737          	lui	a4,0x1f001
+   1739c:	00200737          	lui	a4,0x200
    173a0:	00008597          	auipc	a1,0x8
    173a4:	0d45a583          	lw	a1,212(a1) # 1f474 <softfloat_exceptionFlags>
    173a8:	0f87f793          	andi	a5,a5,248
-   173ac:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   173ac:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    173b0:	00e787b3          	add	a5,a5,a4
    173b4:	00000693          	li	a3,0
    173b8:	00a7a023          	sw	a0,0(a5)
@@ -7426,7 +7426,7 @@ Disassembly of section .text:
    173d0:	dc8f906f          	j	10998 <_zisk_float+0xc4>
    173d4:	00cb5693          	srli	a3,s6,0xc
    173d8:	011b5713          	srli	a4,s6,0x11
-   173dc:	1f001637          	lui	a2,0x1f001
+   173dc:	00200637          	lui	a2,0x200
    173e0:	0f86f693          	andi	a3,a3,248
    173e4:	0f877713          	andi	a4,a4,248
    173e8:	00c686b3          	add	a3,a3,a2
@@ -7438,11 +7438,11 @@ Disassembly of section .text:
    17400:	00060593          	mv	a1,a2
    17404:	5dc030ef          	jal	1a9e0 <f32_lt>
    17408:	004b5793          	srli	a5,s6,0x4
-   1740c:	1f001737          	lui	a4,0x1f001
+   1740c:	00200737          	lui	a4,0x200
    17410:	00008597          	auipc	a1,0x8
    17414:	0645a583          	lw	a1,100(a1) # 1f474 <softfloat_exceptionFlags>
    17418:	0f87f793          	andi	a5,a5,248
-   1741c:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   1741c:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    17420:	00e787b3          	add	a5,a5,a4
    17424:	00000693          	li	a3,0
    17428:	00a7a023          	sw	a0,0(a5)
@@ -7452,7 +7452,7 @@ Disassembly of section .text:
    17438:	00d7a223          	sw	a3,4(a5)
    1743c:	01f5f313          	andi	t1,a1,31
    17440:	d58f906f          	j	10998 <_zisk_float+0xc4>
-   17444:	00042503          	lw	a0,0(s0) # 1f001000 <_float_lib_entry+0x1ef01000>
+   17444:	00042503          	lw	a0,0(s0) # 200000 <_float_lib_entry+0x100000>
    17448:	00442583          	lw	a1,4(s0)
    1744c:	00100737          	lui	a4,0x100
    17450:	fff70713          	addi	a4,a4,-1 # fffff <softfloat_roundingMode+0xe0b87>
@@ -8062,7 +8062,7 @@ Disassembly of section .text:
    17dc0:	00007597          	auipc	a1,0x7
    17dc4:	6b85a583          	lw	a1,1720(a1) # 1f478 <softfloat_roundingMode>
    17dc8:	00f5f5b3          	and	a1,a1,a5
-   17dcc:	1f0017b7          	lui	a5,0x1f001
+   17dcc:	002007b7          	lui	a5,0x200
    17dd0:	00341413          	slli	s0,s0,0x3
    17dd4:	00f40433          	add	s0,s0,a5
    17dd8:	00042703          	lw	a4,0(s0)
@@ -8070,15 +8070,15 @@ Disassembly of section .text:
    17de0:	00100613          	li	a2,1
    17de4:	00070513          	mv	a0,a4
    17de8:	018030ef          	jal	1ae00 <f32_to_i32>
-   17dec:	1f0015b7          	lui	a1,0x1f001
+   17dec:	002005b7          	lui	a1,0x200
    17df0:	00050713          	mv	a4,a0
    17df4:	00349793          	slli	a5,s1,0x3
    17df8:	00007517          	auipc	a0,0x7
    17dfc:	67c52503          	lw	a0,1660(a0) # 1f474 <softfloat_exceptionFlags>
-   17e00:	11858593          	addi	a1,a1,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   17e00:	11858593          	addi	a1,a1,280 # 200118 <_float_lib_entry+0x100118>
    17e04:	00b787b3          	add	a5,a5,a1
    17e08:	41f75693          	srai	a3,a4,0x1f
-   17e0c:	00e7a023          	sw	a4,0(a5) # 1f001000 <_float_lib_entry+0x1ef01000>
+   17e0c:	00e7a023          	sw	a4,0(a5) # 200000 <_float_lib_entry+0x100000>
    17e10:	00d7a223          	sw	a3,4(a5)
    17e14:	01057713          	andi	a4,a0,16
    17e18:	00071463          	bnez	a4,17e20 <_zisk_float+0x754c>
@@ -8114,7 +8114,7 @@ Disassembly of section .text:
    17e90:	00007597          	auipc	a1,0x7
    17e94:	5e85a583          	lw	a1,1512(a1) # 1f478 <softfloat_roundingMode>
    17e98:	0075f593          	andi	a1,a1,7
-   17e9c:	1f0017b7          	lui	a5,0x1f001
+   17e9c:	002007b7          	lui	a5,0x200
    17ea0:	00349493          	slli	s1,s1,0x3
    17ea4:	00f484b3          	add	s1,s1,a5
    17ea8:	0004a703          	lw	a4,0(s1)
@@ -8122,9 +8122,9 @@ Disassembly of section .text:
    17eb0:	00100613          	li	a2,1
    17eb4:	00070513          	mv	a0,a4
    17eb8:	7e1020ef          	jal	1ae98 <f32_to_i64>
-   17ebc:	1f001737          	lui	a4,0x1f001
+   17ebc:	00200737          	lui	a4,0x200
    17ec0:	00a12823          	sw	a0,16(sp)
-   17ec4:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   17ec4:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    17ec8:	01012683          	lw	a3,16(sp)
    17ecc:	00341793          	slli	a5,s0,0x3
    17ed0:	00b12a23          	sw	a1,20(sp)
@@ -8132,7 +8132,7 @@ Disassembly of section .text:
    17ed8:	00007817          	auipc	a6,0x7
    17edc:	59c82803          	lw	a6,1436(a6) # 1f474 <softfloat_exceptionFlags>
    17ee0:	01412703          	lw	a4,20(sp)
-   17ee4:	00d7a023          	sw	a3,0(a5) # 1f001000 <_float_lib_entry+0x1ef01000>
+   17ee4:	00d7a023          	sw	a3,0(a5) # 200000 <_float_lib_entry+0x100000>
    17ee8:	00e7a223          	sw	a4,4(a5)
    17eec:	01087713          	andi	a4,a6,16
    17ef0:	04070063          	beqz	a4,17f30 <_zisk_float+0x765c>
@@ -8168,18 +8168,18 @@ Disassembly of section .text:
    17f68:	51462603          	lw	a2,1300(a2) # 1f478 <softfloat_roundingMode>
    17f6c:	00e67633          	and	a2,a2,a4
    17f70:	00379793          	slli	a5,a5,0x3
-   17f74:	1f001737          	lui	a4,0x1f001
+   17f74:	00200737          	lui	a4,0x200
    17f78:	00e784b3          	add	s1,a5,a4
    17f7c:	0004a503          	lw	a0,0(s1)
    17f80:	0044a583          	lw	a1,4(s1)
    17f84:	00100693          	li	a3,1
    17f88:	42d030ef          	jal	1bbb4 <f64_to_i32>
-   17f8c:	1f0015b7          	lui	a1,0x1f001
+   17f8c:	002005b7          	lui	a1,0x200
    17f90:	00050713          	mv	a4,a0
    17f94:	00341793          	slli	a5,s0,0x3
    17f98:	00007517          	auipc	a0,0x7
    17f9c:	4dc52503          	lw	a0,1244(a0) # 1f474 <softfloat_exceptionFlags>
-   17fa0:	11858593          	addi	a1,a1,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   17fa0:	11858593          	addi	a1,a1,280 # 200118 <_float_lib_entry+0x100118>
    17fa4:	00b787b3          	add	a5,a5,a1
    17fa8:	41f75693          	srai	a3,a4,0x1f
    17fac:	00e7a023          	sw	a4,0(a5)
@@ -8230,13 +8230,13 @@ Disassembly of section .text:
    18060:	00300793          	li	a5,3
    18064:	00007717          	auipc	a4,0x7
    18068:	40f72a23          	sw	a5,1044(a4) # 1f478 <softfloat_roundingMode>
-   1806c:	1f001737          	lui	a4,0x1f001
-   18070:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   1806c:	00200737          	lui	a4,0x200
+   18070:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    18074:	00349793          	slli	a5,s1,0x3
    18078:	00e787b3          	add	a5,a5,a4
    1807c:	0007a503          	lw	a0,0(a5)
    18080:	0047a583          	lw	a1,4(a5)
-   18084:	1f001437          	lui	s0,0x1f001
+   18084:	00200437          	lui	s0,0x200
    18088:	715030ef          	jal	1bf9c <i64_to_f32>
    1808c:	00007717          	auipc	a4,0x7
    18090:	3e872703          	lw	a4,1000(a4) # 1f474 <softfloat_exceptionFlags>
@@ -8288,13 +8288,13 @@ Disassembly of section .text:
    18148:	00300793          	li	a5,3
    1814c:	00007717          	auipc	a4,0x7
    18150:	32f72623          	sw	a5,812(a4) # 1f478 <softfloat_roundingMode>
-   18154:	1f001737          	lui	a4,0x1f001
+   18154:	00200737          	lui	a4,0x200
    18158:	00349793          	slli	a5,s1,0x3
-   1815c:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   1815c:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    18160:	00e787b3          	add	a5,a5,a4
    18164:	0007a503          	lw	a0,0(a5)
    18168:	0047a583          	lw	a1,4(a5)
-   1816c:	1f001437          	lui	s0,0x1f001
+   1816c:	00200437          	lui	s0,0x200
    18170:	59d030ef          	jal	1bf0c <i32_to_f64>
    18174:	04a12423          	sw	a0,72(sp)
    18178:	04b12623          	sw	a1,76(sp)
@@ -8326,7 +8326,7 @@ Disassembly of section .text:
    181e0:	00007717          	auipc	a4,0x7
    181e4:	28f72c23          	sw	a5,664(a4) # 1f478 <softfloat_roundingMode>
    181e8:	f6dff06f          	j	18154 <_zisk_float+0x7880>
-   181ec:	00042503          	lw	a0,0(s0) # 1f001000 <_float_lib_entry+0x1ef01000>
+   181ec:	00042503          	lw	a0,0(s0) # 200000 <_float_lib_entry+0x100000>
    181f0:	00442583          	lw	a1,4(s0)
    181f4:	0004a703          	lw	a4,0(s1)
    181f8:	0044a783          	lw	a5,4(s1)
@@ -8383,7 +8383,7 @@ Disassembly of section .text:
    182c4:	1b862603          	lw	a2,440(a2) # 1f478 <softfloat_roundingMode>
    182c8:	00767613          	andi	a2,a2,7
    182cc:	00379793          	slli	a5,a5,0x3
-   182d0:	1f001737          	lui	a4,0x1f001
+   182d0:	00200737          	lui	a4,0x200
    182d4:	00e784b3          	add	s1,a5,a4
    182d8:	0004a503          	lw	a0,0(s1)
    182dc:	0044a583          	lw	a1,4(s1)
@@ -8391,11 +8391,11 @@ Disassembly of section .text:
    182e4:	161030ef          	jal	1bc44 <f64_to_i64>
    182e8:	02a12023          	sw	a0,32(sp)
    182ec:	02b12223          	sw	a1,36(sp)
-   182f0:	1f001737          	lui	a4,0x1f001
+   182f0:	00200737          	lui	a4,0x200
    182f4:	02012583          	lw	a1,32(sp)
    182f8:	00007697          	auipc	a3,0x7
    182fc:	17c6a683          	lw	a3,380(a3) # 1f474 <softfloat_exceptionFlags>
-   18300:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   18300:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    18304:	02412603          	lw	a2,36(sp)
    18308:	00341793          	slli	a5,s0,0x3
    1830c:	00e787b3          	add	a5,a5,a4
@@ -8446,13 +8446,13 @@ Disassembly of section .text:
    183c0:	00300793          	li	a5,3
    183c4:	00007717          	auipc	a4,0x7
    183c8:	0af72a23          	sw	a5,180(a4) # 1f478 <softfloat_roundingMode>
-   183cc:	1f001737          	lui	a4,0x1f001
+   183cc:	00200737          	lui	a4,0x200
    183d0:	00349793          	slli	a5,s1,0x3
-   183d4:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   183d4:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    183d8:	00e787b3          	add	a5,a5,a4
    183dc:	0007a503          	lw	a0,0(a5)
    183e0:	0047a583          	lw	a1,4(a5)
-   183e4:	1f001437          	lui	s0,0x1f001
+   183e4:	00200437          	lui	s0,0x200
    183e8:	4c1030ef          	jal	1c0a8 <i64_to_f64>
    183ec:	02a12c23          	sw	a0,56(sp)
    183f0:	02b12e23          	sw	a1,60(sp)
@@ -8507,13 +8507,13 @@ Disassembly of section .text:
    184b4:	00300793          	li	a5,3
    184b8:	00007717          	auipc	a4,0x7
    184bc:	fcf72023          	sw	a5,-64(a4) # 1f478 <softfloat_roundingMode>
-   184c0:	1f001737          	lui	a4,0x1f001
-   184c4:	11870713          	addi	a4,a4,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   184c0:	00200737          	lui	a4,0x200
+   184c4:	11870713          	addi	a4,a4,280 # 200118 <_float_lib_entry+0x100118>
    184c8:	00349793          	slli	a5,s1,0x3
    184cc:	00e787b3          	add	a5,a5,a4
    184d0:	0007a503          	lw	a0,0(a5)
    184d4:	0047a583          	lw	a1,4(a5)
-   184d8:	1f001437          	lui	s0,0x1f001
+   184d8:	00200437          	lui	s0,0x200
    184dc:	1f9030ef          	jal	1bed4 <i32_to_f32>
    184e0:	00007717          	auipc	a4,0x7
    184e4:	f9472703          	lw	a4,-108(a4) # 1f474 <softfloat_exceptionFlags>
@@ -8675,7 +8675,7 @@ Disassembly of section .text:
    18754:	08412a83          	lw	s5,132(sp)
    18758:	01f6f313          	andi	t1,a3,31
    1875c:	a3cf806f          	j	10998 <_zisk_float+0xc4>
-   18760:	00042783          	lw	a5,0(s0) # 1f001000 <_float_lib_entry+0x1ef01000>
+   18760:	00042783          	lw	a5,0(s0) # 200000 <_float_lib_entry+0x100000>
    18764:	00442803          	lw	a6,4(s0)
    18768:	00c81693          	slli	a3,a6,0xc
    1876c:	00c6d693          	srli	a3,a3,0xc
@@ -9164,9 +9164,9 @@ Disassembly of section .text:
    18ef8:	00092603          	lw	a2,0(s2)
    18efc:	00492683          	lw	a3,4(s2)
    18f00:	00341413          	slli	s0,s0,0x3
-   18f04:	1f001737          	lui	a4,0x1f001
+   18f04:	00200737          	lui	a4,0x200
    18f08:	00e40733          	add	a4,s0,a4
-   18f0c:	00c72023          	sw	a2,0(a4) # 1f001000 <_float_lib_entry+0x1ef01000>
+   18f0c:	00c72023          	sw	a2,0(a4) # 200000 <_float_lib_entry+0x100000>
    18f10:	00d72223          	sw	a3,4(a4)
    18f14:	e74fa06f          	j	13588 <_zisk_float+0x2cb4>
    18f18:	0004a503          	lw	a0,0(s1)
@@ -9202,11 +9202,11 @@ Disassembly of section .text:
    18f90:	00e69463          	bne	a3,a4,18f98 <_zisk_float+0x86c4>
    18f94:	4dc0106f          	j	1a470 <_zisk_float+0x9b9c>
    18f98:	00341413          	slli	s0,s0,0x3
-   18f9c:	1f001737          	lui	a4,0x1f001
+   18f9c:	00200737          	lui	a4,0x200
    18fa0:	00e40733          	add	a4,s0,a4
    18fa4:	00000613          	li	a2,0
    18fa8:	7ff806b7          	lui	a3,0x7ff80
-   18fac:	00c72023          	sw	a2,0(a4) # 1f001000 <_float_lib_entry+0x1ef01000>
+   18fac:	00c72023          	sw	a2,0(a4) # 200000 <_float_lib_entry+0x100000>
    18fb0:	00d72223          	sw	a3,4(a4)
    18fb4:	dd4fa06f          	j	13588 <_zisk_float+0x2cb4>
    18fb8:	0004a503          	lw	a0,0(s1)
@@ -9242,11 +9242,11 @@ Disassembly of section .text:
    19030:	00e69463          	bne	a3,a4,19038 <_zisk_float+0x8764>
    19034:	3cc0106f          	j	1a400 <_zisk_float+0x9b2c>
    19038:	00341413          	slli	s0,s0,0x3
-   1903c:	1f001737          	lui	a4,0x1f001
+   1903c:	00200737          	lui	a4,0x200
    19040:	00e40733          	add	a4,s0,a4
    19044:	00000613          	li	a2,0
    19048:	7ff806b7          	lui	a3,0x7ff80
-   1904c:	00c72023          	sw	a2,0(a4) # 1f001000 <_float_lib_entry+0x1ef01000>
+   1904c:	00c72023          	sw	a2,0(a4) # 200000 <_float_lib_entry+0x100000>
    19050:	00d72223          	sw	a3,4(a4)
    19054:	d0dfc06f          	j	15d60 <_zisk_float+0x548c>
    19058:	0004a603          	lw	a2,0(s1)
@@ -9285,9 +9285,9 @@ Disassembly of section .text:
    190dc:	00092603          	lw	a2,0(s2)
    190e0:	00492683          	lw	a3,4(s2)
    190e4:	00341413          	slli	s0,s0,0x3
-   190e8:	1f001737          	lui	a4,0x1f001
+   190e8:	00200737          	lui	a4,0x200
    190ec:	00e40733          	add	a4,s0,a4
-   190f0:	00c72023          	sw	a2,0(a4) # 1f001000 <_float_lib_entry+0x1ef01000>
+   190f0:	00c72023          	sw	a2,0(a4) # 200000 <_float_lib_entry+0x100000>
    190f4:	00d72223          	sw	a3,4(a4)
    190f8:	c69fc06f          	j	15d60 <_zisk_float+0x548c>
    190fc:	0004a603          	lw	a2,0(s1)
@@ -9818,9 +9818,9 @@ Disassembly of section .text:
    19930:	0047a683          	lw	a3,4(a5)
    19934:	1a069c63          	bnez	a3,19aec <_zisk_float+0x9218>
    19938:	1a064a63          	bltz	a2,19aec <_zisk_float+0x9218>
-   1993c:	1f0016b7          	lui	a3,0x1f001
+   1993c:	002006b7          	lui	a3,0x200
    19940:	00371793          	slli	a5,a4,0x3
-   19944:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   19944:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    19948:	00e787b3          	add	a5,a5,a4
    1994c:	01000613          	li	a2,16
    19950:	00000693          	li	a3,0
@@ -9947,9 +9947,9 @@ Disassembly of section .text:
    19b34:	22060263          	beqz	a2,19d58 <_zisk_float+0x9484>
    19b38:	0007a503          	lw	a0,0(a5)
    19b3c:	0047a583          	lw	a1,4(a5)
-   19b40:	1f0016b7          	lui	a3,0x1f001
+   19b40:	002006b7          	lui	a3,0x200
    19b44:	00371793          	slli	a5,a4,0x3
-   19b48:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   19b48:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    19b4c:	00e787b3          	add	a5,a5,a4
    19b50:	00059663          	bnez	a1,19b5c <_zisk_float+0x9288>
    19b54:	00054463          	bltz	a0,19b5c <_zisk_float+0x9288>
@@ -10094,9 +10094,9 @@ Disassembly of section .text:
    19d80:	cb9f606f          	j	10a38 <_zisk_float+0x164>
    19d84:	0007a503          	lw	a0,0(a5)
    19d88:	0047a583          	lw	a1,4(a5)
-   19d8c:	1f0016b7          	lui	a3,0x1f001
+   19d8c:	002006b7          	lui	a3,0x200
    19d90:	00371793          	slli	a5,a4,0x3
-   19d94:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   19d94:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    19d98:	00e787b3          	add	a5,a5,a4
    19d9c:	00059463          	bnez	a1,19da4 <_zisk_float+0x94d0>
    19da0:	42055263          	bgez	a0,1a1c4 <_zisk_float+0x98f0>
@@ -10121,9 +10121,9 @@ Disassembly of section .text:
    19dec:	b44f906f          	j	13130 <_zisk_float+0x285c>
    19df0:	00065463          	bgez	a2,19df8 <_zisk_float+0x9524>
    19df4:	b3cf906f          	j	13130 <_zisk_float+0x285c>
-   19df8:	1f0016b7          	lui	a3,0x1f001
+   19df8:	002006b7          	lui	a3,0x200
    19dfc:	00371793          	slli	a5,a4,0x3
-   19e00:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   19e00:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    19e04:	00e787b3          	add	a5,a5,a4
    19e08:	08000613          	li	a2,128
    19e0c:	00000693          	li	a3,0
@@ -10153,7 +10153,7 @@ Disassembly of section .text:
    19e6c:	00069663          	bnez	a3,19e78 <_zisk_float+0x95a4>
    19e70:	00064463          	bltz	a2,19e78 <_zisk_float+0x95a4>
    19e74:	aa4f906f          	j	13118 <_zisk_float+0x2844>
-   19e78:	1f0016b7          	lui	a3,0x1f001
+   19e78:	002006b7          	lui	a3,0x200
    19e7c:	0e40006f          	j	19f60 <_zisk_float+0x968c>
    19e80:	00042703          	lw	a4,0(s0)
    19e84:	00442783          	lw	a5,4(s0)
@@ -10310,9 +10310,9 @@ Disassembly of section .text:
    1a0e0:	004006b7          	lui	a3,0x400
    1a0e4:	00d5f633          	and	a2,a1,a3
    1a0e8:	a0060ce3          	beqz	a2,19b00 <_zisk_float+0x922c>
-   1a0ec:	1f0016b7          	lui	a3,0x1f001
+   1a0ec:	002006b7          	lui	a3,0x200
    1a0f0:	00371793          	slli	a5,a4,0x3
-   1a0f4:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   1a0f4:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    1a0f8:	00e787b3          	add	a5,a5,a4
    1a0fc:	20000613          	li	a2,512
    1a100:	00000693          	li	a3,0
@@ -10338,9 +10338,9 @@ Disassembly of section .text:
    1a150:	004006b7          	lui	a3,0x400
    1a154:	00d5f633          	and	a2,a1,a3
    1a158:	9a061ee3          	bnez	a2,19b14 <_zisk_float+0x9240>
-   1a15c:	1f0016b7          	lui	a3,0x1f001
+   1a15c:	002006b7          	lui	a3,0x200
    1a160:	00371793          	slli	a5,a4,0x3
-   1a164:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   1a164:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    1a168:	00e787b3          	add	a5,a5,a4
    1a16c:	10000613          	li	a2,256
    1a170:	00000693          	li	a3,0
@@ -10359,9 +10359,9 @@ Disassembly of section .text:
    1a1a4:	895f606f          	j	10a38 <_zisk_float+0x164>
    1a1a8:	0007a503          	lw	a0,0(a5)
    1a1ac:	0047a583          	lw	a1,4(a5)
-   1a1b0:	1f0016b7          	lui	a3,0x1f001
+   1a1b0:	002006b7          	lui	a3,0x200
    1a1b4:	00371793          	slli	a5,a4,0x3
-   1a1b8:	11868713          	addi	a4,a3,280 # 1f001118 <_float_lib_entry+0x1ef01118>
+   1a1b8:	11868713          	addi	a4,a3,280 # 200118 <_float_lib_entry+0x100118>
    1a1bc:	00e787b3          	add	a5,a5,a4
    1a1c0:	be05c2e3          	bltz	a1,19da4 <_zisk_float+0x94d0>
    1a1c4:	04000613          	li	a2,64
