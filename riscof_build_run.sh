@@ -23,6 +23,12 @@ cp target/debug/cargo-openvm $BINARY_TO_RUN
 # Run the test
 cd zkevm-test-monitor
 
+# Build float library if needed
+if [ ! -f "riscof/plugins/openvm/env/libziskfloat.a" ] || [ ! -f "riscof/plugins/openvm/env/float.o" ]; then
+    echo "🔧 Building float library..."
+    riscof/plugins/openvm/env/build_float_lib.sh
+fi
+
 # Optionally rebuild tests (set BTESTS=1 to enable)
 if [ $BTESTS = "1" ]; then
     echo "📦 Rebuilding tests..."
