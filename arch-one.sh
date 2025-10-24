@@ -67,21 +67,20 @@ if [ $RUN = "1" ]; then
 
     if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
         ELF_FILE="$TEST_DIR/my.elf"
+        echo "ELF_FILES IS $ELF_FILE"
 
         # Generate objdump if ELF exists
         if [ -f "$ELF_FILE" ]; then
             echo "📝 Generating objdump..."
 
-            # Create dump in a temp location first (in case test dir is read-only)
-            TEMP_DUMP="/tmp/riscof-test.dump"
-            riscv64-elf-objdump -S "$ELF_FILE" > "$TEMP_DUMP"
-
-            # Create symlinks in repo base directory
             cd ..
-            rm -f riscof-test.elf riscof-test.dump
+            rm -rf arch-test.elf arch-test.dump arch-test.log
+            TEST_DUMP="arch-test.dump"
+            DUT_LOG="zkevm-test-monitor/debug-output/openvm/temp_work/latest.log"
+            ln -s $DUT_LOG arch-test.log
 
-            ln -s "zkevm-test-monitor/$ELF_FILE" riscof-test.elf
-            ln -s "$TEMP_DUMP" riscof-test.dump
+            riscv64-elf-objdump -S "zkevm-test-monitor/$ELF_FILE" > "$TEST_DUMP"
+            ln -s "zkevm-test-monitor/$ELF_FILE" arch-test.elf
 
             cd zkevm-test-monitor
         fi
