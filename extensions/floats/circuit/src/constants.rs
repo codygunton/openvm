@@ -1,6 +1,7 @@
 /// Base address for float register file in heap memory
 /// Placed at 2MB to provide space for test code while staying well within 512MB limit
 pub const FLOAT_REGISTER_BASE: u32 = 0x00200000;
+pub const FLOAT_CSR_FCSR: u32 = FLOAT_REGISTER_BASE + 0x8000 + 24;  // 0x00208018 - FCSR register location
 
 /// Address where float instruction encoding is stored for handler
 /// Placed 0x108 bytes after register base (after 32 registers * 8 bytes + padding)
@@ -10,6 +11,9 @@ pub const FLOAT_INST_ADDR: u32 = 0x00200108;
 /// This should match where the linker places .float_lib_entry section
 /// Placed at 1MB to avoid overlap with test code while keeping binary size reasonable
 pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x0010_0000;
+pub const FLOAT_SAVED_X1: u32 = 0x1F001200;  // Scratch location to save x1 during float handler calls
+pub const FLOAT_RETURN_ADDR: u32 = 0x1F001204;  // Scratch location to save actual return address
+pub const FLOAT_TRAMPOLINE_PC: u32 = 0xF0000000;  // Special PC value for return trampoline
 
 /// Heap memory address space ID
 pub const FLOAT_MEM_AS: u32 = 2;

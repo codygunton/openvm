@@ -47,6 +47,14 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
         let instruction = match (opcode, funct3) {
             (CSR_OPCODE, _) => {
                 let dec_insn = IType::new(instruction_u32);
+
+                // Check if this is FCSR (CSR 0x003) - if so, let floats extension handle it
+                let csr = ((instruction_u32 >> 20) & 0xFFF) as u32;
+                if csr == 0x003 {
+                    // FCSR instruction - return None to let floats transpiler extension handle it
+                    return None;
+                }
+
                 // For RISCOF compatibility, treat CSR instructions as no-ops when rd=0
                 // (i.e., when they don't write to a destination register)
                 // This allows tests to execute CSR setup (like enabling FP via mstatus)

@@ -14,6 +14,7 @@ pub const FMSUB_OPCODE: u8 = 0x47; // FMSUB.S
 pub const FNMSUB_OPCODE: u8 = 0x4B; // FNMSUB.S
 pub const FNMADD_OPCODE: u8 = 0x4F; // FNMADD.S
 pub const FP_OPCODE: u8 = 0x53; // FADD.S, FMUL.S, etc.
+pub const CSR_OPCODE: u8 = 0x73; // CSR instructions (CSRRW, CSRRS, etc.)
 
 // Memory map (must match circuit constants)
 // Placed at 2MB to provide space for test code while staying well within 512MB limit
@@ -256,6 +257,56 @@ impl FloatsTranspilerExtension {
             used_u32s: 1,
         })
     }
+
+    fn handle_fcsr<F: PrimeField32>(&self, inst: u32) -> Option<TranspilerOutput<F>> {
+        // Decode CSR instruction (I-type format)
+        // For CSR instructions, bits [31:20] contain the CSR address
+        let rd = ((inst >> 7) & 0x1F) as u8;
+        let funct3 = ((inst >> 12) & 0x7) as u8;
+        let rs1 = ((inst >> 15) & 0x1F) as u8;
+        let csr = ((inst >> 20) & 0xFFF) as u32;
+
+        eprintln!("[FCSR-TRANSPILE] Inst=0x{:08x}, CSR=0x{:03x}, rd={}, rs1={}, funct3={}",
+            inst, csr, rd, rs1, funct3);
+
+        // Only handle FCSR (CSR address 0x003)
+        if csr != 0x003 {
+            eprintln!("[FCSR-TRANSPILE] Not FCSR (CSR 0x003), returning None");
+            return None;  // Not FCSR, let default transpiler handle it (will be NOP)
+        }
+
+        eprintln!("[FCSR-TRANSPILE] Handling FCSR!");
+
+        // Map funct3 to CSR operation type
+        // funct3: 1=CSRRW, 2=CSRRS, 3=CSRRC, 5=CSRRWI, 6=CSRRSI, 7=CSRRCI
+        // For FCSR we only need:
+        // - FSCSR is CSRRW with rd=x0 (funct3=1, rd=0)
+        // - FRCSR is CSRRS with rs1=x0 (funct3=2, rs1=0)
+        let op_type = match funct3 {
+            1 => 0,  // CSRRW (read/write)
+            2 => 1,  // CSRRS (read and set)
+            3 => 2,  // CSRRC (read and clear)
+            5 => 3,  // CSRRWI (immediate)
+            6 => 4,  // CSRRSI (immediate)
+            7 => 5,  // CSRRCI (immediate)
+            _ => return None,  // Invalid CSR funct3
+        };
+
+        // Emit FCSR instruction
+        let instruction = Instruction::from_isize(
+            FloatOpcode::FCSR.global_opcode(),
+            rd as isize,                  // a: destination register (x0-x31)
+            rs1 as isize,                 // b: source register (x0-x31) or immediate value
+            op_type as isize,             // c: operation type (0=RW, 1=RS, 2=RC, 3=RWI, 4=RSI, 5=RCI)
+            0,                            // d: unused
+            0,                            // e: unused
+        );
+
+        Some(TranspilerOutput {
+            instructions: vec![Some(instruction)],
+            used_u32s: 1,
+        })
+    }
 }
 
 impl<F: PrimeField32> TranspilerExtension<F> for FloatsTranspilerExtension {
@@ -289,6 +340,10 @@ impl<F: PrimeField32> TranspilerExtension<F> for FloatsTranspilerExtension {
             FMADD_OPCODE | FMSUB_OPCODE | FNMSUB_OPCODE | FNMADD_OPCODE => {
                 // Fused multiply-add variants (R4-type)
                 self.handle_float_fma(inst)
+            }
+            CSR_OPCODE => {
+                // CSR instructions - check if it's FCSR (CSR 0x003)
+                self.handle_fcsr(inst)
             }
             _ => None, // Not a float instruction
         }

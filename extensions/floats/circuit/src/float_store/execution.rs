@@ -121,7 +121,7 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let float_addr = float_reg_addr(pre_compute.rs2);
     let word_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, float_addr);
 
-    // 2. Read base address from rs1 register (use register number directly)
+    // 2. Read base address from rs1 register
     let base_bytes = exec_state.vm_read::<u8, 4>(
         RV32_REGISTER_AS,
         pre_compute.rs1 as u32,

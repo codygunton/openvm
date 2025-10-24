@@ -15,6 +15,7 @@ mod float_convert;
 mod float_compare;
 mod float_move;
 mod float_class;
+mod float_csr;
 pub mod extension;
 
 pub use constants::*;

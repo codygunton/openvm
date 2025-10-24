@@ -4,7 +4,7 @@ use std::mem::size_of;
 use openvm_circuit::arch::*;
 use openvm_circuit::system::memory::online::GuestMemory;
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
-use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP};
+use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_AS};
 use openvm_stark_backend::p3_field::PrimeField32;
 
 use crate::constants::*;
@@ -104,11 +104,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!(
-        "[FADD-ENTRY] PC=0x{:08x}, instret={}, ENABLED={}",
-        *pc, *instret, ENABLED
-    );
-
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
         *instret += 1;
@@ -135,35 +130,29 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
                      ((pre_compute.rs1 as u32) << 15) | ((funct3 as u32) << 12) |
                      ((pre_compute.rd as u32) << 7) | 0x53; // FP_OPCODE
 
-    // Store instruction to FLOAT_INST_ADDR (0x1F001108)
+    // Store instruction to FLOAT_INST_ADDR
     let inst_bytes = riscv_inst.to_le_bytes();
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
-
-    // Store 0 to FLOAT_INST_ADDR + 4
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
 
-    // Load handler address from FLOAT_LIB_ENTRY_PTR (0x0001EC60)
+    // Load handler address
     let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
     let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
 
-    eprintln!(
-        "[FADD] Calling handler at 0x{:08x}, instruction=0x{:08x}",
-        handler_addr, riscv_inst
-    );
+    // Save x1 before clobbering it with return address
+    // The test code may be using x1 to store important values (e.g., signature base address)
+    let saved_x1 = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, 1 * 4);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_X1, &saved_x1);
 
-    // Store return address in x1 (ra)
-    let return_addr = *pc + DEFAULT_PC_STEP;
-    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &return_addr.to_le_bytes()); // x1 = ra
+    // Save actual return address and write trampoline to x1
+    let actual_return_addr = *pc + DEFAULT_PC_STEP;
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
+    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
 
-    // JALR: jump to handler (with RISC-V compliant address rounding - clear LSB)
+    // Jump to handler
     let target_addr = handler_addr & !1;
     *pc = target_addr;
     *instret += 1;
-
-    eprintln!(
-        "[FADD-EXIT] Jumped to handler: 0x{:08x}, return_addr=0x{:08x}",
-        handler_addr, return_addr
-    );
 }
 
 #[create_handler]

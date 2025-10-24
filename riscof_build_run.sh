@@ -115,7 +115,7 @@ if [ $RUN = "1" ]; then
 
             # Compare the signatures using delta
             echo "❌ Signature differences:"
-            diff -u "$REF_SIG" "zkevm-test-monitor/$DUT_SIG" | delta -w 48 | head -20 || true
+            delta -w 48 "zkevm-test-monitor/$DUT_SIG" $REF_SIG | head -40
 
             # Count total differences
             DIFF_COUNT=$(diff "$REF_SIG" "zkevm-test-monitor/$DUT_SIG" | wc -l || true)

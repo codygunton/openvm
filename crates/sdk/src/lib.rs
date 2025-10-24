@@ -416,6 +416,7 @@ where
                     | ((byte1 as u32) << 8)
                     | ((byte2 as u32) << 16)
                     | ((byte3 as u32) << 24);
+
                 // Write as hex value
                 writeln!(sig_file, "{:08x}", word)?;
             }

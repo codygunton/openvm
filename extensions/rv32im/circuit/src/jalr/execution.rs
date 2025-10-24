@@ -145,6 +145,33 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let rs1 = u32::from_le_bytes(rs1);
     let to_pc = rs1.wrapping_add(pre_compute.imm_extended);
     let to_pc = to_pc - (to_pc & 1);
+
+    // Check if we're jumping to the float trampoline BEFORE the assertion
+    // (trampoline PC is > PC_BITS and would fail the assertion)
+    const FLOAT_TRAMPOLINE_PC: u32 = 0xF0000000;
+    const FLOAT_MEM_AS: u32 = 2;
+    const FLOAT_SAVED_X1: u32 = 0x1F001200;
+    const FLOAT_RETURN_ADDR: u32 = 0x1F001204;
+
+    if to_pc == FLOAT_TRAMPOLINE_PC {
+        // Restore x1 from saved location
+        let saved_x1 = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_SAVED_X1);
+        exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &saved_x1);
+
+        // Read actual return address
+        let actual_return = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_RETURN_ADDR);
+        let actual_return_pc = u32::from_le_bytes(actual_return);
+
+        let rd = (*pc + DEFAULT_PC_STEP).to_le_bytes();
+        if ENABLED {
+            exec_state.vm_write(RV32_REGISTER_AS, pre_compute.a as u32, &rd);
+        }
+
+        *pc = actual_return_pc;
+        *instret += 1;
+        return;
+    }
+
     debug_assert!(to_pc < (1 << PC_BITS));
     let rd = (*pc + DEFAULT_PC_STEP).to_le_bytes();
 

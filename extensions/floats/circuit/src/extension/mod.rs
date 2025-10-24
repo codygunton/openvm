@@ -17,6 +17,7 @@ use crate::float_convert::FloatConvertExecutor;
 use crate::float_compare::FloatCompareExecutor;
 use crate::float_move::FloatMoveExecutor;
 use crate::float_class::FloatClassExecutor;
+use crate::float_csr::FloatCsrExecutor;
 
 #[derive(Clone, From, AnyEnum, Executor, MeteredExecutor, PreflightExecutor)]
 pub enum Rv32FExecutor {
@@ -28,6 +29,7 @@ pub enum Rv32FExecutor {
     FloatCompare(FloatCompareExecutor),
     FloatMove(FloatMoveExecutor),
     FloatClass(FloatClassExecutor),
+    FloatCsr(FloatCsrExecutor),
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -105,6 +107,12 @@ impl<F: PrimeField32> VmExecutionExtension<F> for Rv32F {
                 FloatOpcode::FMVXW.global_opcode(),  // FMV.X.W (float -> int)
                 FloatOpcode::FMVWX.global_opcode(),  // FMV.W.X (int -> float)
             ],
+        )?;
+
+        // Register float CSR executor for FCSR access
+        inventory.add_executor(
+            FloatCsrExecutor::new(),
+            [FloatOpcode::FCSR.global_opcode()],  // FRCSR, FSCSR
         )?;
 
         Ok(())
