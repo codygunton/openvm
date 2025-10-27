@@ -41,6 +41,8 @@ fi
 
 # Optionally rebuild tests (set BTESTS=1 to enable)
 if [ $BTESTS = "1" ]; then
+    echo "📦 Rebuilding float library..."
+    riscof/plugins/openvm/env/build_float_lib.sh
     echo "📦 Rebuilding tests..."
     ./run test --arch openvm --build-only
 else
