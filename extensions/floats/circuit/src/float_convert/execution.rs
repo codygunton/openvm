@@ -107,11 +107,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!(
-        "[FCVT-ENTRY] PC=0x{:08x}, instret={}, direction={}, unsigned={}, rm={}, ENABLED={}",
-        *pc, *instret, pre_compute.direction, pre_compute.unsigned_flag, pre_compute.rm, ENABLED
-    );
-
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
         *instret += 1;
@@ -131,8 +126,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
                 let f_val = i_val as f32;
                 let f_addr = float_reg_addr(pre_compute.rd);
                 exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
-                eprintln!("[FCVT.S.W] x{} ({}) -> f{} ({}=0x{:08x})",
-                          pre_compute.rs1, i_val, pre_compute.rd, f_val, f_val.to_bits());
             }
             1 => { // FCVT.S.WU (unsigned int to float)
                 let u_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
@@ -140,8 +133,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
                 let f_val = u_val as f32;
                 let f_addr = float_reg_addr(pre_compute.rd);
                 exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
-                eprintln!("[FCVT.S.WU] x{} ({}) -> f{} ({}=0x{:08x})",
-                          pre_compute.rs1, u_val, pre_compute.rd, f_val, f_val.to_bits());
             }
             _ => {}
         }
@@ -188,20 +179,58 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
             _ => f_val.trunc(),
         };
 
+        // Check for exception conditions
+        let mut fcsr_flags = 0u32;
+
+        // Invalid operation (NV, bit 4 = 0x10) if:
+        // - Input is NaN, infinity, or out of range
+        let is_invalid = f_val.is_nan() || f_val.is_infinite() || {
+            match pre_compute.unsigned_flag {
+                0 => rounded < i32::MIN as f32 || rounded > i32::MAX as f32,
+                1 => rounded < 0.0 || rounded > u32::MAX as f32,
+                _ => false,
+            }
+        };
+
+        if is_invalid {
+            fcsr_flags |= 0x10; // NV flag
+        }
+
+        // Inexact (NX, bit 0 = 0x01) if rounding occurred
+        let is_inexact = !is_invalid && (f_val != rounded);
+
+        if is_inexact {
+            fcsr_flags |= 0x01; // NX flag
+        }
+
         match pre_compute.unsigned_flag {
             0 => { // FCVT.W.S (float to signed int)
-                let i_val = rounded as i32;
+                let i_val = if is_invalid {
+                    // Return maximum representable value on invalid
+                    if f_val.is_nan() || f_val > 0.0 { i32::MAX } else { i32::MIN }
+                } else {
+                    rounded as i32
+                };
                 exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &i_val.to_le_bytes());
-                eprintln!("[FCVT.W.S] f{} ({}=0x{:08x}, rm={}) -> x{} ({})  [rounded={}]",
-                          pre_compute.rs1, f_val, f_val.to_bits(), pre_compute.rm, pre_compute.rd, i_val, rounded);
             }
             1 => { // FCVT.WU.S (float to unsigned int)
-                let u_val = rounded as u32;
+                let u_val = if is_invalid {
+                    // Return maximum representable value on invalid
+                    if f_val.is_nan() || f_val < 0.0 { 0u32 } else { u32::MAX }
+                } else {
+                    rounded as u32
+                };
                 exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &u_val.to_le_bytes());
-                eprintln!("[FCVT.WU.S] f{} ({}=0x{:08x}, rm={}) -> x{} ({})  [rounded={}]",
-                          pre_compute.rs1, f_val, f_val.to_bits(), pre_compute.rm, pre_compute.rd, u_val, rounded);
             }
             _ => {}
+        }
+
+        // Update FCSR flags if any were set
+        if fcsr_flags != 0 {
+            let fcsr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
+            let mut fcsr = u32::from_le_bytes(fcsr_bytes);
+            fcsr |= fcsr_flags;
+            exec_state.vm_write(FLOAT_MEM_AS, FLOAT_CSR_FCSR, &fcsr.to_le_bytes());
         }
     }
 

@@ -102,11 +102,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!(
-        "[FCOMPARE-ENTRY] PC=0x{:08x}, instret={}, comp_type={}, ENABLED={}",
-        *pc, *instret, pre_compute.comp_type, ENABLED
-    );
-
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
         *instret += 1;
@@ -133,17 +128,38 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
 
     exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &result.to_le_bytes());
 
-    let comp_name = match pre_compute.comp_type {
-        0 => "FLE.S",
-        1 => "FLT.S",
-        2 => "FEQ.S",
-        _ => "UNKNOWN",
+    // Update FCSR flags based on comparison type
+    // Per RISC-V spec:
+    // - FLE/FLT (comp_type 0,1): Set invalid flag for ANY NaN
+    // - FEQ (comp_type 2): Set invalid flag ONLY for signaling NaN
+    let should_set_invalid = match pre_compute.comp_type {
+        0 | 1 => {
+            // FLE/FLT: Set flag for any NaN
+            f1_val.is_nan() || f2_val.is_nan()
+        }
+        2 => {
+            // FEQ: Set flag only for signaling NaN
+            // A signaling NaN has the high bit of mantissa (bit 22) = 0
+            let f1_bits = f1_val.to_bits();
+            let f2_bits = f2_val.to_bits();
+            let is_f1_snan = f1_val.is_nan() && ((f1_bits & 0x00400000) == 0);
+            let is_f2_snan = f2_val.is_nan() && ((f2_bits & 0x00400000) == 0);
+            is_f1_snan || is_f2_snan
+        }
+        _ => false,
     };
 
-    eprintln!("[{}] f{} ({}) {} f{} ({}) -> x{} ({})",
-              comp_name, pre_compute.rs1, f1_val,
-              match pre_compute.comp_type { 0 => "<=", 1 => "<", 2 => "==", _ => "?" },
-              pre_compute.rs2, f2_val, pre_compute.rd, result);
+    if should_set_invalid {
+        // Read current FCSR
+        let fcsr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
+        let mut fcsr = u32::from_le_bytes(fcsr_bytes);
+
+        // Set NV (Invalid Operation) flag - bit 4 (0x10)
+        fcsr |= 0x10;
+
+        // Write back updated FCSR
+        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_CSR_FCSR, &fcsr.to_le_bytes());
+    }
 
     *pc += DEFAULT_PC_STEP;
     *instret += 1;
