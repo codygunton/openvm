@@ -113,11 +113,11 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     // Reconstruct RISC-V instruction encoding
     // R-type: funct7 | rs2 | rs1 | funct3 | rd | opcode
     let (funct7, funct3) = match pre_compute.opcode {
-        2 => (0x00, 0), // FADD
-        3 => (0x04, 0), // FSUB
-        4 => (0x08, 0), // FMUL
-        5 => (0x0C, 0), // FDIV
-        6 => (0x2C, 0), // FSQRT (funct3=0 for default rounding mode)
+        2 => (0x00, pre_compute.variant), // FADD - preserve rounding mode
+        3 => (0x04, pre_compute.variant), // FSUB - preserve rounding mode
+        4 => (0x08, pre_compute.variant), // FMUL - preserve rounding mode
+        5 => (0x0C, pre_compute.variant), // FDIV - preserve rounding mode
+        6 => (0x2C, pre_compute.variant), // FSQRT - preserve rounding mode
         7 => (0x14, pre_compute.variant), // FMIN (variant=0) / FMAX (variant=1)
         8 => (0x10, pre_compute.variant), // FSGNJ (0) / FSGNJN (1) / FSGNJX (2)
         _ => (0x00, 0),

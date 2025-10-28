@@ -14,9 +14,10 @@ use super::core::FloatCsrExecutor;
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
 pub struct FloatCsrPreCompute {
-    rd: u8,      // Destination register (integer register x0-x31)
-    rs1: u8,     // Source register (integer register x0-x31) or immediate value
-    op_type: u8, // CSR operation type: 0=RW, 1=RS, 2=RC, 3=RWI, 4=RSI, 5=RCI
+    rd: u8,       // Destination register (integer register x0-x31)
+    rs1: u8,      // Source register (integer register x0-x31) or immediate value
+    op_type: u8,  // CSR operation type: 0=RW, 1=RS, 2=RC, 3=RWI, 4=RSI, 5=RCI
+    csr_addr: u8, // CSR address: 0x001=fflags, 0x002=frm, 0x003=fcsr
 }
 
 impl FloatCsrExecutor {
@@ -31,6 +32,7 @@ impl FloatCsrExecutor {
             rd: inst.a.as_canonical_u32() as u8,
             rs1: inst.b.as_canonical_u32() as u8,
             op_type: inst.c.as_canonical_u32() as u8,
+            csr_addr: inst.d.as_canonical_u32() as u8,
         };
         Ok(true)
     }
@@ -100,8 +102,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!("[FCSR-ENTRY] PC=0x{:08x}, instret={}, rd={}, rs1={}, op_type={}, ENABLED={}",
-        *pc, *instret, pre_compute.rd, pre_compute.rs1, pre_compute.op_type, ENABLED);
+    eprintln!("[FCSR-ENTRY] PC=0x{:08x}, instret={}, rd={}, rs1={}, op_type={}, csr_addr=0x{:03x}, ENABLED={}",
+        *pc, *instret, pre_compute.rd, pre_compute.rs1, pre_compute.op_type, pre_compute.csr_addr, ENABLED);
 
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
@@ -111,8 +113,25 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
 
     // Read current FCSR value from memory
     let fcsr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
-    let fcsr_old = u32::from_le_bytes(fcsr_bytes);
-    eprintln!("[FCSR-READ] FCSR old value = 0x{:08x}", fcsr_old);
+    let fcsr_full = u32::from_le_bytes(fcsr_bytes);
+    eprintln!("[FCSR-READ] FCSR full value = 0x{:08x}", fcsr_full);
+
+    // Extract the appropriate field based on CSR address:
+    // 0x001 (fflags): bits [4:0] - exception flags
+    // 0x002 (frm):    bits [7:5] - rounding mode
+    // 0x003 (fcsr):   bits [7:0] - full register
+    let fcsr_old = match pre_compute.csr_addr {
+        0x001 => fcsr_full & 0x1F,        // fflags: bits [4:0]
+        0x002 => (fcsr_full >> 5) & 0x07, // frm: bits [7:5] shifted to [2:0]
+        0x003 => fcsr_full & 0xFF,        // fcsr: bits [7:0]
+        _ => {
+            eprintln!("[FCSR-ERROR] Invalid CSR address: 0x{:03x}", pre_compute.csr_addr);
+            *pc += DEFAULT_PC_STEP;
+            *instret += 1;
+            return;
+        }
+    };
+    eprintln!("[FCSR-READ] CSR 0x{:03x} old value = 0x{:08x}", pre_compute.csr_addr, fcsr_old);
 
     // Process CSR operation based on op_type
     // op_type: 0=CSRRW, 1=CSRRS, 2=CSRRC, 3=CSRRWI, 4=CSRRSI, 5=CSRRCI
@@ -172,8 +191,27 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
 
     // Write new FCSR value if needed
     if write_csr {
-        eprintln!("[FCSR-WRITE] Writing new FCSR = 0x{:08x}", fcsr_new);
-        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_CSR_FCSR, &fcsr_new.to_le_bytes());
+        // Merge the new value back into the full FCSR based on CSR address
+        let fcsr_final = match pre_compute.csr_addr {
+            0x001 => {
+                // fflags: update bits [4:0], preserve bits [7:5]
+                (fcsr_full & 0xFFFFFFE0) | (fcsr_new & 0x1F)
+            }
+            0x002 => {
+                // frm: update bits [7:5], preserve bits [4:0]
+                // fcsr_new contains the 3-bit rounding mode in bits [2:0]
+                (fcsr_full & 0xFFFFFF1F) | ((fcsr_new & 0x07) << 5)
+            }
+            0x003 => {
+                // fcsr: update bits [7:0]
+                (fcsr_full & 0xFFFFFF00) | (fcsr_new & 0xFF)
+            }
+            _ => fcsr_full, // Should not happen, already validated above
+        };
+
+        eprintln!("[FCSR-WRITE] CSR 0x{:03x}: old_full=0x{:08x}, new_field=0x{:08x}, final_full=0x{:08x}",
+                  pre_compute.csr_addr, fcsr_full, fcsr_new, fcsr_final);
+        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_CSR_FCSR, &fcsr_final.to_le_bytes());
     }
 
     // Write old FCSR value to rd (unless rd=x0)

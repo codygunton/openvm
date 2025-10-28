@@ -269,13 +269,16 @@ impl FloatsTranspilerExtension {
         eprintln!("[FCSR-TRANSPILE] Inst=0x{:08x}, CSR=0x{:03x}, rd={}, rs1={}, funct3={}",
             inst, csr, rd, rs1, funct3);
 
-        // Only handle FCSR (CSR address 0x003)
-        if csr != 0x003 {
-            eprintln!("[FCSR-TRANSPILE] Not FCSR (CSR 0x003), returning None");
-            return None;  // Not FCSR, let default transpiler handle it (will be NOP)
+        // Handle floating-point CSRs:
+        // 0x001 = fflags (exception flags, bits 4-0 of fcsr)
+        // 0x002 = frm (rounding mode, bits 7-5 of fcsr)
+        // 0x003 = fcsr (full control/status register)
+        if csr != 0x001 && csr != 0x002 && csr != 0x003 {
+            eprintln!("[FCSR-TRANSPILE] Not a float CSR (0x001/0x002/0x003), returning None");
+            return None;  // Not a float CSR, let default transpiler handle it
         }
 
-        eprintln!("[FCSR-TRANSPILE] Handling FCSR!");
+        eprintln!("[FCSR-TRANSPILE] Handling float CSR 0x{:03x}!", csr);
 
         // Map funct3 to CSR operation type
         // funct3: 1=CSRRW, 2=CSRRS, 3=CSRRC, 5=CSRRWI, 6=CSRRSI, 7=CSRRCI
@@ -298,7 +301,7 @@ impl FloatsTranspilerExtension {
             rd as isize,                  // a: destination register (x0-x31)
             rs1 as isize,                 // b: source register (x0-x31) or immediate value
             op_type as isize,             // c: operation type (0=RW, 1=RS, 2=RC, 3=RWI, 4=RSI, 5=RCI)
-            0,                            // d: unused
+            csr as isize,                 // d: CSR address (0x001=fflags, 0x002=frm, 0x003=fcsr)
             0,                            // e: unused
         );
 
