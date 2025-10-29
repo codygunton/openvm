@@ -108,60 +108,61 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         return;
     }
 
-    // Implement compare directly without using the handler
-    // This is needed because the handler writes to a backup location that doesn't
-    // get copied back to the actual integer register file
-
-    let f1_addr = float_reg_addr(pre_compute.rs1);
-    let f2_addr = float_reg_addr(pre_compute.rs2);
+    // Read the float values being compared for debugging
+    let f1_addr = FLOAT_REGISTER_BASE + (pre_compute.rs1 as u32 * 8);
+    let f2_addr = FLOAT_REGISTER_BASE + (pre_compute.rs2 as u32 * 8);
     let f1_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f1_addr);
     let f2_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f2_addr);
-    let f1_val = f32::from_le_bytes(f1_bytes);
-    let f2_val = f32::from_le_bytes(f2_bytes);
+    let f1_val = u32::from_le_bytes(f1_bytes);
+    let f2_val = u32::from_le_bytes(f2_bytes);
 
-    let result = match pre_compute.comp_type {
-        0 => (f1_val <= f2_val) as u32, // FLE.S
-        1 => (f1_val < f2_val) as u32,  // FLT.S
-        2 => (f1_val == f2_val) as u32, // FEQ.S
-        _ => 0,
-    };
+    eprintln!("[FLOAT_CMP] PC=0x{:08x}, rd={}, rs1={}(f{}=0x{:08x}), rs2={}(f{}=0x{:08x}), comp_type={}",
+              *pc, pre_compute.rd, pre_compute.rs1, pre_compute.rs1, f1_val,
+              pre_compute.rs2, pre_compute.rs2, f2_val, pre_compute.comp_type);
 
-    exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &result.to_le_bytes());
+    // Reconstruct RISC-V instruction encoding to pass to handler
+    // R-type: funct7 | rs2 | rs1 | funct3 | rd | opcode
+    // All float comparisons use funct7=0x50 (0b1010000, 7-bit value)
+    // FLE.S: funct3=0, FLT.S: funct3=1, FEQ.S: funct3=2
+    let funct7 = 0x50;  // Corrected from 0xA0 - funct7 is only 7 bits!
+    let funct3 = pre_compute.comp_type; // 0=FLE, 1=FLT, 2=FEQ
 
-    // Update FCSR flags based on comparison type
-    // Per RISC-V spec:
-    // - FLE/FLT (comp_type 0,1): Set invalid flag for ANY NaN
-    // - FEQ (comp_type 2): Set invalid flag ONLY for signaling NaN
-    let should_set_invalid = match pre_compute.comp_type {
-        0 | 1 => {
-            // FLE/FLT: Set flag for any NaN
-            f1_val.is_nan() || f2_val.is_nan()
-        }
-        2 => {
-            // FEQ: Set flag only for signaling NaN
-            // A signaling NaN has the high bit of mantissa (bit 22) = 0
-            let f1_bits = f1_val.to_bits();
-            let f2_bits = f2_val.to_bits();
-            let is_f1_snan = f1_val.is_nan() && ((f1_bits & 0x00400000) == 0);
-            let is_f2_snan = f2_val.is_nan() && ((f2_bits & 0x00400000) == 0);
-            is_f1_snan || is_f2_snan
-        }
-        _ => false,
-    };
+    let riscv_inst = (funct7 << 25) | ((pre_compute.rs2 as u32) << 20) |
+                     ((pre_compute.rs1 as u32) << 15) | ((funct3 as u32) << 12) |
+                     ((pre_compute.rd as u32) << 7) | 0x53; // FP_OPCODE
 
-    if should_set_invalid {
-        // Read current FCSR
-        let fcsr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
-        let mut fcsr = u32::from_le_bytes(fcsr_bytes);
+    eprintln!("[FLOAT_CMP] Reconstructed inst=0x{:08x}, handler will be called", riscv_inst);
 
-        // Set NV (Invalid Operation) flag - bit 4 (0x10)
-        fcsr |= 0x10;
+    // Store instruction to FLOAT_INST_ADDR
+    let inst_bytes = riscv_inst.to_le_bytes();
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
 
-        // Write back updated FCSR
-        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_CSR_FCSR, &fcsr.to_le_bytes());
+    // Load handler address
+    let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
+    let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
+
+    // Save x1 before clobbering it with return address
+    // The test code may be using x1 to store important values (e.g., signature base address)
+    let saved_x1 = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, 1 * 4);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_X1, &saved_x1);
+
+    // Save all caller-saved registers (x5-x7, x10-x17, x28-x31) before calling C handler
+    // The C float handler follows RISC-V calling convention and may clobber these
+    let caller_saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
+    for (i, &reg) in caller_saved_regs.iter().enumerate() {
+        let reg_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, reg * 4);
+        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4), &reg_bytes);
     }
 
-    *pc += DEFAULT_PC_STEP;
+    // Save actual return address and write trampoline to x1
+    let actual_return_addr = *pc + DEFAULT_PC_STEP;
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
+    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
+
+    // Jump to handler
+    let target_addr = handler_addr & !1;
+    *pc = target_addr;
     *instret += 1;
 }
 

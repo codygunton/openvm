@@ -152,20 +152,66 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     const FLOAT_MEM_AS: u32 = 2;
     const FLOAT_SAVED_X1: u32 = 0x1F001200;
     const FLOAT_RETURN_ADDR: u32 = 0x1F001204;
+    const FLOAT_SAVED_REGS_BASE: u32 = 0x1F001210;  // Save area for caller-saved registers
+    const FLOAT_INST_ADDR: u32 = 0x00200108;   // Same as constants.rs - where circuit writes instruction
+    const FLOAT_X0_BACKUP: u32 = 0x00200118;   // Guest library integer register backup (FREG_X0 from lib-float/float.h)
 
     if to_pc == FLOAT_TRAMPOLINE_PC {
         // Restore x1 from saved location
         let saved_x1 = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_SAVED_X1);
         exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &saved_x1);
 
+        // Read the float instruction to check if it writes to an integer register
+        let inst_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_INST_ADDR);
+        let inst = u32::from_le_bytes(inst_bytes);
+
+        // Extract fields from R-type instruction: funct7 | rs2 | rs1 | funct3 | rd | opcode
+        let rd = (inst >> 7) & 0x1F;
+        let funct7 = (inst >> 25) & 0x7F;
+
+        eprintln!("[TRAMPOLINE] inst=0x{:08x}, rd={}, funct7=0x{:02x}", inst, rd, funct7);
+
+        // Restore all caller-saved registers (x5-x7, x10-x17, x28-x31) FIRST
+        // These were saved before calling the float handler to preserve their values
+        // IMPORTANT: Must restore BEFORE writing integer result, otherwise we'd overwrite the result!
+        let caller_saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
+        for (i, &reg) in caller_saved_regs.iter().enumerate() {
+            let reg_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4));
+            exec_state.vm_write(RV32_REGISTER_AS, reg * 4, &reg_bytes);
+        }
+
+        // Check if this instruction writes to an integer register:
+        // - Float comparisons (FLE, FLT, FEQ): funct7 = 0x50 (7-bit value: 0b1010000)
+        // - FCLASS: funct7 = 0x70 (funct3=1)
+        // - FMV.X.W: funct7 = 0x70 (funct3=0)
+        if funct7 == 0x50 || funct7 == 0x70 {
+            // Skip if destination is x0 (zero register must always be zero)
+            if rd == 0 {
+                eprintln!("[TRAMPOLINE] Skipping write to x0 (zero register)");
+            } else {
+                // Copy result from integer register backup to actual integer register file
+                // Handler writes to FLOAT_X0_BACKUP + (rd * 8) as 8-byte aligned storage
+                let backup_addr = FLOAT_X0_BACKUP + (rd * 8);
+                let result_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr);
+                let result = u32::from_le_bytes(result_bytes);
+
+                // Also read the upper 32 bits to see what the handler wrote
+                let upper_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr + 4);
+                let upper = u32::from_le_bytes(upper_bytes);
+
+                eprintln!("[TRAMPOLINE] Copying int result: x{} = 0x{:08x} (from backup addr 0x{:08x}, upper=0x{:08x})",
+                          rd, result, backup_addr, upper);
+                exec_state.vm_write(RV32_REGISTER_AS, rd * 4, &result_bytes);
+            }
+        }
+
         // Read actual return address
         let actual_return = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_RETURN_ADDR);
         let actual_return_pc = u32::from_le_bytes(actual_return);
 
-        let rd = (*pc + DEFAULT_PC_STEP).to_le_bytes();
-        if ENABLED {
-            exec_state.vm_write(RV32_REGISTER_AS, pre_compute.a as u32, &rd);
-        }
+        // Note: The handler returns via 'ret' which is 'jalr x0, 0(x1)', so pre_compute.a is 0
+        // We skip writing to x0 since it's the zero register and should never be modified
+        // (The earlier check for comparison results already handles not writing to x0)
 
         *pc = actual_return_pc;
         *instret += 1;

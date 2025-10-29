@@ -150,6 +150,14 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let saved_x1 = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, 1 * 4);
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_X1, &saved_x1);
 
+    // Save all caller-saved registers (x5-x7, x10-x17, x28-x31) before calling C handler
+    // The C float handler follows RISC-V calling convention and may clobber these
+    let caller_saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
+    for (i, &reg) in caller_saved_regs.iter().enumerate() {
+        let reg_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, reg * 4);
+        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4), &reg_bytes);
+    }
+
     // Save actual return address and write trampoline to x1
     let actual_return_addr = *pc + DEFAULT_PC_STEP;
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());

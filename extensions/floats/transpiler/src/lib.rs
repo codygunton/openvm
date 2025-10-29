@@ -96,11 +96,15 @@ impl FloatsTranspilerExtension {
     }
 
     fn handle_float_compare<F: PrimeField32>(&self, inst: u32) -> Option<TranspilerOutput<F>> {
+        eprintln!("[TRANSPILER-FCMP] Processing float comparison: inst=0x{:08x}", inst);
+
         // Decode RISC-V instruction format (R-type)
         let rd = ((inst >> 7) & 0x1F) as u8;
         let rs1 = ((inst >> 15) & 0x1F) as u8;
         let rs2 = ((inst >> 20) & 0x1F) as u8;
         let funct3 = ((inst >> 12) & 0x7) as u8;
+
+        eprintln!("[TRANSPILER-FCMP] rd={}, rs1={}, rs2={}, funct3={}", rd, rs1, rs2, funct3);
 
         // Map funct3 to comparison type
         let comp_type = match funct3 {
@@ -210,8 +214,11 @@ impl FloatsTranspilerExtension {
         let rs2 = ((inst >> 20) & 0x1F) as u8;
         let funct7 = ((inst >> 25) & 0x7F) as u8;
 
+        eprintln!("[TRANSPILER-FP_ALU] inst=0x{:08x}, funct7=0x{:02x}, funct3=0x{:02x}", inst, funct7, funct3);
+
         // Check if this is a comparison instruction
         if funct7 == 0x50 {
+            eprintln!("[TRANSPILER-FP_ALU] Detected float comparison, delegating to handle_float_compare");
             return self.handle_float_compare(inst);
         }
 
@@ -320,6 +327,8 @@ impl<F: PrimeField32> TranspilerExtension<F> for FloatsTranspilerExtension {
 
         let inst = instruction_stream[0];
         let opcode = (inst & 0x7f) as u8;
+
+        eprintln!("[FLOATS-TRANSPILER] process_custom called: inst=0x{:08x}, opcode=0x{:02x}", inst, opcode);
 
         match opcode {
             FLOAD_OPCODE => {
