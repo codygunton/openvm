@@ -172,40 +172,43 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
 
         eprintln!("[TRAMPOLINE] inst=0x{:08x}, opcode=0x{:02x}, rd={}, funct7=0x{:02x}", inst, opcode, rd, funct7);
 
-        // Restore saved registers: t0-t2 (x5-x7), a4 (x14), t3-t6 (x28-x31)
-        // These were saved before calling the float handler to preserve their values
-        // IMPORTANT: Must restore BEFORE writing integer result, otherwise we'd overwrite the result!
-        let saved_regs = [5, 6, 7, 14, 28, 29, 30, 31];
+        // Check if this operation will write to an integer register
+        let writes_to_int_reg = opcode == 0x53 && (funct7 == 0x50 || funct7 == 0x70) && rd != 0;
+
+        // Restore caller-saved registers: t0-t2 (x5-x7), a0-a7 (x10-x17), t3-t6 (x28-x31)
+        // IMPORTANT: Skip restoring rd if it will receive a comparison result,
+        // otherwise we'd write twice (restore old value, then copy new result)
+        let saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
         for (i, &reg) in saved_regs.iter().enumerate() {
+            // Skip restoring this register if it's the destination of a comparison
+            if writes_to_int_reg && reg as u32 == rd {
+                eprintln!("[TRAMPOLINE] Skipping restore of x{} (will receive comparison result)", reg);
+                continue;
+            }
             let reg_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4));
-            exec_state.vm_write(RV32_REGISTER_AS, reg * 4, &reg_bytes);
+            exec_state.vm_write(RV32_REGISTER_AS, reg as u32 * 4, &reg_bytes);
         }
 
-        // Check if this instruction writes to an integer register:
+        // Copy integer result if this instruction writes to an integer register:
         // Only R-type float operations (opcode 0x53) can write to integer registers
         // FMA operations (opcodes 0x43, 0x47, 0x4B, 0x4F) always write to float registers
         // - Float comparisons (FLE, FLT, FEQ): opcode=0x53, funct7=0x50
         // - FCLASS: opcode=0x53, funct7=0x70 (funct3=1)
         // - FMV.X.W: opcode=0x53, funct7=0x70 (funct3=0)
-        if opcode == 0x53 && (funct7 == 0x50 || funct7 == 0x70) {
-            // Skip if destination is x0 (zero register must always be zero)
-            if rd == 0 {
-                eprintln!("[TRAMPOLINE] Skipping write to x0 (zero register)");
-            } else {
-                // Copy result from integer register backup to actual integer register file
-                // Handler writes to FLOAT_X0_BACKUP + (rd * 8) as 8-byte aligned storage
-                let backup_addr = FLOAT_X0_BACKUP + (rd * 8);
-                let result_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr);
-                let result = u32::from_le_bytes(result_bytes);
+        if writes_to_int_reg {
+            // Copy result from integer register backup to actual integer register file
+            // Handler writes to FLOAT_X0_BACKUP + (rd * 8) as 8-byte aligned storage
+            let backup_addr = FLOAT_X0_BACKUP + (rd * 8);
+            let result_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr);
+            let result = u32::from_le_bytes(result_bytes);
 
-                // Also read the upper 32 bits to see what the handler wrote
-                let upper_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr + 4);
-                let upper = u32::from_le_bytes(upper_bytes);
+            // Also read the upper 32 bits to see what the handler wrote
+            let upper_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr + 4);
+            let upper = u32::from_le_bytes(upper_bytes);
 
-                eprintln!("[TRAMPOLINE] Copying int result: x{} = 0x{:08x} (from backup addr 0x{:08x}, upper=0x{:08x})",
-                          rd, result, backup_addr, upper);
-                exec_state.vm_write(RV32_REGISTER_AS, rd * 4, &result_bytes);
-            }
+            eprintln!("[TRAMPOLINE] Copying int result: x{} = 0x{:08x} (from backup addr 0x{:08x}, upper=0x{:08x})",
+                      rd, result, backup_addr, upper);
+            exec_state.vm_write(RV32_REGISTER_AS, rd * 4, &result_bytes);
         }
 
         // Read actual return address
