@@ -110,6 +110,35 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         return;
     }
 
+    // Handle FSGNJ operations directly (not via handler)
+    if pre_compute.opcode == 8 {
+        use crate::constants::float_reg_addr;
+
+        // Read rs1 and rs2 float values
+        let rs1_addr = float_reg_addr(pre_compute.rs1);
+        let rs2_addr = float_reg_addr(pre_compute.rs2);
+        let rs1_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, rs1_addr);
+        let rs2_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, rs2_addr);
+        let rs1_val = u32::from_le_bytes(rs1_bytes);
+        let rs2_val = u32::from_le_bytes(rs2_bytes);
+
+        // Perform sign injection based on variant
+        let result = match pre_compute.variant {
+            0 => (rs1_val & 0x7FFFFFFF) | (rs2_val & 0x80000000), // FSGNJ: magnitude of rs1, sign of rs2
+            1 => (rs1_val & 0x7FFFFFFF) | ((!rs2_val) & 0x80000000), // FSGNJN: magnitude of rs1, opposite sign of rs2
+            2 => rs1_val ^ (rs2_val & 0x80000000), // FSGNJX: XOR signs
+            _ => rs1_val, // Should not happen
+        };
+
+        // Write result to rd
+        let rd_addr = float_reg_addr(pre_compute.rd);
+        exec_state.vm_write(FLOAT_MEM_AS, rd_addr, &result.to_le_bytes());
+
+        *pc += DEFAULT_PC_STEP;
+        *instret += 1;
+        return;
+    }
+
     // Reconstruct RISC-V instruction encoding
     // R-type: funct7 | rs2 | rs1 | funct3 | rd | opcode
     let (funct7, funct3) = match pre_compute.opcode {

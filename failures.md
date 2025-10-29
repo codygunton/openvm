@@ -1,3 +1,5 @@
+    INFO | Following 396 tests have been run :
+
     INFO | TEST NAME                                          : COMMIT ID                                : STATUS
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fadd_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fadd_b10-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
@@ -317,9 +319,9 @@
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fnmsub_b6-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fnmsub_b7-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fnmsub_b8-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsgnj_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsgnjn_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsgnjx_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsgnj_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsgnjn_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsgnjx_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsqrt_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsqrt_b2-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fsqrt_b20-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
@@ -397,5 +399,5 @@
    ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/privilege/src/misalign-sw-01.S : bb74a4aefaa8c89fb28b876484cfdf9ca020cec1 : Failed
     INFO | Test report generated at /riscof/riscof_work/report.html.
     INFO | Opening test report in web-browser
-  ✅ Tested openvm: 385/396 passed
+  ✅ Tested openvm: 388/396 passed
 ✅ Dashboard updated
