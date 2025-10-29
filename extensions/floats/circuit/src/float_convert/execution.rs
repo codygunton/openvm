@@ -135,6 +135,16 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
 
+    // Step 2.5: For int→float conversion (direction=1), copy source integer value
+    // to FLOAT_X0_BACKUP so the handler can read it (handler can't access RV32_REGISTER_AS)
+    if pre_compute.direction == 1 {
+        let src_int_value = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
+        // Write to same backup location handler uses for int results, indexed by register number
+        // FLOAT_X0_BACKUP is base address for integer register backup (8-byte aligned per register)
+        let backup_addr = crate::constants::FLOAT_X0_BACKUP + (pre_compute.rs1 as u32 * 8);
+        exec_state.vm_write(FLOAT_MEM_AS, backup_addr, &src_int_value);
+    }
+
     // Step 3: Save register context
     let saved_x1 = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, 1 * 4);
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_X1, &saved_x1);
