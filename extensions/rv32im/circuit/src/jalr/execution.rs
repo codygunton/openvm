@@ -165,26 +165,29 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         let inst_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_INST_ADDR);
         let inst = u32::from_le_bytes(inst_bytes);
 
-        // Extract fields from R-type instruction: funct7 | rs2 | rs1 | funct3 | rd | opcode
+        // Extract fields from instruction
+        let opcode = inst & 0x7F;
         let rd = (inst >> 7) & 0x1F;
         let funct7 = (inst >> 25) & 0x7F;
 
-        eprintln!("[TRAMPOLINE] inst=0x{:08x}, rd={}, funct7=0x{:02x}", inst, rd, funct7);
+        eprintln!("[TRAMPOLINE] inst=0x{:08x}, opcode=0x{:02x}, rd={}, funct7=0x{:02x}", inst, opcode, rd, funct7);
 
-        // Restore all caller-saved registers (x5-x7, x10-x17, x28-x31) FIRST
+        // Restore saved registers: t0-t2 (x5-x7), a4 (x14), t3-t6 (x28-x31)
         // These were saved before calling the float handler to preserve their values
         // IMPORTANT: Must restore BEFORE writing integer result, otherwise we'd overwrite the result!
-        let caller_saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
-        for (i, &reg) in caller_saved_regs.iter().enumerate() {
+        let saved_regs = [5, 6, 7, 14, 28, 29, 30, 31];
+        for (i, &reg) in saved_regs.iter().enumerate() {
             let reg_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4));
             exec_state.vm_write(RV32_REGISTER_AS, reg * 4, &reg_bytes);
         }
 
         // Check if this instruction writes to an integer register:
-        // - Float comparisons (FLE, FLT, FEQ): funct7 = 0x50 (7-bit value: 0b1010000)
-        // - FCLASS: funct7 = 0x70 (funct3=1)
-        // - FMV.X.W: funct7 = 0x70 (funct3=0)
-        if funct7 == 0x50 || funct7 == 0x70 {
+        // Only R-type float operations (opcode 0x53) can write to integer registers
+        // FMA operations (opcodes 0x43, 0x47, 0x4B, 0x4F) always write to float registers
+        // - Float comparisons (FLE, FLT, FEQ): opcode=0x53, funct7=0x50
+        // - FCLASS: opcode=0x53, funct7=0x70 (funct3=1)
+        // - FMV.X.W: opcode=0x53, funct7=0x70 (funct3=0)
+        if opcode == 0x53 && (funct7 == 0x50 || funct7 == 0x70) {
             // Skip if destination is x0 (zero register must always be zero)
             if rd == 0 {
                 eprintln!("[TRAMPOLINE] Skipping write to x0 (zero register)");
