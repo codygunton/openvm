@@ -173,16 +173,21 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         eprintln!("[TRAMPOLINE] inst=0x{:08x}, opcode=0x{:02x}, rd={}, funct7=0x{:02x}", inst, opcode, rd, funct7);
 
         // Check if this operation will write to an integer register
-        let writes_to_int_reg = opcode == 0x53 && (funct7 == 0x50 || funct7 == 0x70) && rd != 0;
+        // Float operations that write to integer registers:
+        // - funct7=0x50: FLE.S, FLT.S, FEQ.S (comparisons)
+        // - funct7=0x60: FCVT.W.S, FCVT.WU.S (float→int conversion)
+        // - funct7=0x70: FCLASS.S, FMV.X.W (classification, move)
+        let writes_to_int_reg = opcode == 0x53 &&
+            (funct7 == 0x50 || funct7 == 0x60 || funct7 == 0x70) && rd != 0;
 
         // Restore caller-saved registers: t0-t2 (x5-x7), a0-a7 (x10-x17), t3-t6 (x28-x31)
-        // IMPORTANT: Skip restoring rd if it will receive a comparison result,
+        // IMPORTANT: Skip restoring rd if it will receive an integer result,
         // otherwise we'd write twice (restore old value, then copy new result)
         let saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
         for (i, &reg) in saved_regs.iter().enumerate() {
-            // Skip restoring this register if it's the destination of a comparison
+            // Skip restoring this register if it's the destination of an int result operation
             if writes_to_int_reg && reg as u32 == rd {
-                eprintln!("[TRAMPOLINE] Skipping restore of x{} (will receive comparison result)", reg);
+                eprintln!("[TRAMPOLINE] Skipping restore of x{} (will receive int result)", reg);
                 continue;
             }
             let reg_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4));

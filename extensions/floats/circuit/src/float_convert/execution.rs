@@ -4,10 +4,13 @@ use std::mem::size_of;
 use openvm_circuit::arch::*;
 use openvm_circuit::system::memory::online::GuestMemory;
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
-use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP};
+use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_AS};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use crate::constants::*;
+use crate::constants::{
+    FLOAT_INST_ADDR, FLOAT_LIB_ENTRY_PTR, FLOAT_MEM_AS, FLOAT_RETURN_ADDR,
+    FLOAT_SAVED_REGS_BASE, FLOAT_SAVED_X1, FLOAT_TRAMPOLINE_PC,
+};
 
 use super::core::FloatConvertExecutor;
 
@@ -113,128 +116,47 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         return;
     }
 
-    // Implement FCVT with manual rounding mode support
-    // For int→float: can use Rust `as` (no rounding issues for this direction)
-    // For float→int: need to implement rounding modes manually
+    // Step 1: Build RISC-V instruction encoding
+    // Determine funct7 based on direction and signedness:
+    // FCVT.W.S  (float→int signed):     funct7=0x60, rs2=0x00
+    // FCVT.WU.S (float→int unsigned):   funct7=0x60, rs2=0x01
+    // FCVT.S.W  (int→float signed):     funct7=0x68, rs2=0x00
+    // FCVT.S.WU (int→float unsigned):   funct7=0x68, rs2=0x01
+    let funct7 = if pre_compute.direction == 0 { 0x60 } else { 0x68 };
+    let rs2 = pre_compute.unsigned_flag; // 0 or 1
 
-    if pre_compute.direction == 1 {
-        // Int → Float conversions (simple, no rounding mode issues in practice for i32/u32 → f32)
-        match pre_compute.unsigned_flag {
-            0 => { // FCVT.S.W (signed int to float)
-                let i_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
-                let i_val = i32::from_le_bytes(i_bytes);
-                let f_val = i_val as f32;
-                let f_addr = float_reg_addr(pre_compute.rd);
-                exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
-            }
-            1 => { // FCVT.S.WU (unsigned int to float)
-                let u_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
-                let u_val = u32::from_le_bytes(u_bytes);
-                let f_val = u_val as f32;
-                let f_addr = float_reg_addr(pre_compute.rd);
-                exec_state.vm_write(FLOAT_MEM_AS, f_addr, &f_val.to_le_bytes());
-            }
-            _ => {}
-        }
-    } else {
-        // Float → Int conversions (need proper rounding mode handling)
-        let f_addr = float_reg_addr(pre_compute.rs1);
-        let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
-        let f_val = f32::from_le_bytes(f_bytes);
+    let riscv_inst = (funct7 << 25) | ((rs2 as u32) << 20) |
+                     ((pre_compute.rs1 as u32) << 15) |
+                     ((pre_compute.rm as u32) << 12) |
+                     ((pre_compute.rd as u32) << 7) | 0x53;
 
-        // Apply rounding based on rm field
-        // rm: 0=RNE (round to nearest, ties to even), 1=RTZ (round to zero),
-        //     2=RDN (round down), 3=RUP (round up), 4=RMM (round to nearest, ties to max magnitude)
-        //     7=DYN (dynamic - use fcsr, but we'll treat as RNE for now)
+    // Step 2: Store instruction for handler
+    let inst_bytes = riscv_inst.to_le_bytes();
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
 
-        let rounded = match pre_compute.rm {
-            0 | 7 => {  // RNE or DYN - round to nearest, ties to even
-                let floored = f_val.floor();
-                let frac = f_val - floored;
-                if frac < 0.5 {
-                    floored
-                } else if frac > 0.5 {
-                    floored + 1.0
-                } else {
-                    // Exactly 0.5 - round to even
-                    if (floored as i32) % 2 == 0 {
-                        floored
-                    } else {
-                        floored + 1.0
-                    }
-                }
-            }
-            1 => f_val.trunc(),       // RTZ - round toward zero
-            2 => f_val.floor(),       // RDN - round down
-            3 => f_val.ceil(),        // RUP - round up
-            4 => {  // RMM - round to nearest, ties away from zero
-                let floored = f_val.floor();
-                let frac = f_val - floored;
-                if frac < 0.5 {
-                    floored
-                } else {
-                    floored + 1.0
-                }
-            }
-            _ => f_val.trunc(),
-        };
+    // Step 3: Save register context
+    let saved_x1 = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, 1 * 4);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_X1, &saved_x1);
 
-        // Check for exception conditions
-        let mut fcsr_flags = 0u32;
-
-        // Invalid operation (NV, bit 4 = 0x10) if:
-        // - Input is NaN, infinity, or out of range
-        let is_invalid = f_val.is_nan() || f_val.is_infinite() || {
-            match pre_compute.unsigned_flag {
-                0 => rounded < i32::MIN as f32 || rounded > i32::MAX as f32,
-                1 => rounded < 0.0 || rounded > u32::MAX as f32,
-                _ => false,
-            }
-        };
-
-        if is_invalid {
-            fcsr_flags |= 0x10; // NV flag
-        }
-
-        // Inexact (NX, bit 0 = 0x01) if rounding occurred
-        let is_inexact = !is_invalid && (f_val != rounded);
-
-        if is_inexact {
-            fcsr_flags |= 0x01; // NX flag
-        }
-
-        match pre_compute.unsigned_flag {
-            0 => { // FCVT.W.S (float to signed int)
-                let i_val = if is_invalid {
-                    // Return maximum representable value on invalid
-                    if f_val.is_nan() || f_val > 0.0 { i32::MAX } else { i32::MIN }
-                } else {
-                    rounded as i32
-                };
-                exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &i_val.to_le_bytes());
-            }
-            1 => { // FCVT.WU.S (float to unsigned int)
-                let u_val = if is_invalid {
-                    // Return maximum representable value on invalid
-                    if f_val.is_nan() || f_val < 0.0 { 0u32 } else { u32::MAX }
-                } else {
-                    rounded as u32
-                };
-                exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &u_val.to_le_bytes());
-            }
-            _ => {}
-        }
-
-        // Update FCSR flags if any were set
-        if fcsr_flags != 0 {
-            let fcsr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
-            let mut fcsr = u32::from_le_bytes(fcsr_bytes);
-            fcsr |= fcsr_flags;
-            exec_state.vm_write(FLOAT_MEM_AS, FLOAT_CSR_FCSR, &fcsr.to_le_bytes());
-        }
+    // Save caller-saved registers in indexed format that trampoline expects
+    // The trampoline restores: x5-x7, x10-x17, x28-x31 (15 registers) at offsets 0-56
+    let saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
+    for (i, &reg) in saved_regs.iter().enumerate() {
+        let reg_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, reg * 4);
+        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4), &reg_bytes);
     }
 
-    *pc += DEFAULT_PC_STEP;
+    // Step 4: Setup trampoline return
+    let actual_return_addr = *pc + DEFAULT_PC_STEP;
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
+    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
+
+    // Step 5: Jump to handler
+    let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
+    let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
+    let target_addr = handler_addr & !1;
+    *pc = target_addr;
     *instret += 1;
 }
 

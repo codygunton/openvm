@@ -116,7 +116,7 @@ if [ $RUN = "1" ]; then
             echo "   ✓ REF signature: $REF_SIG"
 
             # Compare the signatures using delta
-            echo "❌ Signature differences; first 40 lines:"
+            echo "Signature differences?; first 40 lines:"
             delta -w 48 "zkevm-test-monitor/$DUT_SIG" $REF_SIG | head -40
 
             # Count total differences

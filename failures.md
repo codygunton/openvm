@@ -10,25 +10,25 @@
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fadd_b5-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fadd_b7-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fadd_b8-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fclass_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fclass_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
    ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.s.w_b25-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
    ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.s.w_b26-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
    ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.s.wu_b25-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
    ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.s.wu_b26-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b22-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b23-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b24-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b27-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b22-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b23-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b24-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b27-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b28-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b29-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.w.s_b29-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b22-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b23-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b24-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b27-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b28-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b29-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b23-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b24-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b27-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b28-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fcvt.wu.s_b29-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fdiv_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fdiv_b2-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fdiv_b20-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
@@ -184,15 +184,15 @@
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmul_b7-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmul_b8-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmul_b9-01.S : c61488a21e631bad51116b48f1f9d63232e81ed3 : Passed
-    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.w.x_b25-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.w.x_b26-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.w.x_b25-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.w.x_b26-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b22-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b23-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b24-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b23-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b24-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b27-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b28-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
-   ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b29-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b28-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
+    INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fmv.x.w_b29-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
    ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fnmadd_b1-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Failed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fnmadd_b14-01.S : b91f98f3a0e908bad4680c2e3901fbc24b63a563 : Passed
     INFO | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/F/src/fnmadd_b15/fnmadd_b15-001.S : 0d6fa5ca1dceaa916180d7d800781ca67a554931 : Passed
@@ -397,5 +397,5 @@
    ERROR | /riscof/riscv-arch-test/riscv-test-suite/rv32i_m/privilege/src/misalign-sw-01.S : bb74a4aefaa8c89fb28b876484cfdf9ca020cec1 : Failed
     INFO | Test report generated at /riscof/riscof_work/report.html.
     INFO | Opening test report in web-browser
-  ✅ Tested openvm: 364/396 passed
+  ✅ Tested openvm: 379/396 passed
 ✅ Dashboard updated

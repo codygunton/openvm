@@ -4,10 +4,13 @@ use std::mem::size_of;
 use openvm_circuit::arch::*;
 use openvm_circuit::system::memory::online::GuestMemory;
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
-use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP};
+use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_AS};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use crate::constants::*;
+use crate::constants::{
+    FLOAT_INST_ADDR, FLOAT_LIB_ENTRY_PTR, FLOAT_MEM_AS, FLOAT_RETURN_ADDR,
+    FLOAT_SAVED_REGS_BASE, FLOAT_SAVED_X1, FLOAT_TRAMPOLINE_PC,
+};
 
 use super::core::FloatMoveExecutor;
 
@@ -106,38 +109,47 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!(
-        "[FMOVE-ENTRY] PC=0x{:08x}, instret={}, direction={}, ENABLED={}",
-        *pc, *instret, pre_compute.direction, ENABLED
-    );
-
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
         *instret += 1;
         return;
     }
 
-    // Implement FMV directly without using the handler
-    // FMV.X.W (direction=0): Move float register to integer register (bitwise copy)
-    // FMV.W.X (direction=1): Move integer register to float register (bitwise copy)
+    // Step 1: Build RISC-V instruction encoding
+    // FMV.X.W: funct7=0x70, rs2=0x00, funct3=0x00 (float→int)
+    // FMV.W.X: funct7=0x78, rs2=0x00, funct3=0x00 (int→float)
+    let funct7 = if pre_compute.direction == 0 { 0x70 } else { 0x78 };
+    let riscv_inst = (funct7 << 25) | (0x00 << 20) |
+                     ((pre_compute.rs1 as u32) << 15) | (0x00 << 12) |
+                     ((pre_compute.rd as u32) << 7) | 0x53;
 
-    if pre_compute.direction == 0 {
-        // FMV.X.W: float -> integer (bitwise copy)
-        let f_addr = float_reg_addr(pre_compute.rs1);
-        let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
-        exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &f_bytes);
-        let bits = u32::from_le_bytes(f_bytes);
-        eprintln!("[FMV.X.W] f{} (0x{:08x}) -> x{}", pre_compute.rs1, bits, pre_compute.rd);
-    } else {
-        // FMV.W.X: integer -> float (bitwise copy)
-        let i_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
-        let f_addr = float_reg_addr(pre_compute.rd);
-        exec_state.vm_write(FLOAT_MEM_AS, f_addr, &i_bytes);
-        let bits = u32::from_le_bytes(i_bytes);
-        eprintln!("[FMV.W.X] x{} (0x{:08x}) -> f{}", pre_compute.rs1, bits, pre_compute.rd);
+    // Step 2: Store instruction for handler
+    let inst_bytes = riscv_inst.to_le_bytes();
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
+
+    // Step 3: Save register context
+    let saved_x1 = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, 1 * 4);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_X1, &saved_x1);
+
+    // Save caller-saved registers in indexed format that trampoline expects
+    // The trampoline restores: x5-x7, x10-x17, x28-x31 (15 registers) at offsets 0-56
+    let saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
+    for (i, &reg) in saved_regs.iter().enumerate() {
+        let reg_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, reg * 4);
+        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4), &reg_bytes);
     }
 
-    *pc += DEFAULT_PC_STEP;
+    // Step 4: Setup trampoline return
+    let actual_return_addr = *pc + DEFAULT_PC_STEP;
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
+    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
+
+    // Step 5: Jump to handler
+    let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
+    let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
+    let target_addr = handler_addr & !1;
+    *pc = target_addr;
     *instret += 1;
 }
 

@@ -4,10 +4,13 @@ use std::mem::size_of;
 use openvm_circuit::arch::*;
 use openvm_circuit::system::memory::online::GuestMemory;
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
-use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP};
+use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_AS};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use crate::constants::*;
+use crate::constants::{
+    FLOAT_INST_ADDR, FLOAT_LIB_ENTRY_PTR, FLOAT_MEM_AS, FLOAT_RETURN_ADDR,
+    FLOAT_SAVED_REGS_BASE, FLOAT_SAVED_X1, FLOAT_TRAMPOLINE_PC,
+};
 
 use super::core::FloatClassExecutor;
 
@@ -98,79 +101,45 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!(
-        "[FCLASS-ENTRY] PC=0x{:08x}, instret={}, ENABLED={}",
-        *pc, *instret, ENABLED
-    );
-
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
         *instret += 1;
         return;
     }
 
-    // Implement FCLASS directly without using handler (handler writes to backup location)
-    // FCLASS.S returns a 10-bit mask indicating the class of the floating-point value:
-    // Bit 0: Negative infinity
-    // Bit 1: Negative normal number
-    // Bit 2: Negative subnormal number
-    // Bit 3: Negative zero
-    // Bit 4: Positive zero
-    // Bit 5: Positive subnormal number
-    // Bit 6: Positive normal number
-    // Bit 7: Positive infinity
-    // Bit 8: Signaling NaN
-    // Bit 9: Quiet NaN
+    // Step 1: Build RISC-V instruction encoding
+    // FCLASS.S: funct7=0x70, rs2=0x00, funct3=0x01, opcode=0x53
+    let riscv_inst = (0x70 << 25) | (0x00 << 20) |
+                     ((pre_compute.rs1 as u32) << 15) | (0x01 << 12) |
+                     ((pre_compute.rd as u32) << 7) | 0x53;
 
-    let f_addr = float_reg_addr(pre_compute.rs1);
-    let f_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, f_addr);
-    let f_val = f32::from_le_bytes(f_bytes);
-    let bits = u32::from_le_bytes(f_bytes);
+    // Step 2: Store instruction for handler
+    let inst_bytes = riscv_inst.to_le_bytes();
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &inst_bytes);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, &[0u8; 4]);
 
-    let result: u32 = if f_val.is_nan() {
-        // Check if signaling NaN (bit 22 is 0 for signaling)
-        if (bits & 0x00400000) == 0 {
-            1u32 << 8  // Signaling NaN
-        } else {
-            1u32 << 9  // Quiet NaN
-        }
-    } else if f_val.is_infinite() {
-        if f_val.is_sign_negative() {
-            1u32 << 0  // Negative infinity
-        } else {
-            1u32 << 7  // Positive infinity
-        }
-    } else if f_val == 0.0 {
-        if f_val.is_sign_negative() {
-            1u32 << 3  // Negative zero
-        } else {
-            1u32 << 4  // Positive zero
-        }
-    } else {
-        // Check if subnormal (exponent is 0)
-        let exponent = (bits >> 23) & 0xFF;
-        if exponent == 0 {
-            if f_val.is_sign_negative() {
-                1u32 << 2  // Negative subnormal
-            } else {
-                1u32 << 5  // Positive subnormal
-            }
-        } else {
-            // Normal number
-            if f_val.is_sign_negative() {
-                1u32 << 1  // Negative normal
-            } else {
-                1u32 << 6  // Positive normal
-            }
-        }
-    };
+    // Step 3: Save register context
+    let saved_x1 = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, 1 * 4);
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_X1, &saved_x1);
 
-    exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &result.to_le_bytes());
+    // Save caller-saved registers in indexed format that trampoline expects
+    // The trampoline restores: x5-x7, x10-x17, x28-x31 (15 registers) at offsets 0-56
+    let saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
+    for (i, &reg) in saved_regs.iter().enumerate() {
+        let reg_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, reg * 4);
+        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4), &reg_bytes);
+    }
 
-    eprintln!("[FCLASS.S] f{} (val={}, bits=0x{:08x}) -> x{} (class=0x{:x})",
-              pre_compute.rs1, f_val, bits, pre_compute.rd, result);
+    // Step 4: Setup trampoline return
+    let actual_return_addr = *pc + DEFAULT_PC_STEP;
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
+    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
 
-    *pc += DEFAULT_PC_STEP;
+    // Step 5: Jump to handler
+    let handler_ptr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
+    let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
+    let target_addr = handler_addr & !1;
+    *pc = target_addr;
     *instret += 1;
 }
 
