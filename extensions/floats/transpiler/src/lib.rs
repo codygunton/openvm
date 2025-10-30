@@ -37,8 +37,8 @@ impl FloatsTranspilerExtension {
         let dec = IType::new(inst);
 
         // Extract operands
-        let rd = dec.rd;      // Float destination register
-        let rs1 = dec.rs1;    // Base address register
+        let rd = dec.rd; // Float destination register
+        let rs1 = dec.rs1; // Base address register
 
         // Encode immediate using the same pattern as rv32im load instructions:
         // - Store lower 16 bits in field c
@@ -49,13 +49,13 @@ impl FloatsTranspilerExtension {
         // Emit single FLW instruction
         let instruction = Instruction::new(
             FloatOpcode::FLW.global_opcode(),
-            F::from_canonical_usize(rd),                          // a: float register index
+            F::from_canonical_usize(rd), // a: float register index
             F::from_canonical_usize(rs1 * RV32_REGISTER_NUM_LIMBS), // b: base register index * 4
-            F::from_canonical_u32(imm_lower),                     // c: immediate lower 16 bits
-            F::ZERO,                                              // d: unused
-            F::ZERO,                                              // e: unused
-            F::ZERO,                                              // f: unused
-            F::from_bool(imm_sign),                               // g: sign bit for extension
+            F::from_canonical_u32(imm_lower), // c: immediate lower 16 bits
+            F::ZERO,                     // d: unused
+            F::ZERO,                     // e: unused
+            F::ZERO,                     // f: unused
+            F::from_bool(imm_sign),      // g: sign bit for extension
         );
 
         Some(TranspilerOutput {
@@ -68,8 +68,8 @@ impl FloatsTranspilerExtension {
         let dec = SType::new(inst);
 
         // Extract operands
-        let rs2 = dec.rs2;    // Float source register
-        let rs1 = dec.rs1;    // Base address register
+        let rs2 = dec.rs2; // Float source register
+        let rs1 = dec.rs1; // Base address register
 
         // Encode immediate using the same pattern as rv32im store instructions:
         // - Store lower 16 bits in field c
@@ -80,13 +80,13 @@ impl FloatsTranspilerExtension {
         // Emit single FSW instruction
         let instruction = Instruction::new(
             FloatOpcode::FSW.global_opcode(),
-            F::from_canonical_usize(rs2),                         // a: float register index
+            F::from_canonical_usize(rs2), // a: float register index
             F::from_canonical_usize(rs1 * RV32_REGISTER_NUM_LIMBS), // b: base register index * 4
-            F::from_canonical_u32(imm_lower),                     // c: immediate lower 16 bits
-            F::ZERO,                                              // d: unused
-            F::ZERO,                                              // e: unused
-            F::ZERO,                                              // f: unused
-            F::from_bool(imm_sign),                               // g: sign bit for extension
+            F::from_canonical_u32(imm_lower), // c: immediate lower 16 bits
+            F::ZERO,                      // d: unused
+            F::ZERO,                      // e: unused
+            F::ZERO,                      // f: unused
+            F::from_bool(imm_sign),       // g: sign bit for extension
         );
 
         Some(TranspilerOutput {
@@ -96,32 +96,28 @@ impl FloatsTranspilerExtension {
     }
 
     fn handle_float_compare<F: PrimeField32>(&self, inst: u32) -> Option<TranspilerOutput<F>> {
-        eprintln!("[TRANSPILER-FCMP] Processing float comparison: inst=0x{:08x}", inst);
-
         // Decode RISC-V instruction format (R-type)
         let rd = ((inst >> 7) & 0x1F) as u8;
         let rs1 = ((inst >> 15) & 0x1F) as u8;
         let rs2 = ((inst >> 20) & 0x1F) as u8;
         let funct3 = ((inst >> 12) & 0x7) as u8;
 
-        eprintln!("[TRANSPILER-FCMP] rd={}, rs1={}, rs2={}, funct3={}", rd, rs1, rs2, funct3);
-
         // Map funct3 to comparison type
         let comp_type = match funct3 {
-            0 => 0,  // FLE.S
-            1 => 1,  // FLT.S
-            2 => 2,  // FEQ.S
-            _ => return None,  // Invalid comparison funct3
+            0 => 0,           // FLE.S
+            1 => 1,           // FLT.S
+            2 => 2,           // FEQ.S
+            _ => return None, // Invalid comparison funct3
         };
 
         // Emit float compare instruction
         let instruction = Instruction::from_isize(
             FloatOpcode::FCMP.global_opcode(),
-            rd as isize,                  // a: destination integer register
-            rs1 as isize,                 // b: source float register 1
-            rs2 as isize,                 // c: source float register 2
-            comp_type as isize,           // d: comparison type (0=FLE, 1=FLT, 2=FEQ)
-            0,                            // e: unused
+            rd as isize,        // a: destination integer register
+            rs1 as isize,       // b: source float register 1
+            rs2 as isize,       // c: source float register 2
+            comp_type as isize, // d: comparison type (0=FLE, 1=FLT, 2=FEQ)
+            0,                  // e: unused
         );
 
         Some(TranspilerOutput {
@@ -130,10 +126,14 @@ impl FloatsTranspilerExtension {
         })
     }
 
-    fn handle_float_convert<F: PrimeField32>(&self, inst: u32, funct7: u8) -> Option<TranspilerOutput<F>> {
+    fn handle_float_convert<F: PrimeField32>(
+        &self,
+        inst: u32,
+        funct7: u8,
+    ) -> Option<TranspilerOutput<F>> {
         // Decode RISC-V instruction format (R-type with rs2 as conversion type)
         let rd = ((inst >> 7) & 0x1F) as u8;
-        let rm = ((inst >> 12) & 0x7) as u8;  // Rounding mode
+        let rm = ((inst >> 12) & 0x7) as u8; // Rounding mode
         let rs1 = ((inst >> 15) & 0x1F) as u8;
         let rs2 = ((inst >> 20) & 0x1F) as u8;
 
@@ -142,8 +142,8 @@ impl FloatsTranspilerExtension {
 
         // Determine direction and opcode based on funct7
         let opcode = match funct7 {
-            0x60 => FloatOpcode::FCVTWS,  // Float to Int (FCVT.W.S or FCVT.WU.S)
-            0x68 => FloatOpcode::FCVTSW,  // Int to Float (FCVT.S.W or FCVT.S.WU)
+            0x60 => FloatOpcode::FCVTWS, // Float to Int (FCVT.W.S or FCVT.WU.S)
+            0x68 => FloatOpcode::FCVTSW, // Int to Float (FCVT.S.W or FCVT.S.WU)
             _ => return None,
         };
 
@@ -151,11 +151,11 @@ impl FloatsTranspilerExtension {
         // Operand encoding: a=rd, b=rs1, c=unsigned_flag, d=rm
         let instruction = Instruction::from_isize(
             opcode.global_opcode(),
-            rd as isize,                  // a: destination register
-            rs1 as isize,                 // b: source register
-            unsigned_flag as isize,       // c: unsigned flag (0=signed, 1=unsigned)
-            rm as isize,                  // d: rounding mode
-            0,                            // e: unused
+            rd as isize,            // a: destination register
+            rs1 as isize,           // b: source register
+            unsigned_flag as isize, // c: unsigned flag (0=signed, 1=unsigned)
+            rm as isize,            // d: rounding mode
+            0,                      // e: unused
         );
 
         Some(TranspilerOutput {
@@ -177,27 +177,27 @@ impl FloatsTranspilerExtension {
 
         // Verify funct2=0 for single precision (.S suffix)
         if funct2 != 0 {
-            return None;  // Not single precision
+            return None; // Not single precision
         }
 
         // Map RISC-V opcode to FloatOpcode
         let float_opcode = match opcode {
-            0x43 => FloatOpcode::FMADD,   // FMADD.S: (rs1 * rs2) + rs3
-            0x47 => FloatOpcode::FMSUB,   // FMSUB.S: (rs1 * rs2) - rs3
-            0x4B => FloatOpcode::FNMSUB,  // FNMSUB.S: -(rs1 * rs2) + rs3
-            0x4F => FloatOpcode::FNMADD,  // FNMADD.S: -(rs1 * rs2) - rs3
-            _ => return None,  // Invalid R4-type opcode
+            0x43 => FloatOpcode::FMADD,  // FMADD.S: (rs1 * rs2) + rs3
+            0x47 => FloatOpcode::FMSUB,  // FMSUB.S: (rs1 * rs2) - rs3
+            0x4B => FloatOpcode::FNMSUB, // FNMSUB.S: -(rs1 * rs2) + rs3
+            0x4F => FloatOpcode::FNMADD, // FNMADD.S: -(rs1 * rs2) - rs3
+            _ => return None,            // Invalid R4-type opcode
         };
 
         // Emit R4-type float FMA instruction
         // Operand encoding: a=rd, b=rs1, c=rs2, d=rs3, e=rm
         let instruction = Instruction::from_isize(
             float_opcode.global_opcode(),
-            rd as isize,                  // a: destination float register
-            rs1 as isize,                 // b: source float register 1 (multiplicand)
-            rs2 as isize,                 // c: source float register 2 (multiplier)
-            rs3 as isize,                 // d: source float register 3 (addend)
-            rm as isize,                  // e: rounding mode
+            rd as isize,  // a: destination float register
+            rs1 as isize, // b: source float register 1 (multiplicand)
+            rs2 as isize, // c: source float register 2 (multiplier)
+            rs3 as isize, // d: source float register 3 (addend)
+            rm as isize,  // e: rounding mode
         );
 
         Some(TranspilerOutput {
@@ -214,11 +214,8 @@ impl FloatsTranspilerExtension {
         let rs2 = ((inst >> 20) & 0x1F) as u8;
         let funct7 = ((inst >> 25) & 0x7F) as u8;
 
-        eprintln!("[TRANSPILER-FP_ALU] inst=0x{:08x}, funct7=0x{:02x}, funct3=0x{:02x}", inst, funct7, funct3);
-
         // Check if this is a comparison instruction
         if funct7 == 0x50 {
-            eprintln!("[TRANSPILER-FP_ALU] Detected float comparison, delegating to handle_float_compare");
             return self.handle_float_compare(inst);
         }
 
@@ -229,34 +226,34 @@ impl FloatsTranspilerExtension {
 
         // Map funct7 to FloatOpcode
         let opcode = match funct7 {
-            0x00 => FloatOpcode::FADD,   // FADD.S
-            0x04 => FloatOpcode::FSUB,   // FSUB.S
-            0x08 => FloatOpcode::FMUL,   // FMUL.S
-            0x0C => FloatOpcode::FDIV,   // FDIV.S
-            0x2C => FloatOpcode::FSQRT,  // FSQRT.S (rs2 must be 0)
-            0x10 => FloatOpcode::FSGNJ,  // FSGNJ.S/FSGNJN.S/FSGNJX.S (funct3: 0/1/2)
+            0x00 => FloatOpcode::FADD,    // FADD.S
+            0x04 => FloatOpcode::FSUB,    // FSUB.S
+            0x08 => FloatOpcode::FMUL,    // FMUL.S
+            0x0C => FloatOpcode::FDIV,    // FDIV.S
+            0x2C => FloatOpcode::FSQRT,   // FSQRT.S (rs2 must be 0)
+            0x10 => FloatOpcode::FSGNJ,   // FSGNJ.S/FSGNJN.S/FSGNJX.S (funct3: 0/1/2)
             0x14 => FloatOpcode::FMINMAX, // FMIN.S/FMAX.S (funct3: 0/1)
             0x70 => {
                 // funct7=0x70 is shared between FMV.X.W and FCLASS.S
                 // Distinguish by funct3: 0=FMV.X.W, 1=FCLASS.S
                 match funct3 {
-                    0 => FloatOpcode::FMVXW,   // FMV.X.W (float to int)
-                    1 => FloatOpcode::FCLASS,  // FCLASS.S
-                    _ => return None,  // Invalid funct3 for funct7=0x70
+                    0 => FloatOpcode::FMVXW,  // FMV.X.W (float to int)
+                    1 => FloatOpcode::FCLASS, // FCLASS.S
+                    _ => return None,         // Invalid funct3 for funct7=0x70
                 }
             }
-            0x78 => FloatOpcode::FMVWX,  // FMV.W.X (int to float)
-            _ => return None,  // Unsupported operation
+            0x78 => FloatOpcode::FMVWX, // FMV.W.X (int to float)
+            _ => return None,           // Unsupported operation
         };
 
         // Emit single float ALU instruction
         let instruction = Instruction::from_isize(
             opcode.global_opcode(),
-            rd as isize,                  // a: destination float register
-            rs1 as isize,                 // b: source float register 1
-            rs2 as isize,                 // c: source float register 2
-            opcode as usize as isize,     // d: opcode for executor dispatch
-            funct3 as isize,              // e: funct3 for variant discrimination
+            rd as isize,              // a: destination float register
+            rs1 as isize,             // b: source float register 1
+            rs2 as isize,             // c: source float register 2
+            opcode as usize as isize, // d: opcode for executor dispatch
+            funct3 as isize,          // e: funct3 for variant discrimination
         );
 
         Some(TranspilerOutput {
@@ -273,19 +270,13 @@ impl FloatsTranspilerExtension {
         let rs1 = ((inst >> 15) & 0x1F) as u8;
         let csr = ((inst >> 20) & 0xFFF) as u32;
 
-        eprintln!("[FCSR-TRANSPILE] Inst=0x{:08x}, CSR=0x{:03x}, rd={}, rs1={}, funct3={}",
-            inst, csr, rd, rs1, funct3);
-
         // Handle floating-point CSRs:
         // 0x001 = fflags (exception flags, bits 4-0 of fcsr)
         // 0x002 = frm (rounding mode, bits 7-5 of fcsr)
         // 0x003 = fcsr (full control/status register)
         if csr != 0x001 && csr != 0x002 && csr != 0x003 {
-            eprintln!("[FCSR-TRANSPILE] Not a float CSR (0x001/0x002/0x003), returning None");
-            return None;  // Not a float CSR, let default transpiler handle it
+            return None; // Not a float CSR, let default transpiler handle it
         }
-
-        eprintln!("[FCSR-TRANSPILE] Handling float CSR 0x{:03x}!", csr);
 
         // Map funct3 to CSR operation type
         // funct3: 1=CSRRW, 2=CSRRS, 3=CSRRC, 5=CSRRWI, 6=CSRRSI, 7=CSRRCI
@@ -293,23 +284,23 @@ impl FloatsTranspilerExtension {
         // - FSCSR is CSRRW with rd=x0 (funct3=1, rd=0)
         // - FRCSR is CSRRS with rs1=x0 (funct3=2, rs1=0)
         let op_type = match funct3 {
-            1 => 0,  // CSRRW (read/write)
-            2 => 1,  // CSRRS (read and set)
-            3 => 2,  // CSRRC (read and clear)
-            5 => 3,  // CSRRWI (immediate)
-            6 => 4,  // CSRRSI (immediate)
-            7 => 5,  // CSRRCI (immediate)
-            _ => return None,  // Invalid CSR funct3
+            1 => 0,           // CSRRW (read/write)
+            2 => 1,           // CSRRS (read and set)
+            3 => 2,           // CSRRC (read and clear)
+            5 => 3,           // CSRRWI (immediate)
+            6 => 4,           // CSRRSI (immediate)
+            7 => 5,           // CSRRCI (immediate)
+            _ => return None, // Invalid CSR funct3
         };
 
         // Emit FCSR instruction
         let instruction = Instruction::from_isize(
             FloatOpcode::FCSR.global_opcode(),
-            rd as isize,                  // a: destination register (x0-x31)
-            rs1 as isize,                 // b: source register (x0-x31) or immediate value
-            op_type as isize,             // c: operation type (0=RW, 1=RS, 2=RC, 3=RWI, 4=RSI, 5=RCI)
-            csr as isize,                 // d: CSR address (0x001=fflags, 0x002=frm, 0x003=fcsr)
-            0,                            // e: unused
+            rd as isize,      // a: destination register (x0-x31)
+            rs1 as isize,     // b: source register (x0-x31) or immediate value
+            op_type as isize, // c: operation type (0=RW, 1=RS, 2=RC, 3=RWI, 4=RSI, 5=RCI)
+            csr as isize,     // d: CSR address (0x001=fflags, 0x002=frm, 0x003=fcsr)
+            0,                // e: unused
         );
 
         Some(TranspilerOutput {
@@ -327,8 +318,6 @@ impl<F: PrimeField32> TranspilerExtension<F> for FloatsTranspilerExtension {
 
         let inst = instruction_stream[0];
         let opcode = (inst & 0x7f) as u8;
-
-        eprintln!("[FLOATS-TRANSPILER] process_custom called: inst=0x{:08x}, opcode=0x{:02x}", inst, opcode);
 
         match opcode {
             FLOAD_OPCODE => {

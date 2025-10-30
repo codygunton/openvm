@@ -15,10 +15,10 @@ use super::core::FloatStoreExecutor;
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
 struct FloatStorePreCompute {
-    rs2: u8,          // Float source register (0-31)
-    rs1: u8,          // Base address register
+    rs2: u8, // Float source register (0-31)
+    rs1: u8, // Base address register
     _padding: [u8; 2],
-    imm: i32,         // Signed offset
+    imm: i32, // Signed offset
 }
 
 impl FloatStoreExecutor {
@@ -123,17 +123,11 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let float_value = u32::from_le_bytes(word_bytes);
 
     // 2. Read base address from rs1 register
-    let base_bytes = exec_state.vm_read::<u8, 4>(
-        RV32_REGISTER_AS,
-        pre_compute.rs1 as u32,
-    );
+    let base_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32);
     let base_addr = u32::from_le_bytes(base_bytes);
 
     // 3. Calculate effective address
     let addr = base_addr.wrapping_add(pre_compute.imm as u32);
-
-    eprintln!("[FSW] PC=0x{:08x}, f{} (addr 0x{:08x}) = 0x{:08x}, storing to addr 0x{:08x} (base=0x{:08x}, imm={})",
-              *pc, pre_compute.rs2, float_addr, float_value, addr, base_addr, pre_compute.imm);
 
     // 4. Store word to heap memory
     exec_state.vm_write(FLOAT_MEM_AS, addr, &word_bytes);

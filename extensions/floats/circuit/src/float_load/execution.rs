@@ -4,19 +4,21 @@ use std::mem::size_of;
 use openvm_circuit::arch::*;
 use openvm_circuit::system::memory::online::GuestMemory;
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
-use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_NUM_LIMBS};
+use openvm_instructions::{
+    instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_NUM_LIMBS,
+};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use crate::constants::*;
 use super::core::FloatLoadExecutor;
+use crate::constants::*;
 
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
 struct FloatLoadPreCompute {
-    rd: u8,           // Float destination register (0-31)
-    rs1: u8,          // Base address register
+    rd: u8,  // Float destination register (0-31)
+    rs1: u8, // Base address register
     _padding: [u8; 2],
-    imm: i32,         // Signed offset
+    imm: i32, // Signed offset
 }
 
 impl FloatLoadExecutor {
@@ -109,8 +111,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!("[FLW-ENTRY] PC=0x{:08x}, instret={}, ENABLED={}", *pc, *instret, ENABLED);
-
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
         *instret += 1;
@@ -118,14 +118,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     }
 
     // 1. Read base address from rs1 register (use register number directly like JALR does)
-    let base_bytes = exec_state.vm_read::<u8, 4>(
-        RV32_REGISTER_AS,
-        pre_compute.rs1 as u32,
-    );
+    let base_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32);
     let base_addr = u32::from_le_bytes(base_bytes);
-
-    eprintln!("[FLW] PC=0x{:08x}, Reading x{} = 0x{:08x}, imm={}",
-              *pc, pre_compute.rs1 / RV32_REGISTER_NUM_LIMBS as u8, base_addr, pre_compute.imm);
 
     // 2. Calculate effective address
     let addr = base_addr.wrapping_add(pre_compute.imm as u32);
@@ -136,8 +130,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     // DEBUG: Show what's being loaded
     let value = u32::from_le_bytes(word_bytes);
     let value_f32 = f32::from_bits(value);
-    eprintln!("[FLW] f{} <- mem[0x{:08x}] = 0x{:08x} ({})",
-              pre_compute.rd, addr, value, value_f32);
 
     // 4. Write to float register memory
     let float_addr = float_reg_addr(pre_compute.rd);
@@ -147,7 +139,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let old_pc = *pc;
     *pc += DEFAULT_PC_STEP;
     *instret += 1;
-    eprintln!("[FLW-EXIT] PC: 0x{:08x} -> 0x{:08x}, instret={}", old_pc, *pc, *instret);
 }
 
 #[create_handler]

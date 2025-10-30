@@ -1,14 +1,16 @@
-use std::{
-    mem::size_of,
-    marker::PhantomData,
-};
+use std::{marker::PhantomData, mem::size_of};
 
-use openvm_circuit::{arch::*, system::memory::online::{GuestMemory, TracingMemory}};
-use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_AS};
+use openvm_circuit::{
+    arch::*,
+    system::memory::online::{GuestMemory, TracingMemory},
+};
+use openvm_instructions::{
+    instruction::Instruction, program::DEFAULT_PC_STEP, riscv::RV32_REGISTER_AS,
+};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use crate::constants::*;
 use super::operation::FloatOperation;
+use crate::constants::*;
 
 /// Generic executor for float operations that call the native handler.
 /// Type parameter OP determines which operation this executor handles.
@@ -19,7 +21,9 @@ pub struct FloatHandlerExecutor<OP: FloatOperation> {
 
 impl<OP: FloatOperation> FloatHandlerExecutor<OP> {
     pub fn new() -> Self {
-        Self { _phantom: PhantomData }
+        Self {
+            _phantom: PhantomData,
+        }
     }
 
     fn pre_compute_impl<F: PrimeField32>(
@@ -138,10 +142,7 @@ unsafe fn execute_e12_impl<
 
     // Debug: Log instruction details for FMA operations (opcodes 0x43, 0x47, 0x4B, 0x4F)
     let opcode = riscv_inst & 0x7F;
-    if opcode == 0x43 || opcode == 0x47 || opcode == 0x4B || opcode == 0x4F {
-        eprintln!("[HANDLER-EXECUTOR-FMA] PC=0x{:08x}, inst=0x{:08x}, opcode=0x{:02x}",
-                  *pc, riscv_inst, opcode);
-    }
+    if opcode == 0x43 || opcode == 0x47 || opcode == 0x4B || opcode == 0x4F {}
 
     // Store instruction to FLOAT_INST_ADDR for handler to read
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &riscv_inst.to_le_bytes());
@@ -160,7 +161,11 @@ unsafe fn execute_e12_impl<
     let saved_regs = [5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 28, 29, 30, 31];
     for (i, &reg) in saved_regs.iter().enumerate() {
         let reg_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, reg * 4);
-        exec_state.vm_write(FLOAT_MEM_AS, FLOAT_SAVED_REGS_BASE + (i as u32 * 4), &reg_bytes);
+        exec_state.vm_write(
+            FLOAT_MEM_AS,
+            FLOAT_SAVED_REGS_BASE + (i as u32 * 4),
+            &reg_bytes,
+        );
     }
 
     // Prepare operation-specific data (e.g., copy int→float for FCVT.S.W)
@@ -168,7 +173,11 @@ unsafe fn execute_e12_impl<
 
     // Save actual return address and write trampoline marker to x1
     let actual_return_addr = *pc + DEFAULT_PC_STEP;
-    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
+    exec_state.vm_write(
+        FLOAT_MEM_AS,
+        FLOAT_RETURN_ADDR,
+        &actual_return_addr.to_le_bytes(),
+    );
     exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
 
     // Jump to handler (clear LSB for alignment)

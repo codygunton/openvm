@@ -102,9 +102,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     pc: &mut u32,
     exec_state: &mut VmExecState<F, GuestMemory, CTX>,
 ) {
-    eprintln!("[FCSR-ENTRY] PC=0x{:08x}, instret={}, rd={}, rs1={}, op_type={}, csr_addr=0x{:03x}, ENABLED={}",
-        *pc, *instret, pre_compute.rd, pre_compute.rs1, pre_compute.op_type, pre_compute.csr_addr, ENABLED);
-
     if !ENABLED {
         *pc += DEFAULT_PC_STEP;
         *instret += 1;
@@ -114,7 +111,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     // Read current FCSR value from memory
     let fcsr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
     let fcsr_full = u32::from_le_bytes(fcsr_bytes);
-    eprintln!("[FCSR-READ] FCSR full value = 0x{:08x}", fcsr_full);
 
     // Extract the appropriate field based on CSR address:
     // 0x001 (fflags): bits [4:0] - exception flags
@@ -125,20 +121,19 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         0x002 => (fcsr_full >> 5) & 0x07, // frm: bits [7:5] shifted to [2:0]
         0x003 => fcsr_full & 0xFF,        // fcsr: bits [7:0]
         _ => {
-            eprintln!("[FCSR-ERROR] Invalid CSR address: 0x{:03x}", pre_compute.csr_addr);
             *pc += DEFAULT_PC_STEP;
             *instret += 1;
             return;
         }
     };
-    eprintln!("[FCSR-READ] CSR 0x{:03x} old value = 0x{:08x}", pre_compute.csr_addr, fcsr_old);
 
     // Process CSR operation based on op_type
     // op_type: 0=CSRRW, 1=CSRRS, 2=CSRRC, 3=CSRRWI, 4=CSRRSI, 5=CSRRCI
     let (fcsr_new, write_csr) = match pre_compute.op_type {
         0 => {
             // CSRRW: Read/Write - t=CSR; CSR=rs1; rd=t
-            let rs1_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
+            let rs1_bytes =
+                exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
             let rs1_val = u32::from_le_bytes(rs1_bytes);
             (rs1_val, true)
         }
@@ -148,7 +143,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
             if pre_compute.rs1 == 0 {
                 (fcsr_old, false)
             } else {
-                let rs1_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
+                let rs1_bytes =
+                    exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
                 let rs1_val = u32::from_le_bytes(rs1_bytes);
                 (fcsr_old | rs1_val, true)
             }
@@ -158,7 +154,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
             if pre_compute.rs1 == 0 {
                 (fcsr_old, false)
             } else {
-                let rs1_bytes = exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
+                let rs1_bytes =
+                    exec_state.vm_read::<u8, 4>(RV32_REGISTER_AS, pre_compute.rs1 as u32 * 4);
                 let rs1_val = u32::from_le_bytes(rs1_bytes);
                 (fcsr_old & !rs1_val, true)
             }
@@ -209,15 +206,16 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
             _ => fcsr_full, // Should not happen, already validated above
         };
 
-        eprintln!("[FCSR-WRITE] CSR 0x{:03x}: old_full=0x{:08x}, new_field=0x{:08x}, final_full=0x{:08x}",
-                  pre_compute.csr_addr, fcsr_full, fcsr_new, fcsr_final);
         exec_state.vm_write(FLOAT_MEM_AS, FLOAT_CSR_FCSR, &fcsr_final.to_le_bytes());
     }
 
     // Write old FCSR value to rd (unless rd=x0)
     if pre_compute.rd != 0 {
-        eprintln!("[FCSR-RD] Writing x{} = 0x{:08x}", pre_compute.rd, fcsr_old);
-        exec_state.vm_write(RV32_REGISTER_AS, pre_compute.rd as u32 * 4, &fcsr_old.to_le_bytes());
+        exec_state.vm_write(
+            RV32_REGISTER_AS,
+            pre_compute.rd as u32 * 4,
+            &fcsr_old.to_le_bytes(),
+        );
     }
 
     *pc += DEFAULT_PC_STEP;
