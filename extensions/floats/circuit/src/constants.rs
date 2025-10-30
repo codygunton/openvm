@@ -1,16 +1,22 @@
-/// Base address for float register file in heap memory
+/// Base address for float register file in heap memory (SYS_ADDR)
 /// Placed at 2MB to provide space for test code while staying well within 512MB limit
 pub const FLOAT_REGISTER_BASE: u32 = 0x00200000;
+
+/// Offset from SYS_ADDR to FREG_FIRST
+/// Matches C code: #define FREG_FIRST (SYS_ADDR + 0x1000)
+pub const FREG_FIRST_OFFSET: u32 = 0x1000;
+
+/// CSR register location
 pub const FLOAT_CSR_FCSR: u32 = FLOAT_REGISTER_BASE + 0x8000 + 24;  // 0x00208018 - FCSR register location
 
 /// Address where float instruction encoding is stored for handler
-/// Placed 0x108 bytes after register base (after 32 registers * 8 bytes + padding)
-pub const FLOAT_INST_ADDR: u32 = 0x00200108;
+/// Matches C code: FREG_INST (FREG_FIRST + 33 * 8)
+pub const FLOAT_INST_ADDR: u32 = FLOAT_REGISTER_BASE + FREG_FIRST_OFFSET + 33 * 8;
 
 /// Integer register backup storage base
 /// The handler writes integer register results here (like float comparison results)
-/// This matches FREG_X0 in the guest code (offset 0x118 from register base)
-pub const FLOAT_X0_BACKUP: u32 = 0x00200118;
+/// Matches C code: FREG_X0 (FREG_FIRST + 35 * 8)
+pub const FLOAT_X0_BACKUP: u32 = FLOAT_REGISTER_BASE + FREG_FIRST_OFFSET + 35 * 8;
 
 /// Address of pointer to float library entry point (_zisk_float)
 /// This should match where the linker places .float_lib_entry section
@@ -30,9 +36,10 @@ pub const RV32_REGISTER_AS: u32 = 1;
 /// Convert float register index (0-31) to memory address
 /// Note: The float handler (SoftFloat C code) expects registers to be 8 bytes apart
 /// (it uses uint64_t array), even though we only store 4 bytes per register.
+/// Matches C code: fregs[n] accesses (FREG_FIRST + n * 8)
 #[inline]
 pub const fn float_reg_addr(freg: u8) -> u32 {
-    FLOAT_REGISTER_BASE + (freg as u32) * 8
+    FLOAT_REGISTER_BASE + FREG_FIRST_OFFSET + (freg as u32) * 8
 }
 
 /// Number of limbs per RV32 register

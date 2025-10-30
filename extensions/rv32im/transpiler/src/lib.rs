@@ -11,7 +11,7 @@ use openvm_rv32im_guest::{
 };
 use openvm_stark_backend::p3_field::PrimeField32;
 use openvm_transpiler::{
-    util::{nop, unimp},
+    util::nop,
     TranspilerExtension, TranspilerOutput,
 };
 use rrs::InstructionTranspiler;

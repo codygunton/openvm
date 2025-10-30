@@ -153,8 +153,8 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     const FLOAT_SAVED_X1: u32 = 0x1F001200;
     const FLOAT_RETURN_ADDR: u32 = 0x1F001204;
     const FLOAT_SAVED_REGS_BASE: u32 = 0x1F001210;  // Save area for caller-saved registers
-    const FLOAT_INST_ADDR: u32 = 0x00200108;   // Same as constants.rs - where circuit writes instruction
-    const FLOAT_X0_BACKUP: u32 = 0x00200118;   // Guest library integer register backup (FREG_X0 from lib-float/float.h)
+    const FLOAT_INST_ADDR: u32 = 0x00201108;   // FREG_FIRST (0x00201000) + 33*8 = 0x108 offset
+    const FLOAT_X0_BACKUP: u32 = 0x00201118;   // FREG_FIRST (0x00201000) + 35*8 = 0x118 offset
 
     if to_pc == FLOAT_TRAMPOLINE_PC {
         // Restore x1 from saved location

@@ -1,10 +1,8 @@
 use openvm_circuit::arch::*;
-use openvm_circuit::system::memory::online::GuestMemory;
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
-use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP};
+use openvm_instructions::instruction::Instruction;
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use crate::constants::*;
 use crate::handler_executor::operation::FloatOperation;
 
 #[derive(AlignedBytesBorrow, Clone)]
