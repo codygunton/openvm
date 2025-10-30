@@ -60,41 +60,4 @@ impl FloatOperation for AluOp {
         ((data.rd as u32) << 7) |
         0x53
     }
-
-    fn needs_direct_handling(data: &Self::PreCompute) -> bool {
-        // FSGNJ operations (opcode 8) are handled directly without calling handler
-        data.opcode == 8
-    }
-
-    unsafe fn execute_directly<F: PrimeField32, CTX: ExecutionCtxTrait>(
-        data: &Self::PreCompute,
-        pc: &mut u32,
-        instret: &mut u64,
-        exec_state: &mut VmExecState<F, GuestMemory, CTX>,
-    ) {
-        // Read source float registers
-        let rs1_addr = float_reg_addr(data.rs1);
-        let rs2_addr = float_reg_addr(data.rs2);
-        let rd_addr = float_reg_addr(data.rd);
-
-        let rs1_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, rs1_addr);
-        let rs2_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, rs2_addr);
-
-        let rs1_val = u32::from_le_bytes(rs1_bytes);
-        let rs2_val = u32::from_le_bytes(rs2_bytes);
-
-        // Perform sign manipulation based on variant
-        let result = match data.variant {
-            0 => (rs1_val & 0x7FFFFFFF) | (rs2_val & 0x80000000),  // FSGNJ: take rs2's sign
-            1 => (rs1_val & 0x7FFFFFFF) | ((rs2_val ^ 0x80000000) & 0x80000000), // FSGNJN: take ~rs2's sign
-            2 => (rs1_val ^ (rs2_val & 0x80000000)),  // FSGNJX: XOR signs
-            _ => rs1_val,
-        };
-
-        // Write result to destination float register
-        exec_state.vm_write(FLOAT_MEM_AS, rd_addr, &result.to_le_bytes());
-
-        *pc += DEFAULT_PC_STEP;
-        *instret += 1;
-    }
 }

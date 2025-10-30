@@ -398,6 +398,9 @@ where
                 .and_then(|s| s.parse::<usize>().ok())
                 .expect("RISC0_SIG_SIZE environment variable must be set with signature size");
 
+            eprintln!("[SIGNATURE] sig_begin=0x{:08x}, sig_size={} (0x{:x} bytes), sig_end=0x{:08x}",
+                      sig_begin, sig_size, sig_size, sig_begin + sig_size as u32);
+
             let mut sig_file = File::create(sig_path)?;
             let memory_state = &final_memory_result.memory.memory;
 
@@ -416,6 +419,12 @@ where
                     | ((byte1 as u32) << 8)
                     | ((byte2 as u32) << 16)
                     | ((byte3 as u32) << 24);
+
+                // Debug: Show what we're reading (especially for addresses that should contain -0.0)
+                if word == 0x80000000 || word == 0x00000000 {
+                    eprintln!("[SIGNATURE] addr=0x{:08x}, bytes=[{:02x},{:02x},{:02x},{:02x}] => word=0x{:08x}",
+                              addr, byte0, byte1, byte2, byte3, word);
+                }
 
                 // Write as hex value
                 writeln!(sig_file, "{:08x}", word)?;

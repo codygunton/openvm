@@ -134,14 +134,15 @@ unsafe fn execute_e12_impl<
         return;
     }
 
-    // Check if operation needs direct handling (e.g., FSGNJ)
-    if OP::needs_direct_handling(pre_compute) {
-        OP::execute_directly(pre_compute, pc, instret, exec_state);
-        return;
-    }
-
     // Reconstruct RISC-V instruction
     let riscv_inst = OP::reconstruct_riscv_instruction(pre_compute);
+
+    // Debug: Log instruction details for FMA operations (opcodes 0x43, 0x47, 0x4B, 0x4F)
+    let opcode = riscv_inst & 0x7F;
+    if opcode == 0x43 || opcode == 0x47 || opcode == 0x4B || opcode == 0x4F {
+        eprintln!("[HANDLER-EXECUTOR-FMA] PC=0x{:08x}, inst=0x{:08x}, opcode=0x{:02x}",
+                  *pc, riscv_inst, opcode);
+    }
 
     // Store instruction to FLOAT_INST_ADDR for handler to read
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_INST_ADDR, &riscv_inst.to_le_bytes());

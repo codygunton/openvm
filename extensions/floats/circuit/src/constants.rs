@@ -14,8 +14,8 @@ pub const FLOAT_X0_BACKUP: u32 = 0x00200118;
 
 /// Address of pointer to float library entry point (_zisk_float)
 /// This should match where the linker places .float_lib_entry section
-/// Placed at 1MB to avoid overlap with test code while keeping binary size reasonable
-pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x0010_0000;
+/// Placed at 256MB to avoid overlap with large test data sections (some tests have ~2MB data)
+pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x1000_0000;
 pub const FLOAT_SAVED_X1: u32 = 0x1F001200;  // Scratch location to save x1 during float handler calls
 pub const FLOAT_RETURN_ADDR: u32 = 0x1F001204;  // Scratch location to save actual return address
 pub const FLOAT_SAVED_REGS_BASE: u32 = 0x1F001210;  // Save area for caller-saved registers during float handler calls
