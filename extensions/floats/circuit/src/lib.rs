@@ -7,14 +7,9 @@
 //!
 
 mod constants;
+mod handler_executor;
 mod float_load;
 mod float_store;
-mod float_alu;
-mod float_fma;
-mod float_convert;
-mod float_compare;
-mod float_move;
-mod float_class;
 mod float_csr;
 pub mod extension;
 

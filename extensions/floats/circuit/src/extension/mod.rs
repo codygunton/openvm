@@ -11,24 +11,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::float_load::FloatLoadExecutor;
 use crate::float_store::FloatStoreExecutor;
-use crate::float_alu::FloatAluExecutor;
-use crate::float_fma::FloatFmaExecutor;
-use crate::float_convert::FloatConvertExecutor;
-use crate::float_compare::FloatCompareExecutor;
-use crate::float_move::FloatMoveExecutor;
-use crate::float_class::FloatClassExecutor;
 use crate::float_csr::FloatCsrExecutor;
+use crate::handler_executor::{
+    FloatHandlerExecutor, FmaOp, AluOp, ConvertOp, CompareOp, MoveOp, ClassOp
+};
 
 #[derive(Clone, From, AnyEnum, Executor, MeteredExecutor, PreflightExecutor)]
 pub enum Rv32FExecutor {
     FloatLoad(FloatLoadExecutor),
     FloatStore(FloatStoreExecutor),
-    FloatAlu(FloatAluExecutor),
-    FloatFma(FloatFmaExecutor),
-    FloatConvert(FloatConvertExecutor),
-    FloatCompare(FloatCompareExecutor),
-    FloatMove(FloatMoveExecutor),
-    FloatClass(FloatClassExecutor),
+    FloatAlu(FloatHandlerExecutor<AluOp>),
+    FloatFma(FloatHandlerExecutor<FmaOp>),
+    FloatConvert(FloatHandlerExecutor<ConvertOp>),
+    FloatCompare(FloatHandlerExecutor<CompareOp>),
+    FloatMove(FloatHandlerExecutor<MoveOp>),
+    FloatClass(FloatHandlerExecutor<ClassOp>),
     FloatCsr(FloatCsrExecutor),
 }
 
@@ -56,7 +53,7 @@ impl<F: PrimeField32> VmExecutionExtension<F> for Rv32F {
 
         // Register float ALU executor for all arithmetic ops
         inventory.add_executor(
-            FloatAluExecutor::new(),
+            FloatHandlerExecutor::<AluOp>::new(),
             [
                 FloatOpcode::FADD.global_opcode(),
                 FloatOpcode::FSUB.global_opcode(),
@@ -70,7 +67,7 @@ impl<F: PrimeField32> VmExecutionExtension<F> for Rv32F {
 
         // Register float FMA executor for fused multiply-add ops
         inventory.add_executor(
-            FloatFmaExecutor::new(),
+            FloatHandlerExecutor::<FmaOp>::new(),
             [
                 FloatOpcode::FMADD.global_opcode(),
                 FloatOpcode::FMSUB.global_opcode(),
@@ -81,13 +78,13 @@ impl<F: PrimeField32> VmExecutionExtension<F> for Rv32F {
 
         // Register float class executor for FCLASS.S
         inventory.add_executor(
-            FloatClassExecutor::new(),
+            FloatHandlerExecutor::<ClassOp>::new(),
             [FloatOpcode::FCLASS.global_opcode()],
         )?;
 
         // Register float convert executor for float <-> int conversions
         inventory.add_executor(
-            FloatConvertExecutor::new(),
+            FloatHandlerExecutor::<ConvertOp>::new(),
             [
                 FloatOpcode::FCVTWS.global_opcode(),  // FCVT.W.S, FCVT.WU.S
                 FloatOpcode::FCVTSW.global_opcode(),  // FCVT.S.W, FCVT.S.WU
@@ -96,13 +93,13 @@ impl<F: PrimeField32> VmExecutionExtension<F> for Rv32F {
 
         // Register float compare executor for comparisons
         inventory.add_executor(
-            FloatCompareExecutor::new(),
+            FloatHandlerExecutor::<CompareOp>::new(),
             [FloatOpcode::FCMP.global_opcode()],  // FEQ.S, FLT.S, FLE.S
         )?;
 
         // Register float move executor for register moves
         inventory.add_executor(
-            FloatMoveExecutor::new(),
+            FloatHandlerExecutor::<MoveOp>::new(),
             [
                 FloatOpcode::FMVXW.global_opcode(),  // FMV.X.W (float -> int)
                 FloatOpcode::FMVWX.global_opcode(),  // FMV.W.X (int -> float)
