@@ -120,6 +120,7 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     // 1. Read from float register memory
     let float_addr = float_reg_addr(pre_compute.rs2);
     let word_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, float_addr);
+    let float_value = u32::from_le_bytes(word_bytes);
 
     // 2. Read base address from rs1 register
     let base_bytes = exec_state.vm_read::<u8, 4>(
@@ -130,6 +131,9 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
 
     // 3. Calculate effective address
     let addr = base_addr.wrapping_add(pre_compute.imm as u32);
+
+    eprintln!("[FSW] PC=0x{:08x}, f{} (addr 0x{:08x}) = 0x{:08x}, storing to addr 0x{:08x} (base=0x{:08x}, imm={})",
+              *pc, pre_compute.rs2, float_addr, float_value, addr, base_addr, pre_compute.imm);
 
     // 4. Store word to heap memory
     exec_state.vm_write(FLOAT_MEM_AS, addr, &word_bytes);

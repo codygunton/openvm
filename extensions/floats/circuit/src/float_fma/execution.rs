@@ -163,6 +163,14 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
     exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
 
+    // DEBUG: Read the CURRENT value of the destination float register BEFORE calling handler
+    use crate::constants::float_reg_addr;
+    let rd_addr = float_reg_addr(pre_compute.rd);
+    let before_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, rd_addr);
+    let before_val = u32::from_le_bytes(before_bytes);
+    eprintln!("[FMA-PRE-CALL] f{} (addr 0x{:08x}) = 0x{:08x} BEFORE handler",
+              pre_compute.rd, rd_addr, before_val);
+
     // Jump to handler
     let target_addr = handler_addr & !1;
     *pc = target_addr;

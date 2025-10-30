@@ -194,6 +194,17 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
             exec_state.vm_write(RV32_REGISTER_AS, reg as u32 * 4, &reg_bytes);
         }
 
+        // DEBUG: For FMA operations, read back the float register to verify handler wrote it
+        // FMA operations (opcodes 0x43, 0x47, 0x4B, 0x4F) write to float registers
+        if opcode == 0x43 || opcode == 0x47 || opcode == 0x4B || opcode == 0x4F {
+            const FLOAT_REGISTER_BASE: u32 = 0x00200000;
+            let rd_addr = FLOAT_REGISTER_BASE + (rd * 8);
+            let result_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, rd_addr);
+            let result = u32::from_le_bytes(result_bytes);
+            eprintln!("[TRAMPOLINE-FMA] f{} (addr 0x{:08x}) = 0x{:08x} AFTER handler (opcode=0x{:02x})",
+                      rd, rd_addr, result, opcode);
+        }
+
         // Copy integer result if this instruction writes to an integer register:
         // Only R-type float operations (opcode 0x53) can write to integer registers
         // FMA operations (opcodes 0x43, 0x47, 0x4B, 0x4F) always write to float registers
