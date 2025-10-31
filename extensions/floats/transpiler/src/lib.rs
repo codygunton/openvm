@@ -19,8 +19,9 @@ pub const CSR_OPCODE: u8 = 0x73; // CSR instructions (CSRRW, CSRRS, etc.)
 // Memory map (must match circuit constants)
 // Placed at 2MB to provide space for test code while staying well within 512MB limit
 pub const FLOAT_REGISTER_BASE: u32 = 0x00200000;
-pub const FLOAT_INST_ADDR: u32 = 0x00200108;
-pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x00100000;
+pub const FREG_FIRST_OFFSET: u32 = 0x1000;  // Matches zisk: FREG_FIRST = SYS_ADDR + 0x1000
+pub const FLOAT_INST_ADDR: u32 = FLOAT_REGISTER_BASE + FREG_FIRST_OFFSET + 33 * 8;  // = 0x00201108
+pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x00100000;  // 1MB (matches float_init.S)
 
 // OpenVM addressing constants
 pub const RV32_MEMORY_AS: u32 = 2; // Heap memory address space
