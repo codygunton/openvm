@@ -2,8 +2,8 @@
 set -eu
 
 # Rebuild flags
-BTESTS=${BTESTS:-0}
-BBIN=${BBIN:-0}
+BTESTS=${BTESTS:-1}
+BBIN=${BBIN:-1}
 RUN=${RUN:-1}
 SIGS=${SIGS:-1}
 

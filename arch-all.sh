@@ -1,10 +1,10 @@
 #!/bin/bash
 set -eu
 
-BBIN=${BBIN:-0}
+BBIN=${BBIN:-1}
 
 # hack -- just using this to build the binary
-RUN=0 BBIN=$BBIN BTEST=0 ./arch-one.sh
+RUN=0 BBIN=$BBIN BTESTS=0 ./arch-one.sh
 
 cd zkevm-test-monitor
 
