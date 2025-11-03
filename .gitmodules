@@ -7,3 +7,6 @@
 [submodule "extensions/floats/guest/vendor/zisk"]
 	path = extensions/floats/guest/vendor/zisk
 	url = git@github.com:codygunton/zisk.git
+[submodule "zkevm-test-monitor"]
+	path = zkevm-test-monitor
+	url = git@github.com:eth-act/zkevm-test-monitor
