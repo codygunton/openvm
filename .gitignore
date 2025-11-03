@@ -47,7 +47,3 @@ profile.json.gz
 
 # test fixtures
 benchmarks/fixtures
-
-examples/floats/build/
-
-arch-test.*
