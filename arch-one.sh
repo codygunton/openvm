@@ -11,6 +11,9 @@ PATTERN=${1:-fadd_b1}
 
 BINARY_TO_RUN=zkevm-test-monitor/binaries/openvm-binary
 
+# if zkevm-test-monitor hasn't been run, we need:
+mkdir -p zkevm-test-monitor/binaries
+
 # Build cargo-openvm from the openvm repository
 if [ $BBIN = "1" ]; then
     rm -f $BINARY_TO_RUN
