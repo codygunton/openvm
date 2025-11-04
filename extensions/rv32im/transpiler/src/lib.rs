@@ -56,20 +56,16 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
                     }
                 }
 
-                // Check if this is FCSR (CSR 0x003) - if so, let floats extension handle it
-                if dec_insn.imm == 0x003 {
-                    return None;
-                }
+                let is_zicsr = dec_insn.funct3 != 0;
+                if is_zicsr {
+                    let csr_addr = dec_insn.imm as u32;
+                    let is_float_csr = csr_addr == 0x001 || csr_addr == 0x002 || csr_addr == 0x003;
+                    let is_setup_op = dec_insn.rd == 0;
 
-                // For RISCOF compatibility, treat CSR instructions as no-ops when rd=0
-                // (i.e., when they don't write to a destination register)
-                // This allows tests to execute CSR setup (like enabling FP via mstatus)
-                if dec_insn.rd == 0 {
-                    // CSR instruction that doesn't write to a register - treat as nop
-                    // This handles: csrs/csrw/csrc/csrsi/csrwi/csrci with rd=x0
-                    return Some(TranspilerOutput::one_to_one(nop()));
+                    if is_float_csr || is_setup_op {
+                        return None;
+                    }
                 }
-
                 eprintln!(
                     "Transpiling system / CSR instruction: {:b} (opcode = {:07b}, funct3 = {:03b}) to unimp",
                     instruction_u32, opcode, funct3

@@ -19,9 +19,9 @@ pub const CSR_OPCODE: u8 = 0x73; // CSR instructions (CSRRW, CSRRS, etc.)
 // Memory map (must match circuit constants)
 // Placed at 2MB to provide space for test code while staying well within 512MB limit
 pub const FLOAT_REGISTER_BASE: u32 = 0x00200000;
-pub const FREG_FIRST_OFFSET: u32 = 0x1000;  // Matches zisk: FREG_FIRST = SYS_ADDR + 0x1000
-pub const FLOAT_INST_ADDR: u32 = FLOAT_REGISTER_BASE + FREG_FIRST_OFFSET + 33 * 8;  // = 0x00201108
-pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x00100000;  // 1MB (matches float_init.S)
+pub const FREG_FIRST_OFFSET: u32 = 0x1000; // Matches zisk: FREG_FIRST = SYS_ADDR + 0x1000
+pub const FLOAT_INST_ADDR: u32 = FLOAT_REGISTER_BASE + FREG_FIRST_OFFSET + 33 * 8; // = 0x00201108
+pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x00100000; // 1MB (matches float_init.S)
 
 // OpenVM addressing constants
 pub const RV32_MEMORY_AS: u32 = 2; // Heap memory address space
@@ -264,19 +264,22 @@ impl FloatsTranspilerExtension {
     }
 
     fn handle_fcsr<F: PrimeField32>(&self, inst: u32) -> Option<TranspilerOutput<F>> {
-        // Decode CSR instruction (I-type format)
-        // For CSR instructions, bits [31:20] contain the CSR address
+        use openvm_transpiler::util::nop;
+
         let rd = ((inst >> 7) & 0x1F) as u8;
         let funct3 = ((inst >> 12) & 0x7) as u8;
         let rs1 = ((inst >> 15) & 0x1F) as u8;
-        let csr = ((inst >> 20) & 0xFFF) as u32;
+        let imm = ((inst >> 20) & 0xFFF) as u32;
 
-        // Handle floating-point CSRs:
-        // 0x001 = fflags (exception flags, bits 4-0 of fcsr)
-        // 0x002 = frm (rounding mode, bits 7-5 of fcsr)
-        // 0x003 = fcsr (full control/status register)
-        if csr != 0x001 && csr != 0x002 && csr != 0x003 {
-            return None; // Not a float CSR, let default transpiler handle it
+        let csr = imm;
+        let is_float_csr = csr == 0x001 || csr == 0x002 || csr == 0x003;
+
+        if !is_float_csr {
+            let is_setup_op = rd == 0;
+            if is_setup_op {
+                return Some(TranspilerOutput::one_to_one(nop()));
+            }
+            return None;
         }
 
         // Map funct3 to CSR operation type
@@ -343,10 +346,7 @@ impl<F: PrimeField32> TranspilerExtension<F> for FloatsTranspilerExtension {
                 // Fused multiply-add variants (R4-type)
                 self.handle_float_fma(inst)
             }
-            CSR_OPCODE => {
-                // CSR instructions - check if it's FCSR (CSR 0x003)
-                self.handle_fcsr(inst)
-            }
+            CSR_OPCODE => self.handle_fcsr(inst),
             _ => None, // Not a float instruction
         }
     }

@@ -18,9 +18,9 @@ mkdir -p zkevm-test-monitor/binaries
 if [ $BBIN = "1" ]; then
     rm -f $BINARY_TO_RUN
     echo "🔨 Building cargo-openvm..."
-    cargo build -p cargo-openvm
+    cargo build -p cargo-openvm --release
     # Copy the binary to zkevm-test-monitor
-    cp target/debug/cargo-openvm $BINARY_TO_RUN
+    cp target/release/cargo-openvm $BINARY_TO_RUN
 fi
 
 # Run the test
