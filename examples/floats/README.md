@@ -34,24 +34,59 @@ This will:
 ### Running Individual Tests
 
 ```bash
-# From repository root
-cargo test -p floats-tests --release test_basic_ops
+# Run a specific operation test
+cargo test -p floats-tests --release test_fadd
 
-# Or just run the integration tests (fastest)
+# Run all FMA tests (pattern matching)
+cargo test -p floats-tests --release test_f
+
+# Run only comparison tests
+cargo test -p floats-tests --release test_feq test_flt test_fle
+
+# Or just run the integration test suite (fastest)
 cargo test -p floats-tests --release --test integration
-
-# Run specific test
-cargo test -p floats-tests --release test_fma
 ```
 
 ## Test Categories
 
+Each RISC-V floating-point operation has its own test file for precise granularity:
+
+### Basic Operations
+| Test File | Instruction | Description |
+|-----------|-------------|-------------|
+| `test_flw_fsw.S` | FLW, FSW | Float load/store word |
+| `test_fadd.S` | FADD.S | Floating-point addition |
+| `test_fsub.S` | FSUB.S | Floating-point subtraction |
+| `test_fmul.S` | FMUL.S | Floating-point multiplication |
+| `test_fdiv.S` | FDIV.S | Floating-point division |
+
+### Fused Multiply-Add Operations
+| Test File | Instruction | Description |
+|-----------|-------------|-------------|
+| `test_fmadd.S` | FMADD.S | Fused multiply-add: (a×b)+c |
+| `test_fmsub.S` | FMSUB.S | Fused multiply-subtract: (a×b)-c |
+| `test_fnmsub.S` | FNMSUB.S | Negated fused multiply-subtract: -(a×b)+c |
+| `test_fnmadd.S` | FNMADD.S | Negated fused multiply-add: -(a×b)-c |
+
+### Comparison Operations
+| Test File | Instruction | Description |
+|-----------|-------------|-------------|
+| `test_feq.S` | FEQ.S | Floating-point equality comparison |
+| `test_flt.S` | FLT.S | Floating-point less than |
+| `test_fle.S` | FLE.S | Floating-point less than or equal |
+
+### Conversion Operations
+| Test File | Instruction | Description |
+|-----------|-------------|-------------|
+| `test_fcvt_w_s.S` | FCVT.W.S | Convert float to signed integer |
+| `test_fcvt_wu_s.S` | FCVT.WU.S | Convert float to unsigned integer |
+| `test_fcvt_s_w.S` | FCVT.S.W | Convert signed integer to float |
+| `test_fcvt_s_wu.S` | FCVT.S.WU | Convert unsigned integer to float |
+
+### Edge Cases
 | Test File | Description |
 |-----------|-------------|
-| `test_basic_ops.S` | Basic floating-point operations (FLW, FSW, FADD.S, FSUB.S, FMUL.S, FDIV.S) |
-| `test_fma.S` | Fused multiply-add operations (FMADD.S, FMSUB.S, FNMSUB.S, FNMADD.S) |
-| `test_comparisons.S` | Comparison operations (FEQ.S, FLT.S, FLE.S) |
-| `test_nan.S` | NaN propagation and edge cases |
+| `test_nan.S` | NaN propagation and special values |
 
 ## Adding New Tests
 

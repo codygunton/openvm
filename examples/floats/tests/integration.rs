@@ -44,8 +44,29 @@ macro_rules! asm_test {
     };
 }
 
-// Define all assembly tests
-asm_test!(test_basic_ops);
-asm_test!(test_fma);
-asm_test!(test_comparisons);
+// Basic operations
+asm_test!(test_flw_fsw);
+asm_test!(test_fadd);
+asm_test!(test_fsub);
+asm_test!(test_fmul);
+asm_test!(test_fdiv);
+
+// Fused multiply-add operations
+asm_test!(test_fmadd);
+asm_test!(test_fmsub);
+asm_test!(test_fnmsub);
+asm_test!(test_fnmadd);
+
+// Comparison operations
+asm_test!(test_feq);
+asm_test!(test_flt);
+asm_test!(test_fle);
+
+// Conversion operations
+asm_test!(test_fcvt_w_s);
+asm_test!(test_fcvt_wu_s);
+asm_test!(test_fcvt_s_w);
+asm_test!(test_fcvt_s_wu);
+
+// Edge cases
 asm_test!(test_nan);
