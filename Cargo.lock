@@ -5641,6 +5641,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "openvm-floats-circuit"
+version = "1.4.1-rc.1"
+dependencies = [
+ "derive-new 0.6.0",
+ "derive_more 1.0.0",
+ "itertools 0.14.0",
+ "openvm-circuit",
+ "openvm-circuit-derive",
+ "openvm-circuit-primitives",
+ "openvm-circuit-primitives-derive",
+ "openvm-floats-transpiler",
+ "openvm-instructions",
+ "openvm-rv32im-circuit",
+ "openvm-stark-backend",
+ "openvm-stark-sdk",
+ "serde",
+ "strum",
+]
+
+[[package]]
+name = "openvm-floats-guest"
+version = "1.4.1-rc.1"
+dependencies = [
+ "cc",
+ "openvm-platform",
+]
+
+[[package]]
+name = "openvm-floats-transpiler"
+version = "1.4.1-rc.1"
+dependencies = [
+ "openvm-instructions",
+ "openvm-instructions-derive",
+ "openvm-rv32im-transpiler",
+ "openvm-stark-backend",
+ "openvm-transpiler",
+ "rrs-lib",
+ "serde",
+ "strum",
+]
+
+[[package]]
 name = "openvm-instructions"
 version = "1.4.1-rc.1"
 dependencies = [
@@ -6141,6 +6183,8 @@ dependencies = [
  "openvm-cuda-backend",
  "openvm-ecc-circuit",
  "openvm-ecc-transpiler",
+ "openvm-floats-circuit",
+ "openvm-floats-transpiler",
  "openvm-keccak256-circuit",
  "openvm-keccak256-transpiler",
  "openvm-native-circuit",

@@ -55,6 +55,20 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
                         return Some(TranspilerOutput::one_to_one(nop()));
                     }
                 }
+
+                // transpile zicsr instructions acting on float registers or mstatus (used to
+                // denote that floating points are enabled) in floats transpiler
+                let is_zicsr = dec_insn.funct3 != 0;
+                if is_zicsr {
+                    let csr_addr = dec_insn.imm as u32;
+                    let is_float_csr = csr_addr == 0x001 || csr_addr == 0x002 || csr_addr == 0x003;
+                    let is_mstatus = csr_addr == 0x300;
+
+                    if is_float_csr || is_mstatus {
+                        return None;
+                    }
+                }
+
                 eprintln!(
                     "Transpiling system / CSR instruction: {:b} (opcode = {:07b}, funct3 = {:03b}) to unimp",
                     instruction_u32, opcode, funct3

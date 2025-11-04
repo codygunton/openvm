@@ -1,0 +1,19 @@
+[package]
+name = "openvm-floats-guest"
+description = "OpenVM guest library for floating point arithmetic (portable lib-float wrapper)"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+openvm-platform = { workspace = true }
+
+[build-dependencies]
+cc = "1.0"
+
+# Note: build.rs will compile lib-float C code with float_config.h
+
+[features]
+default = []
