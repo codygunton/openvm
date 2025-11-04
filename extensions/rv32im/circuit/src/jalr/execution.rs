@@ -148,7 +148,7 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
 
     // Check if we're jumping to the float trampoline BEFORE the assertion
     // (trampoline PC is > PC_BITS and would fail the assertion)
-    const FLOAT_TRAMPOLINE_PC: u32 = 0xF0000000;
+    const RETURN_FROM_FLOAT_HANDLER_SIGNAL: u32 = 0xF0000000;
     const FLOAT_MEM_AS: u32 = 2;
     const FLOAT_SAVED_X1: u32 = 0x1F001200;
     const FLOAT_RETURN_ADDR: u32 = 0x1F001204;
@@ -156,7 +156,7 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     const FLOAT_INST_ADDR: u32 = 0x00201108; // FREG_FIRST (0x00201000) + 33*8 = 0x108 offset
     const FLOAT_X0_BACKUP: u32 = 0x00201118; // FREG_FIRST (0x00201000) + 35*8 = 0x118 offset
 
-    if to_pc == FLOAT_TRAMPOLINE_PC {
+    if to_pc == RETURN_FROM_FLOAT_HANDLER_SIGNAL {
         // Restore x1 from saved location
         let saved_x1 = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_SAVED_X1);
         exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &saved_x1);
@@ -203,11 +203,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
             // Handler writes to FLOAT_X0_BACKUP + (rd * 8) as 8-byte aligned storage
             let backup_addr = FLOAT_X0_BACKUP + (rd * 8);
             let result_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr);
-            let result = u32::from_le_bytes(result_bytes);
-
-            // Also read the upper 32 bits to see what the handler wrote
-            let upper_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, backup_addr + 4);
-            let upper = u32::from_le_bytes(upper_bytes);
 
             exec_state.vm_write(RV32_REGISTER_AS, rd * 4, &result_bytes);
         }
@@ -215,10 +210,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
         // Read actual return address
         let actual_return = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_RETURN_ADDR);
         let actual_return_pc = u32::from_le_bytes(actual_return);
-
-        // Note: The handler returns via 'ret' which is 'jalr x0, 0(x1)', so pre_compute.a is 0
-        // We skip writing to x0 since it's the zero register and should never be modified
-        // (The earlier check for comparison results already handles not writing to x0)
 
         *pc = actual_return_pc;
         *instret += 1;
