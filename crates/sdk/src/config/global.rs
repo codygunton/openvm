@@ -209,13 +209,11 @@ impl TranspilerConfig<F> for SdkVmConfig {
         if self.native.is_some() {
             transpiler = transpiler.with_extension(LongFormTranspilerExtension);
         }
-        // IMPORTANT: FloatsTranspilerExtension must come BEFORE Rv32MTranspilerExtension
-        // so that it can intercept FCSR (CSR 0x003) before rv32im converts all CSRs to NOPs
-        if self.rv32f.is_some() {
-            transpiler = transpiler.with_extension(FloatsTranspilerExtension);
-        }
         if self.rv32m.is_some() {
             transpiler = transpiler.with_extension(Rv32MTranspilerExtension);
+        }
+        if self.rv32f.is_some() {
+            transpiler = transpiler.with_extension(FloatsTranspilerExtension);
         }
         if self.bigint.is_some() {
             transpiler = transpiler.with_extension(Int256TranspilerExtension);
