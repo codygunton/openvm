@@ -1,0 +1,17 @@
+[package]
+name = "floats-tests"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+# Minimal library to allow integration tests
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+openvm-sdk = { path = "../../crates/sdk" }
+
+# This is an assembly-based test suite for OpenVM RV32F extension.
+# Tests are compiled from .S files in tests/asm/ directory.
+# Run with: cargo test -p floats-tests --release
