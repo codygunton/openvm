@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::float_load::FloatLoadExecutor;
 use crate::float_store::FloatStoreExecutor;
 use crate::float_csr::FloatCsrExecutor;
+use crate::float_return::FloatReturnExecutor;
 use crate::handler_executor::{
     FloatHandlerExecutor, FmaOp, AluOp, ConvertOp, CompareOp, MoveOp, ClassOp
 };
@@ -27,6 +28,7 @@ pub enum Rv32FExecutor {
     FloatMove(FloatHandlerExecutor<MoveOp>),
     FloatClass(FloatHandlerExecutor<ClassOp>),
     FloatCsr(FloatCsrExecutor),
+    FloatReturn(FloatReturnExecutor),
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
@@ -110,6 +112,12 @@ impl<F: PrimeField32> VmExecutionExtension<F> for Rv32F {
         inventory.add_executor(
             FloatCsrExecutor::new(),
             [FloatOpcode::FCSR.global_opcode()],  // FRCSR, FSCSR
+        )?;
+
+        // Register float return executor for handler return with register restoration
+        inventory.add_executor(
+            FloatReturnExecutor::new(),
+            [FloatOpcode::FLOAT_RETURN.global_opcode()],
         )?;
 
         Ok(())

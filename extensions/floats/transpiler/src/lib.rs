@@ -15,6 +15,7 @@ pub const FNMSUB_OPCODE: u8 = 0x4B; // FNMSUB.S
 pub const FNMADD_OPCODE: u8 = 0x4F; // FNMADD.S
 pub const FP_OPCODE: u8 = 0x53; // FADD.S, FMUL.S, etc.
 pub const CSR_OPCODE: u8 = 0x73; // CSR instructions (CSRRW, CSRRS, etc.)
+pub const CUSTOM0_OPCODE: u8 = 0x0B; // Custom-0 opcode for FLOAT_RETURN
 
 // Memory map (must match circuit constants)
 // Placed at 2MB to provide space for test code while staying well within 512MB limit
@@ -348,6 +349,29 @@ impl<F: PrimeField32> TranspilerExtension<F> for FloatsTranspilerExtension {
                 self.handle_float_fma(inst)
             }
             CSR_OPCODE => self.handle_fcsr(inst),
+            CUSTOM0_OPCODE => {
+                // FLOAT_RETURN - custom instruction for returning from float handler
+                // Only match if funct3 = 0b110 to avoid conflict with LongFormTranspilerExtension (funct3 = 0b111)
+                let funct3 = ((inst >> 12) & 0x7) as u8;
+                eprintln!("Float transpiler: custom0 opcode inst={:08x}, funct3={:03b}", inst, funct3);
+                if funct3 == 0b110 {
+                    eprintln!("Float transpiler: Transpiling FLOAT_RETURN");
+                    let instruction = Instruction::from_isize(
+                        FloatOpcode::FLOAT_RETURN.global_opcode(),
+                        0, // a: unused
+                        0, // b: unused
+                        0, // c: unused
+                        0, // d: unused
+                        0, // e: unused
+                    );
+                    Some(TranspilerOutput {
+                        instructions: vec![Some(instruction)],
+                        used_u32s: 1,
+                    })
+                } else {
+                    None // Not our instruction
+                }
+            }
             _ => None, // Not a float instruction
         }
     }

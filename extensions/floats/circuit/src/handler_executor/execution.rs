@@ -171,14 +171,12 @@ unsafe fn execute_e12_impl<
     // Prepare operation-specific data (e.g., copy int→float for FCVT.S.W)
     OP::prepare_for_handler(pre_compute, exec_state);
 
-    // Save actual return address and write trampoline marker to x1
+    // Save actual return address to memory (library will clobber x1)
     let actual_return_addr = *pc + DEFAULT_PC_STEP;
-    exec_state.vm_write(
-        FLOAT_MEM_AS,
-        FLOAT_RETURN_ADDR,
-        &actual_return_addr.to_le_bytes(),
-    );
-    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &FLOAT_TRAMPOLINE_PC.to_le_bytes());
+    exec_state.vm_write(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, &actual_return_addr.to_le_bytes());
+
+    // Write return address to x1 as well (for library to use if needed)
+    exec_state.vm_write(RV32_REGISTER_AS, 1 * 4, &actual_return_addr.to_le_bytes());
 
     // Jump to handler (clear LSB for alignment)
     let target_addr = handler_addr & !1;

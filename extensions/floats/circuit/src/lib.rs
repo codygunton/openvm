@@ -11,6 +11,7 @@ mod handler_executor;
 mod float_load;
 mod float_store;
 mod float_csr;
+mod float_return;
 pub mod extension;
 
 pub use constants::*;

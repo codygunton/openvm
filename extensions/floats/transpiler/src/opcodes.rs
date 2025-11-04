@@ -28,4 +28,5 @@ pub enum FloatOpcode {
     FMVWX = 0x11, // Float Move from Integer (0x311)
     FCLASS = 0x12, // Float Classify (0x312)
     FCSR = 0x13, // Float CSR Access - FRCSR, FSCSR (0x313)
+    FLOAT_RETURN = 0x14, // Float Handler Return (0x314) - Restores caller-saved registers
 }
