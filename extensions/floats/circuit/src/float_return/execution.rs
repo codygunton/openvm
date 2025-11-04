@@ -112,7 +112,6 @@ unsafe fn execute_e12_impl<F: PrimeField32, CTX: ExecutionCtxTrait, const ENABLE
     let return_addr_bytes = exec_state.vm_read::<u8, 4>(FLOAT_MEM_AS, FLOAT_RETURN_ADDR);
     let return_addr = u32::from_le_bytes(return_addr_bytes);
 
-    eprintln!("  Returning to PC=0x{:08x}", return_addr);
     *pc = return_addr;
     *instret += 1;
 }

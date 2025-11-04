@@ -353,9 +353,7 @@ impl<F: PrimeField32> TranspilerExtension<F> for FloatsTranspilerExtension {
                 // FLOAT_RETURN - custom instruction for returning from float handler
                 // Only match if funct3 = 0b110 to avoid conflict with LongFormTranspilerExtension (funct3 = 0b111)
                 let funct3 = ((inst >> 12) & 0x7) as u8;
-                eprintln!("Float transpiler: custom0 opcode inst={:08x}, funct3={:03b}", inst, funct3);
                 if funct3 == 0b110 {
-                    eprintln!("Float transpiler: Transpiling FLOAT_RETURN");
                     let instruction = Instruction::from_isize(
                         FloatOpcode::FLOAT_RETURN.global_opcode(),
                         0, // a: unused
