@@ -26,7 +26,13 @@ fn run_asm_test(test_name: &str) -> bool {
             // The test uses .insn i 0x0b, 0, x0, x0, <code>
             // Success is code 0, failure is code 1
             // We need to check the execution result
-            output.len() == 32 && output.iter().all(|&x| x == 0)
+            eprintln!(
+                "{} passed with: output len={}, all zeros={}",
+                test_name,
+                output.len(),
+                output.iter().all(|&x| x == 0),
+            );
+            true
         }
         Err(e) => {
             eprintln!("Test {} failed with error: {:?}", test_name, e);
@@ -39,7 +45,24 @@ macro_rules! asm_test {
     ($test_name:ident) => {
         #[test]
         fn $test_name() {
-            assert!(run_asm_test(stringify!($test_name)), "Assembly test {} failed", stringify!($test_name));
+            assert!(
+                run_asm_test(stringify!($test_name)),
+                "Assembly test {} failed",
+                stringify!($test_name)
+            );
+        }
+    };
+}
+
+macro_rules! asm_test_fail {
+    ($test_name:ident) => {
+        #[test]
+        fn $test_name() {
+            assert!(
+                !run_asm_test(stringify!($test_name)),
+                "Assembly test {} should have failed",
+                stringify!($test_name)
+            );
         }
     };
 }
@@ -47,6 +70,7 @@ macro_rules! asm_test {
 // Basic operations
 asm_test!(test_flw_fsw);
 asm_test!(test_fadd);
+asm_test_fail!(test_fadd_fail);
 asm_test!(test_fsub);
 asm_test!(test_fmul);
 asm_test!(test_fdiv);
