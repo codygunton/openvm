@@ -273,12 +273,13 @@ impl FloatsTranspilerExtension {
 
         let csr = imm;
         let is_float_csr = csr == 0x001 || csr == 0x002 || csr == 0x003;
+        let is_mstatus = csr == 0x300;
+
+        if is_mstatus {
+            return Some(TranspilerOutput::one_to_one(nop()));
+        }
 
         if !is_float_csr {
-            let is_setup_op = rd == 0;
-            if is_setup_op {
-                return Some(TranspilerOutput::one_to_one(nop()));
-            }
             return None;
         }
 

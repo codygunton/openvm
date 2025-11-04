@@ -56,13 +56,15 @@ impl<F: PrimeField32> TranspilerExtension<F> for Rv32ITranspilerExtension {
                     }
                 }
 
+                // transpile zicsr instructions acting on float registers or mstatus (used to
+                // denote that floating points are enabled) in floats transpiler
                 let is_zicsr = dec_insn.funct3 != 0;
                 if is_zicsr {
                     let csr_addr = dec_insn.imm as u32;
                     let is_float_csr = csr_addr == 0x001 || csr_addr == 0x002 || csr_addr == 0x003;
-                    let is_setup_op = dec_insn.rd == 0;
+                    let is_mstatus = csr_addr == 0x300;
 
-                    if is_float_csr || is_setup_op {
+                    if is_float_csr || is_mstatus {
                         return None;
                     }
                 }
