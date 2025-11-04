@@ -47,3 +47,6 @@ profile.json.gz
 
 # test fixtures
 benchmarks/fixtures
+
+# float example artifacts
+examples/floats/build
