@@ -29,6 +29,7 @@ pub struct FloatHandlerReturnCoreRecord {
 pub struct FloatHandlerReturnCoreCols<T> {
     pub return_addr: T,
     pub restored_registers: [T; 31],
+    pub _padding: [T; 2], // Padding to match align(4) boundary
 }
 
 /// AIR for FloatHandlerReturn operation
