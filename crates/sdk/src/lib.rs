@@ -533,6 +533,7 @@ where
         app_exe: impl Into<ExecutableFormat>,
     ) -> Result<StarkProver<E, VB, NativeBuilder>, SdkError> {
         let app_exe = self.convert_to_exe(app_exe)?;
+        eprintln!("GETTING app_pk...");
         let app_pk = self.app_pk();
         let agg_pk = self.agg_pk();
         let stark_prover = StarkProver::<E, _, _>::new(

@@ -139,19 +139,19 @@ where
             // The handler may have written integer results there for int-writing ops
             for reg in 1..32 {
                 let backup_addr = FLOAT_X0_BACKUP + (reg * 8); // 8-byte aligned storage
-                let (_, reg_bytes) = state.memory.read::<u8, 4, 1>(FLOAT_MEM_AS, backup_addr);
+                let (_, reg_bytes) = state.memory.read::<u8, 4, 4>(FLOAT_MEM_AS, backup_addr);
                 let reg_value = u32::from_le_bytes(reg_bytes);
                 core_record.restored_registers[(reg - 1) as usize] = reg_value;
 
                 state
                     .memory
-                    .write::<u8, 4, 1>(RV32_REGISTER_AS, reg * 4, reg_bytes);
+                    .write::<u8, 4, 4>(RV32_REGISTER_AS, reg * 4, reg_bytes);
             }
 
             // Read return address from saved location (x1 was clobbered by library)
             let (_, return_addr_bytes) = state
                 .memory
-                .read::<u8, 4, 1>(FLOAT_MEM_AS, FLOAT_RETURN_ADDR);
+                .read::<u8, 4, 4>(FLOAT_MEM_AS, FLOAT_RETURN_ADDR);
             let return_addr = u32::from_le_bytes(return_addr_bytes);
             core_record.return_addr = return_addr;
 

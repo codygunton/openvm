@@ -61,7 +61,7 @@ where
             let csr_addr = instruction.d.as_canonical_u32() as u8;
 
             // Read current FCSR value from memory
-            let (_, fcsr_bytes) = state.memory.read::<u8, 4, 1>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
+            let (_, fcsr_bytes) = state.memory.read::<u8, 4, 4>(FLOAT_MEM_AS, FLOAT_CSR_FCSR);
             let fcsr_full = u32::from_le_bytes(fcsr_bytes);
 
             // Extract the appropriate field based on CSR address
@@ -82,7 +82,7 @@ where
                     // CSRRW: Read/Write - t=CSR; CSR=rs1; rd=t
                     let (_, rs1_bytes) = state
                         .memory
-                        .read::<u8, 4, 1>(RV32_REGISTER_AS, rs1 as u32 * 4);
+                        .read::<u8, 4, 4>(RV32_REGISTER_AS, rs1 as u32 * 4);
                     let rs1_val = u32::from_le_bytes(rs1_bytes);
                     (rs1_val, true)
                 }
@@ -93,7 +93,7 @@ where
                     } else {
                         let (_, rs1_bytes) = state
                             .memory
-                            .read::<u8, 4, 1>(RV32_REGISTER_AS, rs1 as u32 * 4);
+                            .read::<u8, 4, 4>(RV32_REGISTER_AS, rs1 as u32 * 4);
                         let rs1_val = u32::from_le_bytes(rs1_bytes);
                         (fcsr_old | rs1_val, true)
                     }
@@ -105,7 +105,7 @@ where
                     } else {
                         let (_, rs1_bytes) = state
                             .memory
-                            .read::<u8, 4, 1>(RV32_REGISTER_AS, rs1 as u32 * 4);
+                            .read::<u8, 4, 4>(RV32_REGISTER_AS, rs1 as u32 * 4);
                         let rs1_val = u32::from_le_bytes(rs1_bytes);
                         (fcsr_old & !rs1_val, true)
                     }
@@ -161,7 +161,7 @@ where
                     _ => fcsr_full,
                 };
 
-                state.memory.write::<u8, 4, 1>(
+                state.memory.write::<u8, 4, 4>(
                     FLOAT_MEM_AS,
                     FLOAT_CSR_FCSR,
                     fcsr_final.to_le_bytes(),
@@ -170,7 +170,7 @@ where
 
             // Write old FCSR value to rd (unless rd=x0)
             if rd != 0 {
-                state.memory.write::<u8, 4, 1>(
+                state.memory.write::<u8, 4, 4>(
                     RV32_REGISTER_AS,
                     rd as u32 * 4,
                     fcsr_old.to_le_bytes(),

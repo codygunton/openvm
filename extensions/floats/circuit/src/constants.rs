@@ -28,7 +28,6 @@ pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x0010_0000;
 pub const FLOAT_SAVED_X1: u32 = 0x00380000;  // Scratch location to save x1 during float handler calls
 pub const FLOAT_RETURN_ADDR: u32 = 0x00380004;  // Scratch location to save actual return address
 pub const FLOAT_SAVED_REGS_BASE: u32 = 0x00380010;  // Save area for caller-saved registers during float handler calls (31 registers * 4 bytes)
-pub const FLOAT_TRAMPOLINE_PC: u32 = 0xF0000000;  // Special PC value for return trampoline
 
 /// Heap memory address space ID
 pub const FLOAT_MEM_AS: u32 = 2;

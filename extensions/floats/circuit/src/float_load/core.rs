@@ -43,19 +43,19 @@ where
             let imm = (imm_lower + imm_sign * 0xffff0000) as i32;
 
             // 1. Read base address from rs1 register
-            let (_, base_bytes) = state.memory.read::<u8, 4, 1>(RV32_REGISTER_AS, rs1 as u32);
+            let (_, base_bytes) = state.memory.read::<u8, 4, 4>(RV32_REGISTER_AS, rs1 as u32);
             let base_addr = u32::from_le_bytes(base_bytes);
 
             // 2. Calculate effective address
             let mem_addr = base_addr.wrapping_add(imm as u32);
 
             // 3. Load word from heap memory
-            let (_, word_bytes) = state.memory.read::<u8, 4, 1>(FLOAT_MEM_AS, mem_addr);
+            let (_, word_bytes) = state.memory.read::<u8, 4, 4>(FLOAT_MEM_AS, mem_addr);
             let float_value = u32::from_le_bytes(word_bytes);
 
             // 4. Write to float register memory
             let float_addr = float_reg_addr(rd);
-        state.memory.write::<u8, 4, 1>(FLOAT_MEM_AS, float_addr, word_bytes);
+        state.memory.write::<u8, 4, 4>(FLOAT_MEM_AS, float_addr, word_bytes);
 
             // 5. Fill the record with minimal data needed for trace generation
             core_record.base_addr = base_addr;

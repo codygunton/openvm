@@ -14,10 +14,10 @@ use openvm_stark_backend::{
 #[repr(C, align(4))]
 #[derive(AlignedBytesBorrow, Debug, Clone)]
 pub struct FloatLoadStoreCoreRecord {
-    pub base_addr: u32,      // Value from rs1 (base address register)
-    pub imm: i16,            // Sign-extended 12-bit immediate
-    pub float_value: u32,    // Float register value (load=output, store=input)
-    pub is_load: bool,       // true=FLW (load), false=FSW (store)
+    pub base_addr: u32,   // Value from rs1 (base address register)
+    pub imm: i16,         // Sign-extended 12-bit immediate
+    pub float_value: u32, // Float register value (load=output, store=input)
+    pub is_load: bool,    // true=FLW (load), false=FSW (store)
 }
 
 /// Columns for FloatLoadStore core trace
@@ -27,18 +27,18 @@ pub struct FloatLoadStoreCoreRecord {
 pub struct FloatLoadStoreCoreCols<T> {
     pub base_addr: T,
     pub imm: T,
-    pub imm_is_negative: T,          // Boolean flag indicating if immediate is negative
-    pub mem_addr: T,                 // Computed memory address (base_addr + sign_extend(imm))
-    pub addr_overflow: T,            // Overflow flag for address calculation
-    pub float_value: [T; 4],         // Float value as 4 bytes
-    pub is_load: T,                  // Boolean flag: 1=load, 0=store
+    pub imm_is_negative: T, // Boolean flag indicating if immediate is negative
+    pub mem_addr: T,        // Computed memory address (base_addr + sign_extend(imm))
+    pub addr_overflow: T,   // Overflow flag for address calculation
+    pub float_value: [T; 4], // Float value as 4 bytes
+    pub is_load: T,         // Boolean flag: 1=load, 0=store
 }
 
 /// AIR for FloatLoadStore core operations
 /// Handles the core logic for FLW (float load word) and FSW (float store word)
 #[derive(Copy, Clone, Debug)]
 pub struct FloatLoadStoreCoreAir {
-    pub offset: usize,  // Opcode offset for this instruction type
+    pub offset: usize, // Opcode offset for this instruction type
 }
 
 impl FloatLoadStoreCoreAir {
@@ -78,11 +78,12 @@ where
 
         // CONSTRAINT 2: Address calculation with sign extension
         // The immediate is stored as absolute value, with sign in imm_is_negative
-        // Sign extension: if negative, we need to add 0xFFFF_F000 (for 12-bit signed values)
-        // We represent this as: imm_is_negative * 0xFFFF_F000 + imm
+        // Sign extension: if negative, we need to add -4096 (for 12-bit signed values)
+        // We represent this as: imm_is_negative * (-4096) + imm
         // For 12-bit signed immediate: range is -2048 to 2047
-        // When negative, we need to extend with 1s in upper 20 bits: 0xFFFFF000 = -4096 = -(1 << 12)
-        let sign_extend_offset = AB::F::from_canonical_u32(0xFFFF_F000);
+        // When negative, we need to extend with 1s in upper 20 bits: -(1 << 12) = -4096
+        // Using from_wrapped_u32 to properly handle the negative value in the field
+        let sign_extend_offset = AB::F::from_wrapped_u32(0xFFFF_F000u32);
         let signed_imm = cols.imm_is_negative * sign_extend_offset + cols.imm;
 
         // mem_addr = base_addr + signed_imm (with wrapping on overflow)
@@ -91,8 +92,7 @@ where
         // CONSTRAINT 3: Overflow detection and correction
         // If overflow occurs, we need to wrap around by subtracting 2^32
         // The relationship is: mem_addr + overflow * 2^32 = expected_addr
-        let overflow_correction =
-            cols.addr_overflow * AB::F::from_canonical_u64(1u64 << 32);
+        let overflow_correction = cols.addr_overflow * AB::F::from_wrapped_u64(1u64 << 32);
         builder.assert_eq(cols.mem_addr + overflow_correction, expected_addr);
 
         // Convert float_value bytes to expressions for adapter interface
@@ -112,12 +112,8 @@ where
         // Base address as a 4-byte value (we'll use lower byte as the value, others as zeros)
         // This is a simplified representation for the adapter interface
         let zero = AB::F::from_canonical_u32(0);
-        let base_addr_exprs: [AB::Expr; 4] = [
-            cols.base_addr.into(),
-            zero.into(),
-            zero.into(),
-            zero.into(),
-        ];
+        let base_addr_exprs: [AB::Expr; 4] =
+            [cols.base_addr.into(), zero.into(), zero.into(), zero.into()];
 
         // Return adapter context
         // For loads: read from rs1 (base_addr) and memory, write to float register

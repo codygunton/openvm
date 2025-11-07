@@ -145,9 +145,7 @@ impl<F: PrimeField32, E> PreflightInterpretedInstance<F, E> {
             }
 
             // Fetch, decode and execute single instruction
-            tracing::trace!("[PREFLIGHT] About to execute instruction at PC={:#x}, instret={}", state.pc(), state.instret());
             self.execute_instruction(state)?;
-            tracing::trace!("[PREFLIGHT] Completed execution, new PC={:#x}, instret={}", state.pc(), state.instret());
             *state.instret_mut() += 1;
         }
 
@@ -182,7 +180,6 @@ impl<F: PrimeField32, E> PreflightInterpretedInstance<F, E> {
                 .executors
                 .get_unchecked(pc_entry.executor_idx as usize)
         };
-        tracing::trace!("pc: {pc:#x} | {:?}", pc_entry.insn);
 
         let opcode = pc_entry.insn.opcode;
         let c = pc_entry.insn.c;

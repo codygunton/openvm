@@ -44,18 +44,18 @@ where
 
             // 1. Read from float register memory
             let float_addr = float_reg_addr(rs2);
-            let (_, word_bytes) = state.memory.read::<u8, 4, 1>(FLOAT_MEM_AS, float_addr);
+            let (_, word_bytes) = state.memory.read::<u8, 4, 4>(FLOAT_MEM_AS, float_addr);
             let float_value = u32::from_le_bytes(word_bytes);
 
             // 2. Read base address from rs1 register
-            let (_, base_bytes) = state.memory.read::<u8, 4, 1>(RV32_REGISTER_AS, rs1 as u32);
+            let (_, base_bytes) = state.memory.read::<u8, 4, 4>(RV32_REGISTER_AS, rs1 as u32);
             let base_addr = u32::from_le_bytes(base_bytes);
 
             // 3. Calculate effective address
             let mem_addr = base_addr.wrapping_add(imm as u32);
 
             // 4. Store word to heap memory
-        state.memory.write::<u8, 4, 1>(FLOAT_MEM_AS, mem_addr, word_bytes);
+        state.memory.write::<u8, 4, 4>(FLOAT_MEM_AS, mem_addr, word_bytes);
 
             // 5. Fill the record with minimal data needed for trace generation
             core_record.base_addr = base_addr;
