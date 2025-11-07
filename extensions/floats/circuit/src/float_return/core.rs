@@ -29,7 +29,7 @@ pub struct FloatHandlerReturnCoreRecord {
 pub struct FloatHandlerReturnCoreCols<T> {
     pub return_addr: T,
     pub restored_registers: [T; 31],
-    pub _padding: [T; 2], // Padding to match align(4) boundary
+    // 32 fields total - exact match to record
 }
 
 /// AIR for FloatHandlerReturn operation
@@ -64,17 +64,13 @@ where
 {
     fn eval(
         &self,
-        _builder: &mut AB,
+        builder: &mut AB,
         local_core: &[AB::Var],
         _from_pc: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &FloatHandlerReturnCoreCols<AB::Var> = (*local_core).borrow();
 
-        // No constraints needed on the register values themselves - they are read from memory
-        // The memory bridge will handle the reads from FLOAT_X0_BACKUP
-        // The execution bridge will handle the PC transition to return_addr
-
-        // to_pc = return_addr (no alignment needed, already aligned)
+        // to_pc = return_addr (already aligned from handler)
         let to_pc = cols.return_addr.into();
 
         // Return context with PC jump to return address
@@ -177,16 +173,17 @@ impl FloatHandlerReturnFiller {
 impl<F: PrimeField32> TraceFiller<F> for FloatHandlerReturnFiller {
     fn fill_trace_row(&self, _mem_helper: &MemoryAuxColsFactory<F>, row_slice: &mut [F]) {
         // SAFETY: row_slice is guaranteed by the caller to contain a valid FloatHandlerReturnCoreRecord
-        let mut core_row = row_slice;
+        // Skip adapter columns (ExecutionState = 2 fields) to get to core
+        let adapter_width = 2;
+        let mut core_row = &mut row_slice[adapter_width..];
         let record: &FloatHandlerReturnCoreRecord =
             unsafe { get_record_from_slice(&mut core_row, ()) };
         let cols: &mut FloatHandlerReturnCoreCols<F> = core_row.borrow_mut();
 
-        // Fill columns in reverse order to avoid corrupting the record
-        for i in 0..31 {
-            cols.restored_registers[30 - i] =
-                F::from_canonical_u32(record.restored_registers[30 - i]);
-        }
+        // Fill columns from record
         cols.return_addr = F::from_canonical_u32(record.return_addr);
+        for i in 0..31 {
+            cols.restored_registers[i] = F::from_canonical_u32(record.restored_registers[i]);
+        }
     }
 }

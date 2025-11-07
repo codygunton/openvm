@@ -266,7 +266,9 @@ impl FloatCsrFiller {
 impl<F: PrimeField32> TraceFiller<F> for FloatCsrFiller {
     fn fill_trace_row(&self, _mem_helper: &MemoryAuxColsFactory<F>, row_slice: &mut [F]) {
         // SAFETY: row_slice is guaranteed to contain valid FloatCsrCoreRecord
-        let mut core_row = row_slice;
+        // Skip adapter columns (ExecutionState = 2 fields) to get to core
+        let adapter_width = 2;
+        let mut core_row = &mut row_slice[adapter_width..];
         let record: &FloatCsrCoreRecord = unsafe {
             get_record_from_slice(&mut core_row, ())
         };
