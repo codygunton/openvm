@@ -78,7 +78,7 @@ impl<F, RA, OP> PreflightExecutor<F, RA> for FloatHandlerExecutor<OP>
 where
     F: PrimeField32,
     OP: FloatOperation,
-    RA: Arena,
+    for<'buf> RA: RecordArena<'buf, MultiRowLayout<EmptyMultiRowMetadata>, &'buf mut crate::float_handler_setup::FloatHandlerSetupCoreRecord>,
 {
     fn get_opcode_name(&self, _opcode: usize) -> String {
         "FloatHandlerOp".to_string()
@@ -86,10 +86,61 @@ where
 
     fn execute(
         &self,
-        _state: VmStateMut<F, TracingMemory, RA>,
-        _instruction: &Instruction<F>,
+        state: VmStateMut<F, TracingMemory, RA>,
+        instruction: &Instruction<F>,
     ) -> Result<(), ExecutionError> {
-        panic!("Float handler operations should use Executor trait, not PreflightExecutor");
+        unsafe {
+            // Allocate record for trace generation
+            let core_record = state.ctx.alloc(MultiRowLayout::new(EmptyMultiRowMetadata::new()));
+
+            // Extract instruction fields via the operation-specific method
+            let mut pre_compute = std::mem::zeroed::<OP::PreCompute>();
+            let enabled = Self::pre_compute_impl(*state.pc, instruction, &mut pre_compute)?;
+
+            if !enabled {
+                *state.pc = state.pc.wrapping_add(DEFAULT_PC_STEP);
+                return Ok(());
+            }
+
+            // Reconstruct RISC-V instruction encoding
+            let riscv_inst = OP::reconstruct_riscv_instruction(&pre_compute);
+            core_record.instruction_encoding = riscv_inst;
+
+            // Store instruction to FLOAT_INST_ADDR for handler to read
+            state.memory.write::<u8, 4, 1>(FLOAT_MEM_AS, FLOAT_INST_ADDR, riscv_inst.to_le_bytes());
+            state.memory.write::<u8, 4, 1>(FLOAT_MEM_AS, FLOAT_INST_ADDR + 4, [0u8; 4]);
+
+            // Load handler entry point
+            let (_, handler_ptr_bytes) = state.memory.read::<u8, 4, 1>(FLOAT_MEM_AS, FLOAT_LIB_ENTRY_PTR);
+            let handler_addr = u32::from_le_bytes(handler_ptr_bytes);
+            core_record.handler_addr = handler_addr;
+
+            // Save ALL integer registers x1-x31 to FLOAT_X0_BACKUP
+            // Also save them in the record for trace generation
+            for reg in 1..32 {
+                let (_, reg_bytes) = state.memory.read::<u8, 4, 1>(RV32_REGISTER_AS, reg * 4);
+                let reg_value = u32::from_le_bytes(reg_bytes);
+                core_record.saved_registers[(reg - 1) as usize] = reg_value;
+
+                let backup_addr = FLOAT_X0_BACKUP + (reg * 8); // 8-byte aligned storage
+                state.memory.write::<u8, 4, 1>(FLOAT_MEM_AS, backup_addr, reg_bytes);
+            }
+
+            // Save actual return address to memory (library will clobber x1)
+            let actual_return_addr = state.pc.wrapping_add(DEFAULT_PC_STEP);
+            state.memory.write::<u8, 4, 1>(FLOAT_MEM_AS, FLOAT_RETURN_ADDR, actual_return_addr.to_le_bytes());
+
+            // Write return address to x1 as well (for library to use if needed)
+            state.memory.write::<u8, 4, 1>(RV32_REGISTER_AS, 1 * 4, actual_return_addr.to_le_bytes());
+
+            // Jump to handler (clear LSB for alignment)
+            // NOTE: This will cause PreflightExecutor to trace all handler library instructions.
+            // This is correct and necessary - the handler must execute to reach the FLOAT_RETURN instruction.
+            let target_addr = handler_addr & !1;
+            *state.pc = target_addr;
+
+            Ok(())
+        }
     }
 }
 

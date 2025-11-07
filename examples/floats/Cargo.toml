@@ -11,6 +11,10 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 openvm-sdk = { path = "../../crates/sdk" }
+openvm-circuit = { path = "../../crates/vm" }
+openvm-stark-sdk = { workspace = true }
+openvm-native-compiler = { path = "../../extensions/native/compiler" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # This is an assembly-based test suite for OpenVM RV32F extension.
 # Tests are compiled from .S files in tests/asm/ directory.

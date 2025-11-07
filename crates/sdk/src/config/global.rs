@@ -415,6 +415,9 @@ where
         if let Some(rv32m) = &config.rv32m {
             VmProverExtension::<E, _, _>::extend_prover(&Rv32ImCpuProverExt, rv32m, inventory)?;
         }
+        if let Some(rv32f) = &config.rv32f {
+            VmProverExtension::<E, _, _>::extend_prover(&openvm_floats_circuit::Rv32FCpuProverExt, rv32f, inventory)?;
+        }
         if let Some(bigint) = &config.bigint {
             VmProverExtension::<E, _, _>::extend_prover(&Int256CpuProverExt, bigint, inventory)?;
         }
@@ -478,6 +481,9 @@ impl VmBuilder<GpuBabyBearPoseidon2Engine> for SdkVmGpuBuilder {
         }
         if let Some(rv32m) = &config.rv32m {
             VmProverExtension::<E, _, _>::extend_prover(&Rv32ImGpuProverExt, rv32m, inventory)?;
+        }
+        if let Some(rv32f) = &config.rv32f {
+            VmProverExtension::<E, _, _>::extend_prover(&openvm_floats_circuit::Rv32FCpuProverExt, rv32f, inventory)?;
         }
         if let Some(bigint) = &config.bigint {
             VmProverExtension::<E, _, _>::extend_prover(&Int256GpuProverExt, bigint, inventory)?;

@@ -47,6 +47,16 @@ cargo test -p floats-tests --release test_feq test_flt test_fle
 cargo test -p floats-tests --release --test integration
 ```
 
+### Proof Generation (Experimental)
+
+A proof test has been added for `test_fadd` that generates and verifies a STARK proof:
+
+```bash
+cargo test -p floats-tests --release test_fadd_proof -- --nocapture --show-output
+```
+
+**Note**: Proof generation is currently experiencing a configuration mismatch issue (AIR count: 25 vs 15). This is being investigated. The test infrastructure is in place and execution works correctly; only proof generation is affected.
+
 ## Test Categories
 
 Each RISC-V floating-point operation has its own test file for precise granularity:

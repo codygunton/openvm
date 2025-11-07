@@ -45,14 +45,32 @@ fn main() {
         })
         .collect();
 
-    println!("cargo:rerun-if-changed=tests/asm");
+    println!("cargo:rerun-if-changed=tests/asm/common.S");
+    println!("cargo:rerun-if-changed=tests/asm/float_init.S");
     println!("cargo:rerun-if-changed=link.ld");
+
+    for entry in &test_files {
+        let test_path = entry.path();
+        println!("cargo:rerun-if-changed={}", test_path.display());
+    }
+
+    // Compile float_init.S (shared initialization for all tests)
+    let float_init_path = manifest_dir.join("tests/asm/float_init.S");
+    let float_init_obj = out_dir.join("float_init.o");
+    if !float_init_obj.exists() {
+        let mut cmd = Command::new("riscv64-elf-gcc");
+        cmd.args(&cflags)
+            .arg("-c")
+            .arg(&float_init_path)
+            .arg("-o")
+            .arg(&float_init_obj);
+        let status = cmd.status().expect("Failed to compile float_init.S");
+        assert!(status.success(), "Failed to compile float_init.S");
+    }
 
     for entry in test_files {
         let test_path = entry.path();
         let test_name = test_path.file_stem().unwrap().to_str().unwrap();
-
-        println!("cargo:rerun-if-changed={}", test_path.display());
 
         // Compile the test assembly file
         let test_obj = out_dir.join(format!("{}.o", test_name));
@@ -80,6 +98,7 @@ fn main() {
         link_cmd.args(&cflags)
             .arg(format!("-T{}", link_script.display()))
             .arg(&test_obj)
+            .arg(&float_init_obj)
             .arg(out_dir.join("float.o"))
             .arg(out_dir.join("compiler_builtins.o"))
             .arg(&softfloat_lib)

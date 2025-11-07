@@ -3241,7 +3241,11 @@ dependencies = [
 name = "floats-tests"
 version = "0.0.0"
 dependencies = [
+ "openvm-circuit",
+ "openvm-native-compiler",
  "openvm-sdk",
+ "openvm-stark-sdk",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]

@@ -662,7 +662,9 @@ impl TracingMemory {
             }
 
             // Skip to the next segment after this block ends
-            current_ptr = start_ptr as usize + block_metadata.block_size() as usize;
+            // Ensure we always advance by at least ALIGN to prevent infinite loops
+            let next_ptr = start_ptr as usize + block_metadata.block_size() as usize;
+            current_ptr = next_ptr.max(current_ptr + ALIGN);
         }
 
         let merge = (pointer, BLOCK_SIZE);

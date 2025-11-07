@@ -22,9 +22,12 @@ pub const FLOAT_X0_BACKUP: u32 = FLOAT_REGISTER_BASE + FREG_FIRST_OFFSET + 35 * 
 /// This should match where float_init.S stores the entry pointer
 /// Placed at 1MB to provide space for test code while keeping binary size reasonable
 pub const FLOAT_LIB_ENTRY_PTR: u32 = 0x0010_0000;
-pub const FLOAT_SAVED_X1: u32 = 0x1F001200;  // Scratch location to save x1 during float handler calls
-pub const FLOAT_RETURN_ADDR: u32 = 0x1F001204;  // Scratch location to save actual return address
-pub const FLOAT_SAVED_REGS_BASE: u32 = 0x1F001210;  // Save area for caller-saved registers during float handler calls
+
+// Scratch locations placed at 3.5MB mark to stay within default 4MB heap memory
+// while providing space for float registers at 2MB and library code at 1MB
+pub const FLOAT_SAVED_X1: u32 = 0x00380000;  // Scratch location to save x1 during float handler calls
+pub const FLOAT_RETURN_ADDR: u32 = 0x00380004;  // Scratch location to save actual return address
+pub const FLOAT_SAVED_REGS_BASE: u32 = 0x00380010;  // Save area for caller-saved registers during float handler calls (31 registers * 4 bytes)
 pub const FLOAT_TRAMPOLINE_PC: u32 = 0xF0000000;  // Special PC value for return trampoline
 
 /// Heap memory address space ID

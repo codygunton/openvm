@@ -3,6 +3,7 @@ use std::mem::size_of;
 
 use openvm_circuit::arch::*;
 use openvm_circuit::system::memory::online::GuestMemory;
+use openvm_circuit::system::memory::MemoryAuxColsFactory;
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{instruction::Instruction, program::DEFAULT_PC_STEP};
 use openvm_stark_backend::p3_field::PrimeField32;
@@ -250,3 +251,32 @@ unsafe fn execute_e2_impl<F: PrimeField32, CTX: MeteredExecutionCtxTrait, const 
         .on_height_change(pre_compute.chip_idx as usize, 1);
     execute_e12_impl::<F, CTX, ENABLED>(&pre_compute.data, instret, pc, exec_state);
 }
+
+use super::core::{FloatCsrCoreRecord, FloatCsrCoreCols};
+
+#[derive(Clone, Debug)]
+pub struct FloatCsrFiller;
+
+impl FloatCsrFiller {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl<F: PrimeField32> TraceFiller<F> for FloatCsrFiller {
+    fn fill_trace_row(&self, _mem_helper: &MemoryAuxColsFactory<F>, row_slice: &mut [F]) {
+        // SAFETY: row_slice is guaranteed to contain valid FloatCsrCoreRecord
+        let mut core_row = row_slice;
+        let record: &FloatCsrCoreRecord = unsafe {
+            get_record_from_slice(&mut core_row, ())
+        };
+        let cols: &mut FloatCsrCoreCols<F> = core_row.borrow_mut();
+
+        // Fill all columns from record
+        cols.csr_addr = F::from_canonical_u32(record.csr_addr);
+        cols.csr_value = F::from_canonical_u32(record.csr_value);
+        cols.write_value = F::from_canonical_u32(record.write_value);
+        cols.is_write = F::from_bool(record.is_write);
+    }
+}
+
