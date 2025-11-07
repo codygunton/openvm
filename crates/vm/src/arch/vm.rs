@@ -471,7 +471,11 @@ where
             .map(|pk| pk.vk.params.width.main_width())
             .collect_vec();
         let capacities = zip_eq(trace_heights, main_widths)
-            .map(|(&h, w)| (h as usize, w))
+            .map(|(&h, w)| {
+                // Ensure minimum capacity for synthetic instructions that may not execute during E2
+                let height = if h == 0 { 100 } else { h };
+                (height as usize, w)
+            })
             .collect::<Vec<_>>();
         let ctx = PreflightCtx::new_with_capacity(&capacities, instret_end);
 
