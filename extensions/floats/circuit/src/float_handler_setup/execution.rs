@@ -2,15 +2,23 @@ use std::borrow::BorrowMut;
 use openvm_circuit::arch::*;
 use openvm_circuit::system::memory::MemoryAuxColsFactory;
 use openvm_stark_backend::p3_field::PrimeField32;
+#[cfg(test)]
+use openvm_stark_backend::p3_matrix::dense::RowMajorMatrix;
 
 use super::core::{FloatHandlerSetupCoreRecord, FloatHandlerSetupCoreCols};
 
-#[derive(Clone, Debug)]
-pub struct FloatHandlerSetupFiller;
+#[derive(Clone, Debug, Default)]
+pub struct FloatHandlerSetupFiller {
+    #[cfg(test)]
+    pub records: Vec<FloatHandlerSetupCoreRecord>,
+}
 
 impl FloatHandlerSetupFiller {
     pub fn new() -> Self {
-        Self
+        Self {
+            #[cfg(test)]
+            records: Vec::new(),
+        }
     }
 }
 
@@ -34,5 +42,34 @@ impl<F: PrimeField32> TraceFiller<F> for FloatHandlerSetupFiller {
         for i in 0..31 {
             cols.saved_registers[i] = F::from_canonical_u32(record.saved_registers[i]);
         }
+    }
+}
+
+#[cfg(test)]
+impl FloatHandlerSetupFiller {
+    /// Generate a trace matrix for testing purposes
+    pub fn generate_trace<F: PrimeField32>(&self) -> RowMajorMatrix<F> {
+        let width = FloatHandlerSetupCoreCols::<F>::width() + 2; // +2 for adapter columns
+        let height = self.records.len().next_power_of_two().max(1);
+
+        RowMajorMatrix::new(
+            self.records
+                .iter()
+                .flat_map(|record| {
+                    let mut row = vec![F::ZERO; width];
+                    // Skip adapter columns (first 2), fill core columns
+                    let core_start = 2;
+                    row[core_start] = F::from_canonical_u32(record.instruction_encoding);
+                    row[core_start + 1] = F::from_canonical_u32(record.handler_addr);
+                    row[core_start + 2] = F::from_canonical_u32(record.handler_addr & !1);
+                    for i in 0..31 {
+                        row[core_start + 3 + i] = F::from_canonical_u32(record.saved_registers[i]);
+                    }
+                    row
+                })
+                .chain(std::iter::repeat(F::ZERO).take((height - self.records.len()) * width))
+                .collect(),
+            width,
+        )
     }
 }

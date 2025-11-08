@@ -156,7 +156,30 @@ asm_test_fail!(test_fadd_fail);
 // Proof test for test_fadd
 #[test]
 fn test_fadd_proof() {
-    run_asm_proof_test("test_fadd").expect("Failed to generate or verify proof for test_fadd");
+    use openvm_stark_sdk::config::setup_tracing_with_log_level;
+    use tracing::Level;
+
+    // Enable debug output (DO NOT call disable_debug_builder)
+    setup_tracing_with_log_level(Level::DEBUG);
+
+    println!("[DEBUG MODE] Running test_fadd_proof with constraint debugging enabled");
+
+    // Run test and capture detailed error
+    match run_asm_proof_test("test_fadd") {
+        Ok(_) => {
+            println!("[SUCCESS] Proof generated and verified!");
+        }
+        Err(e) => {
+            println!("[FAILURE] Proof verification failed:");
+            println!("Error: {:?}", e);
+            println!("\n[ACTION REQUIRED]");
+            println!("Review debug output above to identify:");
+            println!("1. Which AIR is failing (FloatReturn, FloatSetup, FloatLoadStore, or FloatCsr)");
+            println!("2. Which constraint within that AIR is violated");
+            println!("3. Which row in the trace has incorrect values");
+            panic!("Test failed with: {:?}", e);
+        }
+    }
 }
 asm_test!(test_fsub);
 asm_test!(test_fmul);

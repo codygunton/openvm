@@ -23,6 +23,7 @@ itertools.workspace = true
 derive-new.workspace = true
 derive_more = { workspace = true, features = ["from"] }
 serde.workspace = true
+rand.workspace = true
 
 [dev-dependencies]
 openvm-stark-sdk = { workspace = true }

@@ -134,3 +134,219 @@ where
         self.offset
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::BorrowMut;
+
+    use openvm_circuit::arch::{
+        testing::{TestChipHarness, VmChipTestBuilder},
+        VmChipWrapper,
+    };
+    use openvm_stark_backend::{
+        p3_air::BaseAir,
+        p3_field::{Field, FieldAlgebra, PrimeField32},
+        p3_matrix::{dense::RowMajorMatrix, Matrix},
+        utils::disable_debug_builder,
+        verifier::VerificationError,
+    };
+    use openvm_stark_sdk::p3_baby_bear::BabyBear;
+
+    use super::{FloatLoadStoreCoreAir, FloatLoadStoreCoreCols, FloatLoadStoreCoreRecord};
+    use crate::float_loadstore::{
+        adapter::FloatLoadStoreAdapterAir, execution::FloatLoadStoreFiller, FloatLoadStoreAir,
+    };
+
+    type F = BabyBear;
+    const MAX_INS_CAPACITY: usize = 16;
+    type Harness = TestChipHarness<F, (), FloatLoadStoreAir, VmChipWrapper<F, FloatLoadStoreFiller>>;
+
+    fn create_harness(tester: &mut VmChipTestBuilder<F>) -> Harness {
+        let adapter_air = FloatLoadStoreAdapterAir::new(tester.execution_bridge());
+        let core_air = FloatLoadStoreCoreAir::new(0x100);
+        let air = FloatLoadStoreAir::new(adapter_air, core_air);
+
+        let chip = VmChipWrapper::new(FloatLoadStoreFiller::new(), tester.memory_helper());
+
+        Harness::with_capacity((), air, chip, MAX_INS_CAPACITY)
+    }
+
+    fn execute_load_operation(
+        harness: &mut Harness,
+        base_addr: u32,
+        imm: i16,
+    ) {
+        let float_value = 0x3F800000u32; // 1.0 in IEEE 754
+
+        // Manually allocate a record in the arena
+        // The record is written directly to the arena buffer
+        let record_size = std::mem::size_of::<FloatLoadStoreCoreRecord>();
+        let buffer = unsafe {
+            let row_slice = harness.arena.alloc_single_row();
+            // Skip adapter columns (ExecutionState = 2 fields)
+            let adapter_width = 2 * std::mem::size_of::<F>();
+            &mut row_slice[adapter_width..(adapter_width + record_size)]
+        };
+
+        // Write record data
+        let record = FloatLoadStoreCoreRecord {
+            base_addr,
+            imm,
+            float_value,
+            is_load: true,
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                &record as *const _ as *const u8,
+                buffer.as_mut_ptr(),
+                record_size,
+            );
+        }
+    }
+
+    /// Test 1: Corrupt is_load boolean constraint
+    /// Verifies that is_load must be exactly 0 or 1
+    #[test]
+    fn test_loadstore_corrupted_is_load() {
+        let mut tester = VmChipTestBuilder::default();
+        let mut harness = create_harness(&mut tester);
+
+        // Execute a valid load operation
+        execute_load_operation(&mut harness, 0x1000, 100);
+
+        let adapter_width = BaseAir::<F>::width(&harness.air.adapter);
+        let modify_trace = |trace: &mut RowMajorMatrix<F>| {
+            let mut values = trace.row_slice(0).to_vec();
+            let cols: &mut FloatLoadStoreCoreCols<F> =
+                values.split_at_mut(adapter_width).1.borrow_mut();
+            // Flip the boolean: if it was 1 (true), make it 0, and vice versa
+            cols.is_load = F::ONE - cols.is_load;
+            *trace = RowMajorMatrix::new(values, trace.width());
+        };
+
+        disable_debug_builder();
+        let tester = tester
+            .build()
+            .load_and_prank_trace(harness, modify_trace)
+            .finalize();
+        tester.simple_test_with_expected_error(VerificationError::OodEvaluationMismatch);
+    }
+
+    /// Test 2: Corrupt sign extension constraint (imm_is_negative)
+    /// Verifies that the sign flag correctly determines sign extension
+    #[test]
+    fn test_loadstore_invalid_sign_extension() {
+        let mut tester = VmChipTestBuilder::default();
+        let mut harness = create_harness(&mut tester);
+
+        // Execute with a negative immediate
+        execute_load_operation(&mut harness, 0x1000, -256);
+
+        let adapter_width = BaseAir::<F>::width(&harness.air.adapter);
+        let modify_trace = |trace: &mut RowMajorMatrix<F>| {
+            let mut values = trace.row_slice(0).to_vec();
+            let cols: &mut FloatLoadStoreCoreCols<F> =
+                values.split_at_mut(adapter_width).1.borrow_mut();
+            // Flip the sign flag to break the sign extension constraint
+            cols.imm_is_negative = F::ONE - cols.imm_is_negative;
+            *trace = RowMajorMatrix::new(values, trace.width());
+        };
+
+        disable_debug_builder();
+        let tester = tester
+            .build()
+            .load_and_prank_trace(harness, modify_trace)
+            .finalize();
+        tester.simple_test_with_expected_error(VerificationError::OodEvaluationMismatch);
+    }
+
+    /// Test 3: Corrupt address computation constraint
+    /// Verifies that mem_addr must equal base_addr + signed_imm (modulo overflow)
+    #[test]
+    fn test_loadstore_invalid_address_computation() {
+        let mut tester = VmChipTestBuilder::default();
+        let mut harness = create_harness(&mut tester);
+
+        // Execute a normal load
+        execute_load_operation(&mut harness, 0x1000, 100);
+
+        let adapter_width = BaseAir::<F>::width(&harness.air.adapter);
+        let modify_trace = |trace: &mut RowMajorMatrix<F>| {
+            let mut values = trace.row_slice(0).to_vec();
+            let cols: &mut FloatLoadStoreCoreCols<F> =
+                values.split_at_mut(adapter_width).1.borrow_mut();
+            // Corrupt the computed memory address to break the address calculation constraint
+            cols.mem_addr = cols.mem_addr + F::from_canonical_u32(42);
+            *trace = RowMajorMatrix::new(values, trace.width());
+        };
+
+        disable_debug_builder();
+        let tester = tester
+            .build()
+            .load_and_prank_trace(harness, modify_trace)
+            .finalize();
+        tester.simple_test_with_expected_error(VerificationError::OodEvaluationMismatch);
+    }
+
+    /// Test 4: Corrupt overflow flag constraint
+    /// Verifies that addr_overflow must be a boolean (0 or 1)
+    #[test]
+    fn test_loadstore_invalid_overflow_flag() {
+        let mut tester = VmChipTestBuilder::default();
+        let mut harness = create_harness(&mut tester);
+
+        // Execute a load that doesn't overflow
+        execute_load_operation(&mut harness, 0x1000, 100);
+
+        let adapter_width = BaseAir::<F>::width(&harness.air.adapter);
+        let modify_trace = |trace: &mut RowMajorMatrix<F>| {
+            let mut values = trace.row_slice(0).to_vec();
+            let cols: &mut FloatLoadStoreCoreCols<F> =
+                values.split_at_mut(adapter_width).1.borrow_mut();
+            // Flip the overflow flag to break the constraint
+            cols.addr_overflow = F::ONE - cols.addr_overflow;
+            *trace = RowMajorMatrix::new(values, trace.width());
+        };
+
+        disable_debug_builder();
+        let tester = tester
+            .build()
+            .load_and_prank_trace(harness, modify_trace)
+            .finalize();
+        tester.simple_test_with_expected_error(VerificationError::OodEvaluationMismatch);
+    }
+
+    /// Test 5: Random corruption test
+    /// Verifies overall constraint system robustness by corrupting all fields
+    #[test]
+    fn test_loadstore_random_corruption() {
+        let mut tester = VmChipTestBuilder::default();
+        let mut harness = create_harness(&mut tester);
+
+        // Execute a valid operation
+        execute_load_operation(&mut harness, 0x2000, -512);
+
+        let adapter_width = BaseAir::<F>::width(&harness.air.adapter);
+        let modify_trace = |trace: &mut RowMajorMatrix<F>| {
+            let mut values = trace.row_slice(0).to_vec();
+            let cols: &mut FloatLoadStoreCoreCols<F> =
+                values.split_at_mut(adapter_width).1.borrow_mut();
+            // Corrupt multiple fields with values that violate constraints
+            // Use values within BabyBear field range (prime = 2013265921 = 0x78000001)
+            cols.base_addr = F::from_canonical_u32(0x12345678);
+            cols.imm = F::from_canonical_u32(0xCAFE);
+            cols.mem_addr = F::from_canonical_u32(0x76543210); // < BabyBear prime
+            cols.float_value[0] = F::from_canonical_u32(0xFF);
+            cols.float_value[1] = F::from_canonical_u32(0xAA);
+            *trace = RowMajorMatrix::new(values, trace.width());
+        };
+
+        disable_debug_builder();
+        let tester = tester
+            .build()
+            .load_and_prank_trace(harness, modify_trace)
+            .finalize();
+        tester.simple_test_with_expected_error(VerificationError::OodEvaluationMismatch);
+    }
+}

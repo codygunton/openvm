@@ -3245,6 +3245,7 @@ dependencies = [
  "openvm-native-compiler",
  "openvm-sdk",
  "openvm-stark-sdk",
+ "tracing",
  "tracing-subscriber 0.3.20",
 ]
 
@@ -5667,6 +5668,7 @@ dependencies = [
  "openvm-rv32im-circuit",
  "openvm-stark-backend",
  "openvm-stark-sdk",
+ "rand 0.8.5",
  "serde",
  "strum",
 ]
