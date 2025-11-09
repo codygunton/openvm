@@ -1,6 +1,8 @@
 mod adapter;
 mod core;
 mod execution;
+#[cfg(test)]
+mod tests;
 
 use openvm_circuit::arch::{VmAirWrapper, VmChipWrapper};
 

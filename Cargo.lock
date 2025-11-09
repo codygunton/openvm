@@ -5671,6 +5671,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "strum",
+ "test-case",
 ]
 
 [[package]]

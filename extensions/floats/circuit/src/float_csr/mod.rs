@@ -2,6 +2,9 @@ pub mod adapter;
 pub mod core;
 pub mod execution;
 
+#[cfg(test)]
+mod tests;
+
 use openvm_circuit::arch::{VmAirWrapper, VmChipWrapper};
 
 // Re-export executor and AIR components
