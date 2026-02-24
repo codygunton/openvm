@@ -75,7 +75,6 @@ impl CommitCmd {
             output_dir: self.output_dir.clone(),
             init_file_name: self.init_file_name.clone(),
             input: None,
-            signatures: None,
             mode: ExecutionMode::Pure,
         };
         let (exe, target_name_stem) = load_or_build_exe(&run_args, &self.cargo_args)?;

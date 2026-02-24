@@ -1,4 +1,4 @@
-use std::{env, fs::read, path::PathBuf};
+use std::{fs::read, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
 use eyre::Result;
@@ -75,13 +75,6 @@ pub struct RunArgs {
         help_heading = "OpenVM Options"
     )]
     pub init_file_name: String,
-
-    #[arg(
-        long,
-        help = "Path to write RISCOF signature file for compliance testing",
-        help_heading = "OpenVM Options"
-    )]
-    pub signatures: Option<PathBuf>,
 
     #[arg(
         long,
@@ -258,31 +251,6 @@ impl From<RunCargoArgs> for BuildCargoArgs {
     }
 }
 
-// Parse ELF to find signature symbols for RISCOF compliance testing
-fn find_signature_bounds(elf_data: &[u8]) -> Option<(u32, u32)> {
-    use object::{Object, ObjectSymbol};
-
-    let obj = object::File::parse(elf_data).ok()?;
-
-    let mut begin_addr = None;
-    let mut end_addr = None;
-
-    for symbol in obj.symbols() {
-        if let Ok(name) = symbol.name() {
-            if name == "begin_signature" {
-                begin_addr = Some(symbol.address() as u32);
-            } else if name == "end_signature" {
-                end_addr = Some(symbol.address() as u32);
-            }
-        }
-    }
-
-    match (begin_addr, end_addr) {
-        (Some(begin), Some(end)) if begin < end => Some((begin, end)),
-        _ => None,
-    }
-}
-
 impl RunCmd {
     pub fn run(&self) -> Result<()> {
         let exe_path = if let Some(exe) = &self.run_args.exe {
@@ -328,20 +296,7 @@ impl RunCmd {
             return self.run_with_exe(exe, app_config, manifest_path, manifest_dir);
         } else {
             // For ELF files, read raw bytes
-            let bytes = read(exe_path)?;
-
-            // If signatures are requested, parse ELF to find signature bounds
-            if self.run_args.signatures.is_some() {
-                if let Some((begin, end)) = find_signature_bounds(&bytes) {
-                    let size = (end - begin) as usize;
-                    env::set_var("RISC0_SIG_BEGIN_ADDR", begin.to_string());
-                    env::set_var("RISC0_SIG_SIZE", size.to_string());
-                } else {
-                    eprintln!("Warning: Could not find begin_signature/end_signature symbols in ELF");
-                }
-            }
-
-            bytes
+            read(exe_path)?
         };
 
         self.run_with_bytes(exe_bytes, app_config, manifest_path, manifest_dir)
@@ -384,31 +339,25 @@ impl RunCmd {
                 .map_err(|_| eyre::eyre!("Failed to set app pk"))?;
         }
 
-        // Handle signature extraction for RISCOF compliance testing
-        if let Some(signature_path) = &self.run_args.signatures {
-            let output = sdk.execute_with_signature(exe, inputs, Some(signature_path))?;
-            println!("Execution output: {:?}", output);
-        } else {
-            match self.run_args.mode {
-                ExecutionMode::Pure => {
-                    let output = sdk.execute(exe, inputs)?;
-                    println!("Execution output: {:?}", output);
-                }
-                ExecutionMode::Meter => {
-                    let (output, (cost, instret)) = sdk.execute_metered_cost(exe, inputs)?;
-                    println!("Execution output: {:?}", output);
+        match self.run_args.mode {
+            ExecutionMode::Pure => {
+                let output = sdk.execute(exe, inputs)?;
+                println!("Execution output: {:?}", output);
+            }
+            ExecutionMode::Meter => {
+                let (output, (cost, instret)) = sdk.execute_metered_cost(exe, inputs)?;
+                println!("Execution output: {:?}", output);
 
-                    println!("Number of instructions executed: {}", instret);
-                    println!("Total cost: {}", cost);
-                }
-                ExecutionMode::Segment => {
-                    let (output, segments) = sdk.execute_metered(exe, inputs)?;
-                    println!("Execution output: {:?}", output);
+                println!("Number of instructions executed: {}", instret);
+                println!("Total cost: {}", cost);
+            }
+            ExecutionMode::Segment => {
+                let (output, segments) = sdk.execute_metered(exe, inputs)?;
+                println!("Execution output: {:?}", output);
 
-                    let total_instructions: u64 = segments.iter().map(|s| s.num_insns).sum();
-                    println!("Number of instructions executed: {}", total_instructions);
-                    println!("Total segments: {}", segments.len());
-                }
+                let total_instructions: u64 = segments.iter().map(|s| s.num_insns).sum();
+                println!("Number of instructions executed: {}", total_instructions);
+                println!("Total segments: {}", segments.len());
             }
         }
 
@@ -452,31 +401,25 @@ impl RunCmd {
                 .map_err(|_| eyre::eyre!("Failed to set app pk"))?;
         }
 
-        // Handle signature extraction for RISCOF compliance testing
-        if let Some(signature_path) = &self.run_args.signatures {
-            let output = sdk.execute_with_signature(exe_bytes, inputs, Some(signature_path))?;
-            println!("Execution output: {:?}", output);
-        } else {
-            match self.run_args.mode {
-                ExecutionMode::Pure => {
-                    let output = sdk.execute(exe_bytes, inputs)?;
-                    println!("Execution output: {:?}", output);
-                }
-                ExecutionMode::Meter => {
-                    let (output, (cost, instret)) = sdk.execute_metered_cost(exe_bytes, inputs)?;
-                    println!("Execution output: {:?}", output);
+        match self.run_args.mode {
+            ExecutionMode::Pure => {
+                let output = sdk.execute(exe_bytes, inputs)?;
+                println!("Execution output: {:?}", output);
+            }
+            ExecutionMode::Meter => {
+                let (output, (cost, instret)) = sdk.execute_metered_cost(exe_bytes, inputs)?;
+                println!("Execution output: {:?}", output);
 
-                    println!("Number of instructions executed: {}", instret);
-                    println!("Total cost: {}", cost);
-                }
-                ExecutionMode::Segment => {
-                    let (output, segments) = sdk.execute_metered(exe_bytes, inputs)?;
-                    println!("Execution output: {:?}", output);
+                println!("Number of instructions executed: {}", instret);
+                println!("Total cost: {}", cost);
+            }
+            ExecutionMode::Segment => {
+                let (output, segments) = sdk.execute_metered(exe_bytes, inputs)?;
+                println!("Execution output: {:?}", output);
 
-                    let total_instructions: u64 = segments.iter().map(|s| s.num_insns).sum();
-                    println!("Number of instructions executed: {}", total_instructions);
-                    println!("Total segments: {}", segments.len());
-                }
+                let total_instructions: u64 = segments.iter().map(|s| s.num_insns).sum();
+                println!("Number of instructions executed: {}", total_instructions);
+                println!("Total segments: {}", segments.len());
             }
         }
 

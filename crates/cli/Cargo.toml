@@ -39,7 +39,6 @@ toml = { workspace = true }
 itertools.workspace = true
 toml_edit = "0.22"
 include_dir = "0.7"
-object = "0.36"
 
 [features]
 default = ["parallel", "jemalloc", "evm-verify", "metrics"]
