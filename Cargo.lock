@@ -7189,7 +7189,11 @@ dependencies = [
  "openvm-stark-backend",
  "openvm-stark-sdk",
  "p3-baby-bear",
+ "p3-dft",
  "p3-field",
+ "p3-merkle-tree",
+ "p3-poseidon2",
+ "p3-symmetric",
  "serde",
  "serde_json",
 ]
