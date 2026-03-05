@@ -12,7 +12,7 @@ from helpers import load_test_vectors
 class TestStarkProverE2E:
     """Full STARK prover produces proofs matching the Rust implementation."""
 
-    @pytest.fixture(params=["fibonacci"])
+    @pytest.fixture(params=["fibonacci_stark"])
     def program_name(self, request):
         return request.param
 
@@ -29,11 +29,11 @@ class TestStarkProverE2E:
         )
 
     def test_trace_commitment(self, program_name, vectors):
-        """Trace commitment (Stage 1) matches golden value."""
-        expected_commitment = vectors["stage1"]["trace_commitment"]
+        """Trace commitment matches golden value."""
+        expected_commitment = vectors["main_trace_commitments"]
         assert False, f"Not implemented: trace commitment for '{program_name}'"
 
     def test_quotient_commitment(self, program_name, vectors):
         """Quotient polynomial commitment matches golden value."""
-        expected = vectors["stages"]["quotient_commitment"]
+        expected = vectors["quotient_commitment"]
         assert False, f"Not implemented: quotient commitment for '{program_name}'"

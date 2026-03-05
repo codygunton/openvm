@@ -623,6 +623,159 @@ pub fn generate_merkle_vectors() -> MerkleVectors {
 }
 
 // ---------------------------------------------------------------------------
+// E2E proof vectors (Fibonacci STARK)
+// ---------------------------------------------------------------------------
+
+/// Per-AIR metadata extracted from the proof.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AirProofMeta {
+    pub air_id: usize,
+    pub degree: usize,
+    pub num_public_values: usize,
+    pub public_values: Vec<u32>,
+}
+
+/// E2E proof test vectors for a Fibonacci STARK.
+///
+/// Contains serialized proof bytes (via `serde_json`), FRI parameters, and
+/// commitment metadata extracted from a real prover run.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct E2eProofVectors {
+    pub program_name: String,
+    pub num_airs: usize,
+    pub per_air: Vec<AirProofMeta>,
+    /// Main trace commitments as arrays of canonical u32 values.
+    pub main_trace_commitments: Vec<Vec<u32>>,
+    /// After-challenge commitments as arrays of canonical u32 values.
+    pub after_challenge_commitments: Vec<Vec<u32>>,
+    /// Quotient commitment as an array of canonical u32 values.
+    pub quotient_commitment: Vec<u32>,
+    pub fri_params: FriParamsMeta,
+    /// Hex-encoded serde_json-serialized `Proof<BabyBearPoseidon2Config>`.
+    pub proof_bytes_hex: String,
+    /// Length of the binary proof in bytes.
+    pub proof_bytes_len: usize,
+}
+
+/// FRI parameters metadata.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriParamsMeta {
+    pub log_blowup: usize,
+    pub log_final_poly_len: usize,
+    pub num_queries: usize,
+    pub query_proof_of_work_bits: usize,
+    pub commit_proof_of_work_bits: usize,
+}
+
+/// Generate E2E proof test vectors using a simple Fibonacci STARK AIR.
+///
+/// This exercises the full proving pipeline (keygen, trace generation,
+/// commitment, FRI opening) without requiring a RISC-V guest program build.
+/// The Fibonacci AIR computes `n` steps of the sequence starting from `(a, b)`.
+pub fn generate_e2e_fibonacci_vectors() -> E2eProofVectors {
+    use openvm_stark_backend::Chip;
+    use openvm_stark_sdk::{
+        config::{baby_bear_poseidon2::BabyBearPoseidon2Engine, FriParameters},
+        dummy_airs::fib_air::chip::FibonacciChip,
+        engine::StarkFriEngine,
+    };
+
+    // Use a small trace size (2^4 = 16 rows) for fast generation.
+    let n = 1 << 4;
+    let fib_chip = FibonacciChip::new(0, 1, n);
+
+    // Use deterministic, fast (insecure) FRI parameters for reproducible test vectors.
+    let fri_params = FriParameters {
+        log_blowup: 1,
+        log_final_poly_len: 0,
+        num_queries: 2,
+        commit_proof_of_work_bits: 0,
+        query_proof_of_work_bits: 0,
+    };
+    let engine = BabyBearPoseidon2Engine::new(fri_params);
+
+    let fib_air = vec![fib_chip.air()];
+    let fib_ctx = vec![fib_chip.generate_proving_ctx(())];
+
+    let vdata = engine
+        .run_test(fib_air, fib_ctx)
+        .expect("Fibonacci STARK proof should succeed");
+
+    let proof = &vdata.data.proof;
+
+    // Extract commitment metadata as canonical u32 arrays.
+    let main_trace_commitments: Vec<Vec<u32>> = proof
+        .commitments
+        .main_trace
+        .iter()
+        .map(|com| {
+            let arr: [BabyBear; 8] = (*com).into();
+            arr.iter().map(|x| x.as_canonical_u32()).collect()
+        })
+        .collect();
+
+    let after_challenge_commitments: Vec<Vec<u32>> = proof
+        .commitments
+        .after_challenge
+        .iter()
+        .map(|com| {
+            let arr: [BabyBear; 8] = (*com).into();
+            arr.iter().map(|x| x.as_canonical_u32()).collect()
+        })
+        .collect();
+
+    let quotient_arr: [BabyBear; 8] = proof.commitments.quotient.into();
+    let quotient_commitment: Vec<u32> = quotient_arr.iter().map(|x| x.as_canonical_u32()).collect();
+
+    // Extract per-AIR metadata.
+    let per_air: Vec<AirProofMeta> = proof
+        .per_air
+        .iter()
+        .map(|air_data| AirProofMeta {
+            air_id: air_data.air_id,
+            degree: air_data.degree,
+            num_public_values: air_data.public_values.len(),
+            public_values: air_data
+                .public_values
+                .iter()
+                .map(|v| v.as_canonical_u32())
+                .collect(),
+        })
+        .collect();
+
+    let fri_meta = FriParamsMeta {
+        log_blowup: fri_params.log_blowup,
+        log_final_poly_len: fri_params.log_final_poly_len,
+        num_queries: fri_params.num_queries,
+        query_proof_of_work_bits: fri_params.query_proof_of_work_bits,
+        commit_proof_of_work_bits: fri_params.commit_proof_of_work_bits,
+    };
+
+    // Serialize the full proof to bytes using serde_json (Proof derives Serialize).
+    // We use serde_json instead of bincode because the Proof struct has complex
+    // generic types and serde_json produces a stable, inspectable output.
+    let proof_json_bytes = serde_json::to_vec(proof).expect("Proof should serialize to JSON bytes");
+    let proof_bytes_hex = hex_encode(&proof_json_bytes);
+
+    E2eProofVectors {
+        program_name: "fibonacci_stark".to_string(),
+        num_airs: proof.per_air.len(),
+        per_air,
+        main_trace_commitments,
+        after_challenge_commitments,
+        quotient_commitment,
+        fri_params: fri_meta,
+        proof_bytes_hex,
+        proof_bytes_len: proof_json_bytes.len(),
+    }
+}
+
+/// Encode bytes as a lowercase hex string.
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+// ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
 
