@@ -48,3 +48,6 @@ profile.json.gz
 
 # test fixtures
 benchmarks/fixtures
+
+# Git worktrees
+.worktrees/
