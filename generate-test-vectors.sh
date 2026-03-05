@@ -15,19 +15,26 @@ usage() {
 
 TARGET="${1:-all}"
 
+# Use nextest if available, fall back to cargo test
+if command -v cargo-nextest &> /dev/null; then
+    CARGO_TEST="cargo nextest run --cargo-profile=fast"
+else
+    CARGO_TEST="cargo test --profile fast"
+fi
+
 generate_primitives() {
     echo "=== Generating primitive vectors ==="
-    cargo nextest run --cargo-profile=fast -p openvm-test-vectors -- generate_field
-    cargo nextest run --cargo-profile=fast -p openvm-test-vectors -- generate_ext_field
-    cargo nextest run --cargo-profile=fast -p openvm-test-vectors -- generate_poseidon2
-    cargo nextest run --cargo-profile=fast -p openvm-test-vectors -- generate_ntt
-    cargo nextest run --cargo-profile=fast -p openvm-test-vectors -- generate_merkle
+    $CARGO_TEST -p openvm-test-vectors -- generate_field
+    $CARGO_TEST -p openvm-test-vectors -- generate_ext_field
+    $CARGO_TEST -p openvm-test-vectors -- generate_poseidon2
+    $CARGO_TEST -p openvm-test-vectors -- generate_ntt
+    $CARGO_TEST -p openvm-test-vectors -- generate_merkle
     echo "=== Primitive vectors complete ==="
 }
 
 generate_e2e() {
     echo "=== Generating E2E proof vectors (this may take a while) ==="
-    cargo nextest run --cargo-profile=fast -p openvm-test-vectors -- generate_e2e --test-threads=1
+    $CARGO_TEST -p openvm-test-vectors -- generate_e2e --test-threads=1
     echo "=== E2E vectors complete ==="
 }
 

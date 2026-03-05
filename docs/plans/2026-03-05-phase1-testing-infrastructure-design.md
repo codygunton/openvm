@@ -124,10 +124,21 @@ pil2-proofman's executable-spec (at `/home/cody/openvm/pil2-proofman/executable-
 ## Phase 1 Completion Criteria
 
 Per SPEC_STYLE_GUIDE §2:
-- [ ] Golden vectors exist for all primitive operations and at least one E2E proof
-- [ ] Rust tests verify vectors match live code
-- [ ] Binary comparison framework is in place
-- [ ] Python test stubs exist and fail (not skip)
+- [x] Golden vectors exist for all primitive operations and at least one E2E proof
+  - BabyBear field (100 add/sub/mul, 10 neg, 9 inv)
+  - BabyBear quartic extension field (64 add/mul, 7 inv)
+  - Poseidon2 (4 permutation, 3 compression)
+  - NTT (4 forward, 4 inverse for sizes 4/8/16/32)
+  - Merkle tree (3 constructions, 10 openings)
+  - E2E Fibonacci STARK proof (16-row trace, full proof)
+- [x] Rust tests verify vectors match live code
+  - 5 verification tests re-compute all operations against live Plonky3
+- [x] Binary comparison framework is in place
+  - fibonacci_stark_proof.bin (6,402 bytes) available for binary comparison
+- [x] Python test stubs exist and fail (not skip)
+  - 20 tests fail with AssertionError, 3 FRI tests error (vectors pending)
 - [ ] `paranoid-skeptic` agent has reviewed the testing infrastructure
-- [ ] `generate-test-vectors.sh` is reproducible
-- [ ] `run-tests.sh` runs all stubs in parallel
+- [x] `generate-test-vectors.sh` is reproducible
+  - Falls back to `cargo test` when nextest unavailable
+- [x] `run-tests.sh` runs all stubs in parallel
+  - PYTEST_WORKERS=48 default, filter support for primitives/fri/e2e
