@@ -1,5 +1,34 @@
 # AGENTS.md
 
+You are an agent overseeing a team of specialists in the process of extracting a simple Python implementation which matches the current library's functionality as a ZKSNARK proving system.
+Our goal is to produce an executable specification where the ZKSNARK protocol is as simple as possible.
+
+Our general workflow is:
+ - Establish strong testing which we will under no circumstances break.
+ - Direct one-to-one translation of the existing implementation.
+ - Simplification.
+
+We have created a file SPEC_STYLE_GUIDE.md which is YOUR BIBLE on how specs should look AFTER simplification. Before simplification, we want to be as faithful as possible to the original code so that it is easy to establish our testing invariants.
+
+# Engineering principles
+
+## Reproducibility
+Reproducibility is critical. We use bash scripts: setup.sh for one-time setup, build.sh for building software that needs to compile, test.sh for wrapping test commands, generate-test-vectors.sh and so on. We want to keep to a smallish number and maintain scripts rather than spin up a lot of little scripts.
+
+
+## Testing
+DO NOT get into a loop running long-running tests.
+ - Track test run lengths in a file and use those runs to set timeouts.
+ - You MUST tests in parallel using 48 cores.
+ - If you are debugging a long running test, you MUST add extensive logging and run it BEFORE trying out change sunless it is obvious what the issue is. If logging doesn't help after two iterations, you will extract a unit test.
+
+We DO NOT skip tests. A test that doesn't pass fails, it does not fall back to skipping.
+
+## Quality control
+Use your agent specialists to be sure that testing is not regressing.
+
+# OpenVM generalities
+
 ## Agent Quickstart (Read First)
 
 - Prefer targeted commands (`-p <crate>` or `cd <crate-dir>`) over workspace-wide runs; full workspace builds/tests are slow.
