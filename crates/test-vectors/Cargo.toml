@@ -1,0 +1,13 @@
+[package]
+name = "openvm-test-vectors"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openvm-stark-sdk.workspace = true
+openvm-stark-backend.workspace = true
+p3-baby-bear.workspace = true
+p3-field.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+eyre.workspace = true

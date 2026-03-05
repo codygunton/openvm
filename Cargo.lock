@@ -7182,6 +7182,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "openvm-test-vectors"
+version = "0.1.0"
+dependencies = [
+ "eyre",
+ "openvm-stark-backend",
+ "openvm-stark-sdk",
+ "p3-baby-bear",
+ "p3-field",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "openvm-toolchain-tests"
 version = "1.5.0"
 dependencies = [
