@@ -86,3 +86,34 @@ def verify_opening(
             current = compress(sibling, current)
         idx >>= 1
     return current == root
+
+
+def verify_opening_prehashed(
+    root: list[int],
+    leaf_digest: list[int],
+    leaf_index: int,
+    proof: list[list[int]],
+) -> bool:
+    """Verify a Merkle opening proof when the leaf is already hashed.
+
+    Used for FRI commit-phase proofs where the leaf (pair of extension field
+    elements) is hashed externally.
+
+    Args:
+        root: Expected root digest.
+        leaf_digest: Already-hashed leaf digest.
+        leaf_index: Index of the leaf in the tree.
+        proof: Sibling digests from leaf level to root.
+
+    Returns:
+        True if the proof is valid.
+    """
+    current = leaf_digest
+    idx = leaf_index
+    for sibling in proof:
+        if idx % 2 == 0:
+            current = compress(current, sibling)
+        else:
+            current = compress(sibling, current)
+        idx >>= 1
+    return current == root

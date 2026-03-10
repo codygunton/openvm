@@ -26,6 +26,23 @@ class Challenger:
         self.input_buffer = []
         self.output_buffer = []
 
+    @classmethod
+    def from_state(
+        cls,
+        sponge_state: list[int],
+        input_buffer: list[int],
+        output_buffer: list[int],
+    ) -> "Challenger":
+        """Create a Challenger seeded with exported internal state.
+
+        Used to resume a transcript from a checkpoint captured in Rust.
+        """
+        c = cls()
+        c.sponge_state = list(sponge_state)
+        c.input_buffer = list(input_buffer)
+        c.output_buffer = list(output_buffer)
+        return c
+
     def observe(self, value: int) -> None:
         """Absorb a single field element.
 

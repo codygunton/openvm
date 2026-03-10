@@ -9,7 +9,7 @@ usage() {
     echo "Usage: $0 [filter]"
     echo ""
     echo "Filters:"
-    echo "  default       Rust verification + Python spec, no heavy (default)"
+    echo "  default       Python executable-spec tests only (default)"
     echo "  all           Everything including heavy (revm_transfer re-proving)"
     echo "  rust          Rust-side vector verification tests only"
     echo "  python        Python executable-spec tests only"
@@ -66,7 +66,6 @@ run_python() {
 
 case "$FILTER" in
     default)
-        run_rust
         run_python
         ;;
     all)
