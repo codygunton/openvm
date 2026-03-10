@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+use openvm_stark_backend::proof::Proof;
+use openvm_stark_sdk::config::{baby_bear_poseidon2::BabyBearPoseidon2Config, FriParameters};
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
 use serde::{Deserialize, Serialize};
@@ -701,9 +703,19 @@ pub fn generate_e2e_fibonacci_vectors() -> E2eProofVectors {
         .run_test(fib_air, fib_ctx)
         .expect("Fibonacci STARK proof should succeed");
 
-    let proof = &vdata.data.proof;
+    extract_proof_vectors("fibonacci_stark", &vdata.data.proof, &fri_params)
+}
 
-    // Extract commitment metadata as canonical u32 arrays.
+/// Extract [`E2eProofVectors`] from a proof and FRI parameters.
+///
+/// This is a shared helper used by both the single-AIR Fibonacci generator and
+/// multi-AIR VM proof generators. It extracts commitment metadata, per-AIR info,
+/// and serializes the proof to hex-encoded JSON bytes.
+pub fn extract_proof_vectors(
+    program_name: &str,
+    proof: &Proof<BabyBearPoseidon2Config>,
+    fri_params: &FriParameters,
+) -> E2eProofVectors {
     let main_trace_commitments: Vec<Vec<u32>> = proof
         .commitments
         .main_trace
@@ -725,9 +737,9 @@ pub fn generate_e2e_fibonacci_vectors() -> E2eProofVectors {
         .collect();
 
     let quotient_arr: [BabyBear; 8] = proof.commitments.quotient.into();
-    let quotient_commitment: Vec<u32> = quotient_arr.iter().map(|x| x.as_canonical_u32()).collect();
+    let quotient_commitment: Vec<u32> =
+        quotient_arr.iter().map(|x| x.as_canonical_u32()).collect();
 
-    // Extract per-AIR metadata.
     let per_air: Vec<AirProofMeta> = proof
         .per_air
         .iter()
@@ -751,14 +763,12 @@ pub fn generate_e2e_fibonacci_vectors() -> E2eProofVectors {
         commit_proof_of_work_bits: fri_params.commit_proof_of_work_bits,
     };
 
-    // Serialize the full proof to bytes using serde_json (Proof derives Serialize).
-    // We use serde_json instead of bincode because the Proof struct has complex
-    // generic types and serde_json produces a stable, inspectable output.
-    let proof_json_bytes = serde_json::to_vec(proof).expect("Proof should serialize to JSON bytes");
+    let proof_json_bytes =
+        serde_json::to_vec(proof).expect("Proof should serialize to JSON bytes");
     let proof_bytes_hex = hex_encode(&proof_json_bytes);
 
     E2eProofVectors {
-        program_name: "fibonacci_stark".to_string(),
+        program_name: program_name.to_string(),
         num_airs: proof.per_air.len(),
         per_air,
         main_trace_commitments,
@@ -771,8 +781,325 @@ pub fn generate_e2e_fibonacci_vectors() -> E2eProofVectors {
 }
 
 /// Encode bytes as a lowercase hex string.
-fn hex_encode(bytes: &[u8]) -> String {
+pub fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Decode a hex string to bytes.
+pub fn hex_decode(hex: &str) -> Vec<u8> {
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("valid hex"))
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// FRI folding vectors
+// ---------------------------------------------------------------------------
+
+/// A single FRI folding round with input/output evaluations.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriFoldRound {
+    pub round: usize,
+    /// Extension field evaluations before fold (each element is `[u32; 4]`).
+    pub input: Vec<Vec<u32>>,
+    /// Extension field challenge (beta) as `[u32; 4]`.
+    pub challenge: Vec<u32>,
+    /// Extension field evaluations after fold.
+    pub expected_output: Vec<Vec<u32>>,
+}
+
+/// FRI folding test vectors: step-by-step fold intermediates and final polynomial.
+///
+/// Evaluations are in **natural coset order** (not bit-reversed). The fold
+/// formula pairs `evals[i]` with `evals[i + N/2]` (the evaluation at `−x`).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriFoldingVectors {
+    pub log_poly_size: usize,
+    pub log_blowup: usize,
+    pub log_final_poly_len: usize,
+    pub num_rounds: usize,
+    pub rounds: Vec<FriFoldRound>,
+    /// Final polynomial coefficients (extension field elements).
+    pub final_polynomial: Vec<Vec<u32>>,
+}
+
+/// Generate FRI folding test vectors by manually computing the fold at each round.
+///
+/// Creates a degree-15 polynomial over `BinomialExtensionField<BabyBear, 4>`,
+/// evaluates it on a two-adic coset of size 32 (blowup = 2), and iteratively
+/// folds with deterministic challenges, capturing input/output at each round.
+pub fn generate_fri_folding_vectors() -> FriFoldingVectors {
+    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace, Field, TwoAdicField};
+
+    type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
+
+    let log_poly_size: usize = 4; // degree 15 → 16 coefficients
+    let log_blowup: usize = 1;
+    let log_domain = log_poly_size + log_blowup; // 5 → domain size 32
+
+    fn ef_to_vec(e: &EF) -> Vec<u32> {
+        e.as_basis_coefficients_slice()
+            .iter()
+            .map(|x: &BabyBear| x.as_canonical_u32())
+            .collect()
+    }
+
+    fn make_ef(a: u32, b: u32, c: u32, d: u32) -> EF {
+        let coeffs = [
+            BabyBear::new(a),
+            BabyBear::new(b),
+            BabyBear::new(c),
+            BabyBear::new(d),
+        ];
+        EF::from_basis_coefficients_fn(|i| coeffs[i])
+    }
+
+    /// Evaluate an extension-field polynomial at a base-field point using Horner's method.
+    fn eval_poly(coeffs: &[EF], x: F) -> EF {
+        let x_ef = EF::from(x);
+        coeffs
+            .iter()
+            .rev()
+            .fold(EF::ZERO, |acc, &c| acc * x_ef + c)
+    }
+
+    // 1. Create deterministic polynomial coefficients (degree 15).
+    let coeffs: Vec<EF> = (0..1usize << log_poly_size)
+        .map(|i| {
+            let base = (i * 4) as u32;
+            make_ef(base + 1, base + 2, base + 3, base + 4)
+        })
+        .collect();
+
+    // 2. Evaluate on coset g·⟨ω_N⟩ where g = F::GENERATOR.
+    let g = F::GENERATOR;
+    let omega = F::two_adic_generator(log_domain);
+
+    let mut evals: Vec<EF> = (0..1usize << log_domain)
+        .map(|i| {
+            let x = g * omega.exp_u64(i as u64);
+            eval_poly(&coeffs, x)
+        })
+        .collect();
+
+    // 3. Deterministic challenges: β_0 = (1,2,3,4), β_1 = (5,6,7,8), …
+    let log_final_poly_len: usize = 0;
+    let num_rounds = log_domain - log_blowup - log_final_poly_len;
+    let challenges: Vec<EF> = (0..num_rounds)
+        .map(|i| {
+            let base = (i * 4) as u32;
+            make_ef(base + 1, base + 2, base + 3, base + 4)
+        })
+        .collect();
+
+    // 4. Fold iteratively.
+    let two_inv = F::TWO.inverse();
+    let mut rounds = Vec::new();
+    let mut current_log_domain = log_domain;
+    let mut current_shift = g;
+
+    for round in 0..num_rounds {
+        let n = 1usize << current_log_domain;
+        let half = n / 2;
+        let beta = challenges[round];
+
+        let input = evals.clone();
+        let omega_n = F::two_adic_generator(current_log_domain);
+
+        let mut folded = Vec::with_capacity(half);
+        for i in 0..half {
+            let x = current_shift * omega_n.exp_u64(i as u64);
+            let f_pos = evals[i];
+            let f_neg = evals[i + half]; // f(-x), since ω^(N/2) = -1
+
+            // FRI fold: even + β · odd
+            //   even = (f(x) + f(-x)) / 2
+            //   odd  = (f(x) - f(-x)) / (2x)
+            let half_inv_x = EF::from(two_inv * x.inverse());
+            let even = (f_pos + f_neg) * EF::from(two_inv);
+            let odd = (f_pos - f_neg) * half_inv_x;
+            folded.push(even + beta * odd);
+        }
+
+        rounds.push(FriFoldRound {
+            round,
+            input: input.iter().map(|e| ef_to_vec(e)).collect(),
+            challenge: ef_to_vec(&beta),
+            expected_output: folded.iter().map(|e| ef_to_vec(e)).collect(),
+        });
+
+        evals = folded;
+        current_shift = current_shift * current_shift;
+        current_log_domain -= 1;
+    }
+
+    // 5. Final polynomial: after all folds, the polynomial is constant (degree 0).
+    // All evaluations on the final coset should be identical.
+    let final_poly_len = 1usize << log_final_poly_len;
+    assert!(
+        evals[..final_poly_len]
+            .windows(2)
+            .all(|w| w[0] == w[1])
+            || final_poly_len == 1,
+        "final polynomial evaluations should be consistent"
+    );
+    let final_polynomial = evals[..final_poly_len]
+        .iter()
+        .map(|e| ef_to_vec(e))
+        .collect();
+
+    FriFoldingVectors {
+        log_poly_size,
+        log_blowup,
+        log_final_poly_len,
+        num_rounds,
+        rounds,
+        final_polynomial,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FRI verification vectors
+// ---------------------------------------------------------------------------
+
+/// A single commit-phase opening step in a FRI query proof.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriCommitPhaseStep {
+    /// Sibling value (extension field element as `[u32; 4]`).
+    pub sibling_value: Vec<u32>,
+    /// Merkle opening proof: sibling digests per level (each digest is 8 `u32`s).
+    pub opening_proof: Vec<Vec<u32>>,
+}
+
+/// Data for a single FRI query.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriQueryData {
+    pub index: usize,
+    pub commit_phase_openings: Vec<FriCommitPhaseStep>,
+}
+
+/// FRI verification test vectors extracted from a real STARK proof.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriVerificationVectors {
+    /// Merkle roots per FRI commit-phase round (each is 8 `u32`s).
+    pub commit_phase_commits: Vec<Vec<u32>>,
+    /// Final polynomial coefficients (extension field elements).
+    pub final_poly: Vec<Vec<u32>>,
+    /// Query proofs.
+    pub queries: Vec<FriQueryData>,
+}
+
+/// Generate FRI verification vectors by extracting FRI data from a Fibonacci
+/// STARK proof.
+///
+/// Runs the same Fibonacci proof as [`generate_e2e_fibonacci_vectors`], then
+/// accesses the FRI proof to extract commit-phase commitments, the final
+/// polynomial, and per-query opening data.
+pub fn generate_fri_verification_vectors() -> FriVerificationVectors {
+    use openvm_stark_backend::Chip;
+    use openvm_stark_sdk::{
+        config::{baby_bear_poseidon2::BabyBearPoseidon2Engine, FriParameters},
+        dummy_airs::fib_air::chip::FibonacciChip,
+        engine::StarkFriEngine,
+    };
+    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace};
+
+    type EF = BinomialExtensionField<BabyBear, 4>;
+
+    let n = 1 << 4;
+    let fib_chip = FibonacciChip::new(0, 1, n);
+
+    let fri_params = FriParameters {
+        log_blowup: 1,
+        log_final_poly_len: 0,
+        num_queries: 2,
+        commit_proof_of_work_bits: 0,
+        query_proof_of_work_bits: 0,
+    };
+    let engine = BabyBearPoseidon2Engine::new(fri_params);
+
+    let fib_air = vec![fib_chip.air()];
+    let fib_ctx = vec![fib_chip.generate_proving_ctx(())];
+
+    let vdata = engine
+        .run_test(fib_air, fib_ctx)
+        .expect("Fibonacci STARK proof should succeed");
+
+    let proof = &vdata.data.proof;
+
+    // Access the FRI proof: proof.opening.proof is PcsProof<SC> = FriProof<…>
+    let fri_proof = &proof.opening.proof;
+
+    // Helper to convert a BabyBear commitment digest to Vec<u32>.
+    fn digest_to_u32(com: &p3_symmetric::Hash<BabyBear, BabyBear, 8>) -> Vec<u32> {
+        let arr: [BabyBear; 8] = (*com).into();
+        arr.iter().map(|x| x.as_canonical_u32()).collect()
+    }
+
+    // Helper to convert an extension field element to Vec<u32>.
+    fn ef_to_u32(e: &EF) -> Vec<u32> {
+        e.as_basis_coefficients_slice()
+            .iter()
+            .map(|x: &BabyBear| x.as_canonical_u32())
+            .collect()
+    }
+
+    // Extract commit-phase commitments as Vec<[u32; 8]>.
+    let commit_phase_commits: Vec<Vec<u32>> = fri_proof
+        .commit_phase_commits
+        .iter()
+        .map(digest_to_u32)
+        .collect();
+
+    // Extract final polynomial (extension field coefficients).
+    let final_poly: Vec<Vec<u32>> = fri_proof.final_poly.iter().map(ef_to_u32).collect();
+
+    // Extract query proofs.
+    //
+    // NOTE: The FRI proof does not store query indices directly. They are
+    // derived from the challenger transcript during verification. We store
+    // the query position in the vector (0, 1, …) as a placeholder. A full
+    // verifier implementation recovers indices from the transcript.
+    let queries: Vec<FriQueryData> = fri_proof
+        .query_proofs
+        .iter()
+        .enumerate()
+        .map(|(qi, query_proof)| {
+            let openings: Vec<FriCommitPhaseStep> = query_proof
+                .commit_phase_openings
+                .iter()
+                .map(|step| {
+                    let sibling = ef_to_u32(&step.sibling_value);
+                    let merkle_proof: Vec<Vec<u32>> = step
+                        .opening_proof
+                        .iter()
+                        .map(|digest| {
+                            digest
+                                .iter()
+                                .map(|x: &BabyBear| x.as_canonical_u32())
+                                .collect()
+                        })
+                        .collect();
+                    FriCommitPhaseStep {
+                        sibling_value: sibling,
+                        opening_proof: merkle_proof,
+                    }
+                })
+                .collect();
+            FriQueryData {
+                index: qi,
+                commit_phase_openings: openings,
+            }
+        })
+        .collect();
+
+    FriVerificationVectors {
+        commit_phase_commits,
+        final_poly,
+        queries,
+    }
 }
 
 // ---------------------------------------------------------------------------

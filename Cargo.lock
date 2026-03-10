@@ -7186,8 +7186,16 @@ name = "openvm-test-vectors"
 version = "0.1.0"
 dependencies = [
  "eyre",
+ "openvm-build",
+ "openvm-circuit",
+ "openvm-instructions",
+ "openvm-rv32im-circuit",
+ "openvm-rv32im-transpiler",
+ "openvm-sdk",
  "openvm-stark-backend",
  "openvm-stark-sdk",
+ "openvm-toolchain-tests",
+ "openvm-transpiler",
  "p3-baby-bear",
  "p3-dft",
  "p3-field",
