@@ -980,6 +980,32 @@ pub struct FriQueryData {
     pub commit_phase_openings: Vec<FriCommitPhaseStep>,
 }
 
+/// Challenger (duplex sponge) internal state, exported for Python seeding.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChallengerState {
+    /// Sponge state: 16 `u32` field elements.
+    pub sponge_state: Vec<u32>,
+    /// Input buffer (absorbed but not yet permuted).
+    pub input_buffer: Vec<u32>,
+    /// Output buffer (available for squeezing).
+    pub output_buffer: Vec<u32>,
+}
+
+/// Golden values for a single FRI query verification.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryVerificationGolden {
+    /// Query index (derived from transcript).
+    pub query_index: usize,
+    /// Initial folded_eval (reduced opening, extension field `[u32; 4]`).
+    pub reduced_opening: Vec<u32>,
+    /// Folded eval after each round (extension field `[u32; 4]`).
+    pub per_round_folded_eval: Vec<Vec<u32>>,
+    /// Final folded_eval (extension field `[u32; 4]`).
+    pub final_folded_eval: Vec<u32>,
+    /// Expected final polynomial evaluation (extension field `[u32; 4]`).
+    pub expected_final_eval: Vec<u32>,
+}
+
 /// FRI verification test vectors extracted from a real STARK proof.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FriVerificationVectors {
@@ -989,22 +1015,44 @@ pub struct FriVerificationVectors {
     pub final_poly: Vec<Vec<u32>>,
     /// Query proofs.
     pub queries: Vec<FriQueryData>,
+    /// Challenger state at FRI entry point (after STARK transcript, before FRI).
+    pub challenger_state: ChallengerState,
+    /// Log2 of blowup factor.
+    pub log_blowup: usize,
+    /// Log2 of final polynomial length.
+    pub log_final_poly_len: usize,
+    /// Number of FRI queries.
+    pub num_queries: usize,
+    /// Log2 of max committed polynomial height (after blowup).
+    pub log_max_height: usize,
+    /// FRI folding challenges (betas), one per commit-phase round.
+    pub betas: Vec<Vec<u32>>,
+    /// Per-query golden verification data.
+    pub query_verifications: Vec<QueryVerificationGolden>,
 }
 
 /// Generate FRI verification vectors by extracting FRI data from a Fibonacci
 /// STARK proof.
 ///
-/// Runs the same Fibonacci proof as [`generate_e2e_fibonacci_vectors`], then
-/// accesses the FRI proof to extract commit-phase commitments, the final
-/// polynomial, and per-query opening data.
+/// Runs the same Fibonacci proof as [`generate_e2e_fibonacci_vectors`], then:
+/// 1. Extracts FRI proof data (commits, final poly, query openings).
+/// 2. Replays the STARK Fiat-Shamir transcript to capture the challenger's
+///    internal state at the FRI entry point.
+/// 3. Continues the FRI transcript to derive betas and query indices.
+/// 4. Computes golden reduced openings and fold-chain intermediates per query.
 pub fn generate_fri_verification_vectors() -> FriVerificationVectors {
-    use openvm_stark_backend::Chip;
+    use openvm_stark_backend::{
+        engine::StarkEngine,
+        p3_challenger::{CanObserve, CanSampleBits, FieldChallenger, GrindingChallenger},
+        p3_util::reverse_bits_len,
+        Chip,
+    };
     use openvm_stark_sdk::{
         config::{baby_bear_poseidon2::BabyBearPoseidon2Engine, FriParameters},
         dummy_airs::fib_air::chip::FibonacciChip,
         engine::StarkFriEngine,
     };
-    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace};
+    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace, Field, TwoAdicField};
 
     type EF = BinomialExtensionField<BabyBear, 4>;
 
@@ -1027,7 +1075,9 @@ pub fn generate_fri_verification_vectors() -> FriVerificationVectors {
         .run_test(fib_air, fib_ctx)
         .expect("Fibonacci STARK proof should succeed");
 
+    let vk = &vdata.data.vk;
     let proof = &vdata.data.proof;
+    let fp = &vdata.fri_params;
 
     // Access the FRI proof: proof.opening.proof is PcsProof<SC> = FriProof<…>
     let fri_proof = &proof.opening.proof;
@@ -1057,11 +1107,6 @@ pub fn generate_fri_verification_vectors() -> FriVerificationVectors {
     let final_poly: Vec<Vec<u32>> = fri_proof.final_poly.iter().map(ef_to_u32).collect();
 
     // Extract query proofs.
-    //
-    // NOTE: The FRI proof does not store query indices directly. They are
-    // derived from the challenger transcript during verification. We store
-    // the query position in the vector (0, 1, …) as a placeholder. A full
-    // verifier implementation recovers indices from the transcript.
     let queries: Vec<FriQueryData> = fri_proof
         .query_proofs
         .iter()
@@ -1095,10 +1140,529 @@ pub fn generate_fri_verification_vectors() -> FriVerificationVectors {
         })
         .collect();
 
+    // =========================================================================
+    // Replay STARK transcript to capture challenger state at FRI entry.
+    //
+    // Reference: stark-backend verifier/mod.rs verify_raps()
+    // =========================================================================
+    let mut challenger = engine.new_challenger();
+
+    // Step 1: Observe VK pre_hash (Hash<F,F,8> → 8 field elements)
+    challenger.observe(vk.pre_hash.clone());
+
+    // Step 2: Observe num_airs
+    let num_airs = proof.per_air.len();
+    challenger.observe(BabyBear::from_usize(num_airs));
+
+    // Step 3: Observe air_ids
+    for ap in &proof.per_air {
+        challenger.observe(BabyBear::from_usize(ap.air_id));
+    }
+
+    // Step 4: Observe public values per AIR
+    for ap in &proof.per_air {
+        challenger.observe_slice(&ap.public_values);
+    }
+
+    // Step 5: Observe preprocessed commits (none for Fibonacci)
+    for svk in &vk.inner.per_air {
+        if let Some(prep) = &svk.preprocessed_data {
+            challenger.observe(prep.commit.clone());
+        }
+    }
+
+    // Step 6: Observe main trace commitments
+    challenger.observe_slice(&proof.commitments.main_trace);
+
+    // Step 7: Observe log degrees
+    let log_degrees: Vec<BabyBear> = proof
+        .per_air
+        .iter()
+        .map(|ap| {
+            BabyBear::from_usize(openvm_stark_backend::p3_util::log2_strict_usize(ap.degree))
+        })
+        .collect();
+    challenger.observe_slice(&log_degrees);
+
+    // Step 8: RAP phase — no-op for Fibonacci (no interactions).
+    // FriLogUpPhase::partially_verify returns early when after_challenge is empty.
+
+    // Step 9: Sample alpha
+    let _alpha: EF = challenger.sample_algebra_element();
+
+    // Step 10: Observe quotient commitment
+    challenger.observe(proof.commitments.quotient.clone());
+
+    // Step 11: check_witness(deep_pow_bits, deep_pow_witness)
+    assert!(
+        challenger.check_witness(vk.inner.deep_pow_bits, proof.opening.deep_pow_witness),
+        "Deep PoW check failed during transcript replay"
+    );
+
+    // Step 12: Sample zeta
+    let zeta: EF = challenger.sample_algebra_element();
+
+    // Step 13: PCS observe — opening values in rounds order.
+    // Reference: two_adic_pcs.rs TwoAdicFriPcs::verify() observes all values
+    // before calling verify_fri. Rounds order: preprocessed, cached_mains,
+    // common_main, after_challenge, quotient.
+    //
+    // For Fibonacci: common main (1 matrix, 2 points), then quotient chunks.
+    for adj in &proof.opening.values.main[0] {
+        challenger.observe_algebra_slice(&adj.local);
+        challenger.observe_algebra_slice(&adj.next);
+    }
+    for air_q in &proof.opening.values.quotient {
+        for chunk_vals in air_q {
+            challenger.observe_algebra_slice(chunk_vals);
+        }
+    }
+
+    // =========================================================================
+    // Capture challenger state at FRI entry point
+    // =========================================================================
+    let challenger_state = ChallengerState {
+        sponge_state: challenger
+            .sponge_state
+            .iter()
+            .map(|x| x.as_canonical_u32())
+            .collect(),
+        input_buffer: challenger
+            .input_buffer
+            .iter()
+            .map(|x| x.as_canonical_u32())
+            .collect(),
+        output_buffer: challenger
+            .output_buffer
+            .iter()
+            .map(|x| x.as_canonical_u32())
+            .collect(),
+    };
+
+    // =========================================================================
+    // Continue FRI transcript: derive alpha, betas, query indices.
+    //
+    // Reference: p3-fri-0.4.1 verifier.rs verify_fri()
+    // =========================================================================
+
+    // Step 14: Sample FRI alpha (batch combination challenge).
+    // This is the alpha used in open_input to combine polynomial evaluations,
+    // distinct from the STARK alpha sampled at step 9.
+    let fri_alpha: EF = challenger.sample_algebra_element();
+
+    let log_blowup = fp.log_blowup;
+    let log_final_poly_len = fp.log_final_poly_len;
+    let num_queries = fp.num_queries;
+    let num_rounds = fri_proof.commit_phase_commits.len();
+    let log_max_height = num_rounds + log_blowup + log_final_poly_len;
+
+    // Step 15: Derive betas (one per commit-phase round)
+    let mut betas: Vec<EF> = Vec::new();
+    for (comm, witness) in fri_proof
+        .commit_phase_commits
+        .iter()
+        .zip(fri_proof.commit_pow_witnesses.iter())
+    {
+        challenger.observe(comm.clone());
+        // commit_proof_of_work_bits = 0 → check_witness returns true immediately
+        assert!(challenger.check_witness(fp.commit_proof_of_work_bits, *witness));
+        let beta: EF = challenger.sample_algebra_element();
+        betas.push(beta);
+    }
+
+    // Step 16: Observe final polynomial coefficients
+    challenger.observe_algebra_slice(&fri_proof.final_poly);
+
+    // Step 17: Query PoW (query_proof_of_work_bits = 0 → no-op)
+    assert!(challenger.check_witness(fp.query_proof_of_work_bits, fri_proof.query_pow_witness));
+
+    // =========================================================================
+    // Per-query: derive index, compute reduced_opening, replay fold chain.
+    //
+    // Reference: p3-fri-0.4.1 verifier.rs verify_query(), open_input()
+    //            p3-fri-0.4.1 two_adic_pcs.rs fold_row()
+    // =========================================================================
+
+    // Precompute next_zeta = zeta * omega_{trace_domain}
+    let log_degree =
+        openvm_stark_backend::p3_util::log2_strict_usize(proof.per_air[0].degree);
+    let trace_omega = BabyBear::two_adic_generator(log_degree);
+    let next_zeta: EF = zeta * EF::from(trace_omega);
+
+    let quotient_degree = vk.inner.per_air[0].quotient_degree as usize;
+
+    let mut query_verifications = Vec::new();
+
+    for (qi, query_proof) in fri_proof.query_proofs.iter().enumerate() {
+        // Step 18: Sample query index
+        let query_index: usize = challenger.sample_bits(log_max_height);
+
+        // -----------------------------------------------------------------
+        // Compute reduced_opening via open_input logic.
+        //
+        // For Fibonacci: all matrices at log_height = log_max_height = 5.
+        // x = GENERATOR * omega_{2^log_max}^{reverse_bits(query_index, log_max)}
+        // -----------------------------------------------------------------
+        let rev_idx = reverse_bits_len(query_index, log_max_height);
+        let x_base = BabyBear::from_u32(31) // GENERATOR = 31
+            * BabyBear::two_adic_generator(log_max_height).exp_u64(rev_idx as u64);
+        let x: EF = EF::from(x_base);
+
+        let mut ro = EF::ZERO;
+        let mut alpha_pow = EF::ONE;
+
+        // --- Common main contribution ---
+        // input_proof[0] = BatchOpening for common main
+        let main_row = &query_proof.input_proof[0].opened_values[0];
+        let main_vals = &proof.opening.values.main[0][0];
+
+        // Point 1: (zeta, local)
+        let inv_zeta_minus_x = (zeta - x).inverse();
+        for (&p_at_x, &p_at_z) in main_row.iter().zip(main_vals.local.iter()) {
+            ro += alpha_pow * (p_at_z - EF::from(p_at_x)) * inv_zeta_minus_x;
+            alpha_pow *= fri_alpha;
+        }
+
+        // Point 2: (next_zeta, next)
+        let inv_next_minus_x = (next_zeta - x).inverse();
+        for (&p_at_x, &p_at_z) in main_row.iter().zip(main_vals.next.iter()) {
+            ro += alpha_pow * (p_at_z - EF::from(p_at_x)) * inv_next_minus_x;
+            alpha_pow *= fri_alpha;
+        }
+
+        // --- Quotient contribution ---
+        // input_proof[1] = BatchOpening for quotient
+        for chunk_idx in 0..quotient_degree {
+            let q_row = &query_proof.input_proof[1].opened_values[chunk_idx];
+            let q_vals = &proof.opening.values.quotient[0][chunk_idx];
+
+            for (&p_at_x, &p_at_z) in q_row.iter().zip(q_vals.iter()) {
+                ro += alpha_pow * (p_at_z - EF::from(p_at_x)) * inv_zeta_minus_x;
+                alpha_pow *= fri_alpha;
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Replay fold chain (verify_query logic)
+        // -----------------------------------------------------------------
+        let mut folded_eval = ro;
+        let mut start_index = query_index;
+        let mut per_round_folded_eval = Vec::new();
+
+        for round_idx in 0..num_rounds {
+            let log_folded_height = log_max_height - 1 - round_idx;
+            let opening = &query_proof.commit_phase_openings[round_idx];
+            let sibling = opening.sibling_value;
+            let beta = betas[round_idx];
+
+            // Arrange evals: evals[even] gets even-indexed value
+            let index_sibling = start_index ^ 1;
+            let (e0, e1) = if index_sibling % 2 == 0 {
+                (sibling, folded_eval)
+            } else {
+                (folded_eval, sibling)
+            };
+
+            // Advance to parent index (before fold_row, matching verify_query)
+            start_index >>= 1;
+
+            // fold_row: Lagrange interpolation of (xs0, e0) and (xs1, e1) at beta
+            let subgroup_start = BabyBear::two_adic_generator(log_folded_height + 1)
+                .exp_u64(reverse_bits_len(start_index, log_folded_height) as u64);
+            let xs0 = EF::from(subgroup_start);
+            let xs1 = EF::from(-subgroup_start); // two_adic_generator(1) = -1
+            folded_eval = e0 + (beta - xs0) * (e1 - e0) * (xs1 - xs0).inverse();
+
+            // No roll-in for Fibonacci: all reduced openings at log_max_height
+
+            per_round_folded_eval.push(ef_to_u32(&folded_eval));
+        }
+
+        // Expected final polynomial evaluation.
+        // For log_final_poly_len = 0, final_poly has 1 coefficient → eval = coeff.
+        let expected_final_eval = fri_proof.final_poly[0];
+
+        assert_eq!(
+            ef_to_u32(&folded_eval),
+            ef_to_u32(&expected_final_eval),
+            "Query {qi}: fold chain result does not match final polynomial"
+        );
+
+        query_verifications.push(QueryVerificationGolden {
+            query_index,
+            reduced_opening: ef_to_u32(&ro),
+            per_round_folded_eval,
+            final_folded_eval: ef_to_u32(&folded_eval),
+            expected_final_eval: ef_to_u32(&expected_final_eval),
+        });
+    }
+
     FriVerificationVectors {
         commit_phase_commits,
         final_poly,
         queries,
+        challenger_state,
+        log_blowup,
+        log_final_poly_len,
+        num_queries,
+        log_max_height,
+        betas: betas.iter().map(ef_to_u32).collect(),
+        query_verifications,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FRI prover vectors
+// ---------------------------------------------------------------------------
+
+/// FRI prover golden vectors: commit phase outputs, intermediate folds, query proofs.
+///
+/// Generated from a standalone synthetic polynomial to test the FRI prover
+/// implementation independently of the full STARK pipeline. Evaluations are
+/// in **bit-reversed order** matching the Plonky3 FRI prover's input format.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FriProverVectors {
+    pub log_poly_size: usize,
+    pub log_blowup: usize,
+    pub log_final_poly_len: usize,
+    pub num_queries: usize,
+
+    /// Extension field polynomial coefficients `[c0,c1,c2,c3]` each.
+    pub poly_coefficients: Vec<Vec<u32>>,
+    /// Evaluations on subgroup in bit-reversed order (FRI input).
+    pub input_evals_bit_reversed: Vec<Vec<u32>>,
+
+    /// Merkle root per commit-phase round (8-element digests).
+    pub commit_phase_commits: Vec<Vec<u32>>,
+    /// Folding challenge per round `[c0,c1,c2,c3]` each.
+    pub betas: Vec<Vec<u32>>,
+    /// Folded evaluations after each round (bit-reversed).
+    pub per_round_folded_evals: Vec<Vec<Vec<u32>>>,
+    /// Final polynomial coefficients (extension field elements).
+    pub final_poly: Vec<Vec<u32>>,
+
+    /// Per-query opening data.
+    pub query_proofs: Vec<FriQueryData>,
+}
+
+/// Generate FRI prover golden vectors by manually running the commit phase
+/// and query phase with a deterministic synthetic polynomial.
+///
+/// Parameters: `log_poly_size=4`, `log_blowup=1`, `log_final_poly_len=0`,
+/// `num_queries=2` — giving 4 folding rounds (32 → 16 → 8 → 4 → 2).
+pub fn generate_fri_prover_vectors() -> FriProverVectors {
+    use openvm_stark_backend::{
+        p3_challenger::{CanObserve, CanSampleBits, DuplexChallenger, FieldChallenger},
+        p3_commit::Mmcs,
+        p3_matrix::dense::RowMajorMatrix,
+        p3_util::{log2_strict_usize, reverse_slice_index_bits},
+    };
+    use openvm_stark_sdk::config::baby_bear_poseidon2::default_perm;
+    use p3_dft::{Radix2DitParallel, TwoAdicSubgroupDft};
+    use p3_field::{extension::BinomialExtensionField, BasedVectorSpace, Field, TwoAdicField};
+    use p3_merkle_tree::MerkleTreeMmcs;
+    use p3_symmetric::{PaddingFreeSponge, TruncatedPermutation};
+
+    type F = BabyBear;
+    type EF = BinomialExtensionField<F, 4>;
+    type PackedVal = <F as Field>::Packing;
+    type Perm = p3_baby_bear::Poseidon2BabyBear<16>;
+    type MyHash = PaddingFreeSponge<Perm, 16, 8, 8>;
+    type MyCompress = TruncatedPermutation<Perm, 2, 8, 16>;
+    type MyMmcs = MerkleTreeMmcs<PackedVal, PackedVal, MyHash, MyCompress, 8>;
+    type MyChal = DuplexChallenger<F, Perm, 16, 8>;
+
+    let log_poly_size: usize = 4;
+    let log_blowup: usize = 1;
+    let log_final_poly_len: usize = 0;
+    let num_queries: usize = 2;
+    let log_domain = log_poly_size + log_blowup; // 5, domain size = 32
+    let blowup = 1usize << log_blowup;
+    let final_poly_len = 1usize << log_final_poly_len;
+
+    fn ef_to_vec(e: &EF) -> Vec<u32> {
+        e.as_basis_coefficients_slice()
+            .iter()
+            .map(|x: &BabyBear| x.as_canonical_u32())
+            .collect()
+    }
+
+    fn make_ef(a: u32, b: u32, c: u32, d: u32) -> EF {
+        let coeffs = [F::new(a), F::new(b), F::new(c), F::new(d)];
+        EF::from_basis_coefficients_fn(|i| coeffs[i])
+    }
+
+    // 1. Create deterministic polynomial coefficients (degree 15, 16 coefficients).
+    //    Same pattern as generate_fri_folding_vectors.
+    let poly_coefficients: Vec<EF> = (0..1usize << log_poly_size)
+        .map(|i| {
+            let base = (i * 4) as u32;
+            make_ef(base + 1, base + 2, base + 3, base + 4)
+        })
+        .collect();
+
+    // 2. Evaluate on subgroup H = <two_adic_generator(log_domain)> in natural order.
+    //    Note: the FRI prover works on subgroup evaluations (not coset), because
+    //    the PCS converts coset evals to subgroup evals via change of variables.
+    let omega = F::two_adic_generator(log_domain);
+    let domain_size = 1usize << log_domain;
+
+    let eval_at = |x: F| -> EF {
+        let x_ef = EF::from(x);
+        poly_coefficients
+            .iter()
+            .rev()
+            .fold(EF::ZERO, |acc, &c| acc * x_ef + c)
+    };
+
+    let evals_natural: Vec<EF> = (0..domain_size)
+        .map(|i| eval_at(omega.exp_u64(i as u64)))
+        .collect();
+
+    // 3. Bit-reverse evaluations to match FRI prover input format.
+    let mut evals_br = evals_natural.clone();
+    reverse_slice_index_bits(&mut evals_br);
+
+    // 4. Set up MMCS and challenger.
+    let perm: Perm = default_perm();
+    let hash = MyHash::new(perm.clone());
+    let compress = MyCompress::new(perm.clone());
+    let mmcs = MyMmcs::new(hash, compress);
+    let mut challenger = MyChal::new(perm.clone());
+
+    // 5. Commit phase: iterative folding with Merkle commitments.
+    let mut folded: Vec<EF> = evals_br.clone();
+    let mut commits: Vec<Vec<u32>> = Vec::new();
+    let mut betas: Vec<Vec<u32>> = Vec::new();
+    let mut per_round_folded_evals: Vec<Vec<Vec<u32>>> = Vec::new();
+    let mut prover_data_vec: Vec<_> = Vec::new(); // Store Merkle tree data for queries
+
+    while folded.len() > blowup * final_poly_len {
+        let height = folded.len() / 2;
+        let log_height = log2_strict_usize(height);
+
+        // Flatten EF pairs to base field for MMCS commitment.
+        // Each row: [lo_c0, lo_c1, lo_c2, lo_c3, hi_c0, hi_c1, hi_c2, hi_c3]
+        let leaf_data: Vec<F> = folded
+            .chunks(2)
+            .flat_map(|pair| {
+                let lo_coeffs = pair[0].as_basis_coefficients_slice().to_vec();
+                let hi_coeffs = pair[1].as_basis_coefficients_slice().to_vec();
+                lo_coeffs.into_iter().chain(hi_coeffs)
+            })
+            .collect();
+        let mat = RowMajorMatrix::new(leaf_data, 8);
+
+        // Commit and observe.
+        let (commit, prover_data) = mmcs.commit(vec![mat]);
+        let commit_arr: [F; 8] = commit.into();
+        let commit_u32: Vec<u32> = commit_arr.iter().map(|x| x.as_canonical_u32()).collect();
+        challenger.observe(commit);
+        commits.push(commit_u32);
+
+        // grind(0) is a no-op for commit_proof_of_work_bits = 0.
+
+        // Sample folding challenge.
+        let beta: EF = challenger.sample_algebra_element();
+        betas.push(ef_to_vec(&beta));
+
+        // Fold using fold_matrix math.
+        let g_inv = F::two_adic_generator(log_height + 1).inverse();
+        let half = F::TWO.inverse();
+        let mut halve_inv_powers: Vec<F> = Vec::with_capacity(height);
+        let mut val = half;
+        for _ in 0..height {
+            halve_inv_powers.push(val);
+            val *= g_inv;
+        }
+        reverse_slice_index_bits(&mut halve_inv_powers);
+
+        let mut new_folded = Vec::with_capacity(height);
+        for i in 0..height {
+            let lo = folded[2 * i];
+            let hi = folded[2 * i + 1];
+            let hip = EF::from(halve_inv_powers[i]);
+            let result = (lo + hi).halve() + (lo - hi) * beta * hip;
+            new_folded.push(result);
+        }
+        folded = new_folded;
+
+        per_round_folded_evals.push(folded.iter().map(|e| ef_to_vec(e)).collect());
+        prover_data_vec.push(prover_data);
+    }
+
+    // 6. Compute final polynomial via IDFT.
+    let mut final_evals = folded[..final_poly_len].to_vec();
+    reverse_slice_index_bits(&mut final_evals);
+    let dft = Radix2DitParallel::<F>::default();
+    let final_poly_ef: Vec<EF> = dft.idft_algebra(final_evals);
+
+    // Observe final polynomial in challenger (matches challenger.observe_algebra_slice).
+    challenger.observe_algebra_slice::<EF>(&final_poly_ef);
+
+    let final_poly: Vec<Vec<u32>> = final_poly_ef.iter().map(|e| ef_to_vec(e)).collect();
+
+    // grind(0) is a no-op for query_proof_of_work_bits = 0.
+
+    // 7. Query phase: sample indices and generate opening proofs.
+    let log_max_height = log2_strict_usize(evals_br.len());
+    let num_rounds = commits.len();
+    let mut query_proofs: Vec<FriQueryData> = Vec::new();
+
+    for _ in 0..num_queries {
+        let query_index: usize = challenger.sample_bits(log_max_height);
+
+        let mut openings: Vec<FriCommitPhaseStep> = Vec::new();
+        for round_idx in 0..num_rounds {
+            let index_i = query_index >> round_idx;
+            let index_i_sibling = index_i ^ 1;
+            let index_pair = index_i >> 1;
+
+            // Open the Merkle tree at index_pair.
+            let batch_opening =
+                mmcs.open_batch(index_pair, &prover_data_vec[round_idx]);
+            let (opened_vals, proof_siblings) = batch_opening.unpack();
+
+            // opened_vals[0] is the base-field row (8 elements).
+            let row = &opened_vals[0];
+            assert_eq!(row.len(), 8, "Expected 8 base field elements per row");
+
+            // Reconstruct the two EF elements.
+            let ef0 = EF::from_basis_coefficients_fn(|j| row[j]);
+            let ef1 = EF::from_basis_coefficients_fn(|j| row[4 + j]);
+
+            // Sibling value: if index_i is even, sibling is hi (ef1); if odd, sibling is lo (ef0).
+            let sibling = if index_i_sibling % 2 == 0 { ef0 } else { ef1 };
+
+            let proof_u32: Vec<Vec<u32>> = proof_siblings
+                .iter()
+                .map(|digest| digest.iter().map(|x: &F| x.as_canonical_u32()).collect())
+                .collect();
+
+            openings.push(FriCommitPhaseStep {
+                sibling_value: ef_to_vec(&sibling),
+                opening_proof: proof_u32,
+            });
+        }
+
+        query_proofs.push(FriQueryData {
+            index: query_index,
+            commit_phase_openings: openings,
+        });
+    }
+
+    FriProverVectors {
+        log_poly_size,
+        log_blowup,
+        log_final_poly_len,
+        num_queries,
+        poly_coefficients: poly_coefficients.iter().map(|e| ef_to_vec(e)).collect(),
+        input_evals_bit_reversed: evals_br.iter().map(|e| ef_to_vec(e)).collect(),
+        commit_phase_commits: commits,
+        betas,
+        per_round_folded_evals,
+        final_poly,
+        query_proofs,
     }
 }
 
