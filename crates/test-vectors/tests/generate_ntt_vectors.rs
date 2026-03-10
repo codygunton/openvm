@@ -8,6 +8,7 @@ fn vectors_output_dir() -> PathBuf {
 }
 
 #[test]
+#[ignore] // Run via generate-test-vectors.sh
 fn test_generate_ntt_vectors() {
     let vectors = generate_ntt_vectors();
     // We test sizes 4, 8, 16, 32

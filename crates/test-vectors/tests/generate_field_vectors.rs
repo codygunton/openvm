@@ -8,6 +8,7 @@ fn vectors_output_dir() -> PathBuf {
 }
 
 #[test]
+#[ignore] // Run via generate-test-vectors.sh
 fn test_generate_field_vectors() {
     let vectors = generate_babybear_field_vectors();
     assert_eq!(vectors.modulus, (1u64 << 31) - (1u64 << 27) + 1);

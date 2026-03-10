@@ -8,6 +8,7 @@ fn vectors_output_dir() -> PathBuf {
 }
 
 #[test]
+#[ignore] // Run via generate-test-vectors.sh
 fn test_generate_poseidon2_vectors() {
     let vectors = generate_poseidon2_vectors();
     assert_eq!(vectors.width, 16);

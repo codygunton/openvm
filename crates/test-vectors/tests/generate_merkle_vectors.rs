@@ -8,6 +8,7 @@ fn vectors_output_dir() -> PathBuf {
 }
 
 #[test]
+#[ignore] // Run via generate-test-vectors.sh
 fn test_generate_merkle_vectors() {
     let vectors = generate_merkle_vectors();
     assert_eq!(vectors.hash_width, 16);

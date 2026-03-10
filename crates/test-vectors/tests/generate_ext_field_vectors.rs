@@ -8,6 +8,7 @@ fn vectors_output_dir() -> PathBuf {
 }
 
 #[test]
+#[ignore] // Run via generate-test-vectors.sh
 fn test_generate_ext_field_vectors() {
     let vectors = generate_babybear_ext_field_vectors();
     assert_eq!(vectors.degree, 4);
