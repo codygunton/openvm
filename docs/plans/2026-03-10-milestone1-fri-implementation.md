@@ -6,7 +6,7 @@
 
 **Architecture:** Bottom-up translation: BabyBear field → Poseidon2 hash → Merkle tree → NTT → Fiat-Shamir transcript → FRI verify. Primitives reuse pil2-proofman patterns (adapted for BabyBear). FRI protocol is freshly translated from p3-fri v0.4.1.
 
-**Tech Stack:** Python 3.10+, galois library (field arithmetic + NTT), numpy, pytest
+**Tech Stack:** Python 3.10+, galois library (field arithmetic + NTT), numpy, pytest, Maturin/PyO3 (Poseidon2 Rust FFI)
 
 ---
 
@@ -55,7 +55,11 @@ executable-spec/
 ├── pyproject.toml                    (Task 1: add galois dependency)
 ├── primitives/
 │   ├── field.py                      (Task 2: BabyBear base + quartic extension)
-│   ├── poseidon2.py                  (Task 4: permutation + compress)
+│   ├── poseidon2_ffi/                (Task 4: Rust FFI crate wrapping Plonky3 Poseidon2)
+│   │   ├── Cargo.toml
+│   │   ├── pyproject.toml
+│   │   └── src/lib.rs
+│   ├── poseidon2.py                  (Task 4: thin Python wrapper around FFI)
 │   ├── merkle.py                     (Task 5: tree build + verify)
 │   ├── ntt.py                        (Task 6: forward/inverse NTT)
 │   └── transcript.py                 (Task 7: DuplexChallenger Fiat-Shamir)
@@ -82,7 +86,7 @@ executable-spec/
 
 #### Group C: Hash Primitive (after Group A)
 
-- [ ] **Task 4**: Implement Poseidon2 + wire test_poseidon2.py
+- [ ] **Task 4**: Build Poseidon2 Rust FFI + Python wrapper + wire test_poseidon2.py
 
 #### Group D: Tree + NTT (after Group C for merkle, after Group A for NTT — parallel with each other)
 
@@ -302,97 +306,150 @@ git commit -m "wire field tests to BabyBear implementation, all passing"
 
 ---
 
-### Task 4: Implement Poseidon2 + wire tests
+### Task 4: Build Poseidon2 Rust FFI + Python wrapper + wire tests
 
 **Files:**
-- Create: `executable-spec/primitives/poseidon2.py`
+- Create: `executable-spec/primitives/poseidon2_ffi/Cargo.toml`
+- Create: `executable-spec/primitives/poseidon2_ffi/pyproject.toml`
+- Create: `executable-spec/primitives/poseidon2_ffi/src/lib.rs`
+- Create: `executable-spec/primitives/poseidon2.py` (thin wrapper)
 - Modify: `executable-spec/tests/test_poseidon2.py`
+- Update: `executable-spec/setup.sh` (build FFI crate)
 
-**Translation source:**
-- Plonky3 Poseidon2: `/home/cody/plonky3/poseidon2/src/` (implementation)
-- BabyBear-specific: `/home/cody/plonky3/baby-bear/src/` (internal linear layer constants)
-- Round constants: search Plonky3 for `RC16` or `round_constants` for BabyBear width-16
+**Pattern reference:** `/home/cody/pil2-proofman/executable-spec/primitives/poseidon2-ffi/`
+(Maturin/PyO3 crate wrapping Goldilocks Poseidon2 — we do the same for BabyBear)
 
-**Algorithm — Poseidon2 permutation (width=16, BabyBear):**
+**Approach:** Wrap Plonky3's production `Poseidon2BabyBear<16>` via PyO3, exposing a
+single `poseidon2_permute(state: list[int]) -> list[int]` function to Python. All
+round constants, linear layers, and S-box logic stay in Rust — zero chance of
+getting constants wrong.
 
-```
-Parameters:
-  WIDTH = 16
-  ROUNDS_F = 8 (4 initial full + 4 terminal full)
-  ROUNDS_P = 13 (partial/internal)
-  SBOX_DEGREE = 7
-  M_4 = [[2,3,1,1],[1,2,3,1],[1,1,2,3],[3,1,1,2]]
+**Step 1: Create the Rust FFI crate**
 
-permute(state: list[int]) -> list[int]:
-    # Initial external linear layer
-    state = external_linear_layer(state)
+`executable-spec/primitives/poseidon2_ffi/Cargo.toml`:
+```toml
+[package]
+name = "poseidon2-babybear-ffi"
+version = "0.1.0"
+edition = "2021"
 
-    # 4 initial full rounds
-    for r in range(4):
-        state = add_round_constants(state, RC16[r])
-        state = [sbox(x) for x in state]  # x^7 mod p
-        state = external_linear_layer(state)
+[lib]
+name = "poseidon2_ffi"
+crate-type = ["cdylib"]
 
-    # 13 partial rounds
-    for r in range(13):
-        state[0] = (state[0] + RC16[4 + r][0]) % P
-        state[0] = sbox(state[0])
-        state = internal_linear_layer(state)
-
-    # 4 terminal full rounds
-    for r in range(4):
-        state = add_round_constants(state, RC16[17 + r])
-        state = [sbox(x) for x in state]
-        state = external_linear_layer(state)
-
-    return state
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+p3-baby-bear = "=0.4.1"
+p3-poseidon2 = "=0.4.1"
+p3-field = "=0.4.1"
+p3-symmetric = "=0.4.1"
+openvm-stark-sdk = { git = "...", tag = "..." }
+# Or use local path to openvm crates — check what works
 ```
 
-**S-box:** `sbox(x) = x^7 mod p = x * x * x * x * x * x * x mod p`
-(compute as `x^2 * x^2 * x^2 * x` with intermediate reductions)
+**NOTE:** The exact dependency strategy needs investigation. Options:
+1. Depend on `openvm-stark-sdk` which already configures `BabyBearPoseidon2Engine`
+2. Depend directly on `p3-poseidon2` + `p3-baby-bear` and construct the permutation
+   from the same constants OpenVM uses
+3. Copy the approach from `openvm-poseidon2-air/src/babybear.rs` which has
+   `vm_poseidon2_config()` returning all constants
 
-**External linear layer (MDS light permutation for width-16):**
-Apply 4x4 circulant MDS matrix `M_4 = circ(2,3,1,1)` to each of 4 chunks of 4 elements,
-then add element-wise sums across chunks. Reference: `mds_light_permutation` in Plonky3.
+Read these files to decide:
+- `/home/cody/openvm/crates/circuits/poseidon2-air/src/babybear.rs` — constant extraction
+- `/home/cody/openvm/crates/circuits/poseidon2-air/src/config.rs` — config structure
+- `/home/cody/openvm/crates/vm/src/arch/hasher/poseidon2.rs` — permutation construction
 
-**Internal linear layer:**
-Apply `(1 + diag(V))` matrix where `V` contains specific field elements.
-Reference: `INTERNAL_DIAG_MONTY_16` in Plonky3 `baby-bear/src/`.
-These constants need to be extracted from the Rust source — search for `INTERNAL_DIAG_MONTY` or `InternalLayerParameters`.
+`executable-spec/primitives/poseidon2_ffi/src/lib.rs`:
+```rust
+use pyo3::prelude::*;
+// ... import Plonky3 BabyBear Poseidon2
 
-**Round constants:**
-Must extract from Plonky3 source. The `BabyBearPoseidon2Engine::new()` in openvm-stark-sdk
-constructs Poseidon2 with specific constants. Trace the code to find the exact values.
-File to check: `/home/cody/plonky3/poseidon2/src/babybear.rs` or similar.
+#[pyfunction]
+fn poseidon2_permute(state: Vec<u32>) -> PyResult<Vec<u32>> {
+    // Convert Vec<u32> → [BabyBear; 16]
+    // Apply Poseidon2 permutation
+    // Convert [BabyBear; 16] → Vec<u32>
+}
 
-**Compression function:**
+#[pymodule]
+fn poseidon2_ffi(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(poseidon2_permute, m)?)?;
+    m.add("WIDTH", 16u32)?;
+    m.add("RATE", 8u32)?;
+    m.add("DIGEST_SIZE", 8u32)?;
+    Ok(())
+}
+```
+
+`executable-spec/primitives/poseidon2_ffi/pyproject.toml`:
+```toml
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "poseidon2_ffi"
+requires-python = ">=3.10"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "poseidon2_ffi"
+```
+
+**Step 2: Create thin Python wrapper**
+
+`executable-spec/primitives/poseidon2.py`:
 ```python
+"""Poseidon2 hash over BabyBear via Rust FFI.
+
+Wraps Plonky3's production Poseidon2BabyBear<16> permutation.
+"""
+
+from poseidon2_ffi import poseidon2_permute, WIDTH, RATE, DIGEST_SIZE
+
+
+def permute(state: list[int]) -> list[int]:
+    """Apply Poseidon2 permutation to width-16 state."""
+    assert len(state) == WIDTH
+    return poseidon2_permute(state)
+
+
 def compress(left: list[int], right: list[int]) -> list[int]:
-    """Compress two 8-element digests into one 8-element digest."""
-    state = left + right  # Concatenate to width-16
-    state = permute(state)
-    return state[:8]  # Truncate to first 8
-```
+    """Compress two 8-element digests into one.
 
-**Hashing (PaddingFreeSponge):**
-```python
+    TruncatedPermutation: concatenate inputs, permute, truncate.
+    Reference: p3-symmetric TruncatedPermutation<Perm, 2, 8, 16>
+    """
+    assert len(left) == DIGEST_SIZE and len(right) == DIGEST_SIZE
+    state = list(left) + list(right)
+    state = permute(state)
+    return state[:DIGEST_SIZE]
+
+
 def hash_to_digest(inputs: list[int]) -> list[int]:
-    """Hash variable-length input to 8-element digest."""
-    state = [0] * 16
+    """Hash variable-length input to 8-element digest.
+
+    PaddingFreeSponge: overwrite rate, permute, repeat.
+    Reference: p3-symmetric PaddingFreeSponge<Perm, 16, 8, 8>
+    """
+    state = [0] * WIDTH
     i = 0
     while i < len(inputs):
-        # Fill rate portion (first 8 elements)
-        for j in range(8):
+        for j in range(RATE):
             if i < len(inputs):
                 state[j] = inputs[i]
                 i += 1
-            else:
-                break
         state = permute(state)
-    return state[:8]
+    return state[:DIGEST_SIZE]
 ```
 
-**Test wiring (test_poseidon2.py):**
+**Step 3: Build the FFI**
+
+Run: `cd /home/cody/openvm/executable-spec/primitives/poseidon2_ffi && maturin develop --release`
+Expected: `poseidon2_ffi` module importable in Python
+
+**Step 4: Wire test_poseidon2.py**
+
 ```python
 from primitives.poseidon2 import permute, compress
 
@@ -408,15 +465,25 @@ class TestPoseidon2:
             assert result == case["expected"]
 ```
 
-**Step: Run tests**
+**Step 5: Run tests**
 
 Run: `cd /home/cody/openvm/executable-spec && python -m pytest tests/test_poseidon2.py -v`
 Expected: All 2 tests PASS
 
-**Commit:**
+**Step 6: Update setup.sh**
+
+Add the FFI build step to setup.sh (following pil2-proofman's pattern):
 ```bash
-git add executable-spec/primitives/poseidon2.py executable-spec/tests/test_poseidon2.py
-git commit -m "implement Poseidon2 permutation and compression, tests passing"
+#!/bin/bash
+cd "$(dirname "$0")/primitives/poseidon2_ffi" && maturin develop --release
+```
+
+**Step 7: Commit**
+
+```bash
+git add executable-spec/primitives/poseidon2_ffi/ executable-spec/primitives/poseidon2.py \
+        executable-spec/tests/test_poseidon2.py executable-spec/setup.sh
+git commit -m "add Poseidon2 BabyBear FFI crate and Python wrapper, tests passing"
 ```
 
 ---
