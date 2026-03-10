@@ -8,6 +8,8 @@ Vectors are in tests/test-data/primitives/ntt.json.
 import pytest
 from helpers import load_test_vectors
 
+from primitives.ntt import ntt, intt
+
 
 class TestNTT:
     """NTT and inverse NTT over BabyBear."""
@@ -19,19 +21,17 @@ class TestNTT:
     def test_forward_ntt(self, vectors):
         """Forward NTT: coefficient form -> evaluation form."""
         for case in vectors["forward"]:
-            coeffs = case["input"]
-            expected_evals = case["expected"]
-            assert False, f"Not implemented: NTT on {len(coeffs)}-element polynomial"
+            result = ntt(case["input"])
+            assert result == case["expected"]
 
     def test_inverse_ntt(self, vectors):
         """Inverse NTT: evaluation form -> coefficient form."""
         for case in vectors["inverse"]:
-            evals = case["input"]
-            expected_coeffs = case["expected"]
-            assert False, f"Not implemented: INTT on {len(evals)}-element evaluation"
+            result = intt(case["input"])
+            assert result == case["expected"]
 
     def test_ntt_round_trip(self, vectors):
         """NTT(INTT(x)) == x for all test cases."""
         for case in vectors["forward"]:
             coeffs = case["input"]
-            assert False, f"Not implemented: NTT round-trip on {len(coeffs)} elements"
+            assert intt(ntt(coeffs)) == coeffs

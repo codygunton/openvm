@@ -8,6 +8,8 @@ Vectors are in tests/test-data/primitives/poseidon2.json.
 import pytest
 from helpers import load_test_vectors
 
+from primitives.poseidon2 import permute, compress
+
 
 class TestPoseidon2:
     """Poseidon2 permutation and compression over BabyBear."""
@@ -19,13 +21,11 @@ class TestPoseidon2:
     def test_permutation(self, vectors):
         """Full Poseidon2 permutation on width-16 state."""
         for case in vectors["permutation"]:
-            input_state = case["input"]
-            expected_output = case["expected"]
-            assert False, f"Not implemented: permutation on {len(input_state)}-element state"
+            result = permute(case["input"])
+            assert result == case["expected"]
 
     def test_compress(self, vectors):
         """Poseidon2 compression: two 8-element inputs -> 8-element output."""
         for case in vectors["compress"]:
-            left, right = case["left"], case["right"]
-            expected = case["expected"]
-            assert False, f"Not implemented: compress({len(left)} + {len(right)} elements)"
+            result = compress(case["left"], case["right"])
+            assert result == case["expected"]

@@ -72,7 +72,7 @@ members = [
     "scripts",
     "crates/test-vectors",
 ]
-exclude = ["crates/sdk/example", "benchmarks/guest/**"]
+exclude = ["crates/sdk/example", "benchmarks/guest/**", "executable-spec/primitives/poseidon2_ffi"]
 resolver = "2"
 
 # Fastest runtime configuration
