@@ -4,15 +4,18 @@ These tests exercise the complete proving pipeline: trace generation,
 constraint evaluation, polynomial commitment, FRI, and proof serialization.
 
 Vectors are in tests/test-data/e2e/.
+
+- ``fibonacci_stark`` is always available (fast, single-AIR).
+- ``rv32im_fibonacci`` is included when its vectors exist (heavy generation).
 """
 import pytest
-from helpers import load_test_vectors
+from helpers import load_test_vectors, e2e_program_params
 
 
 class TestStarkProverE2E:
     """Full STARK prover produces proofs matching the Rust implementation."""
 
-    @pytest.fixture(params=["fibonacci_stark"])
+    @pytest.fixture(params=e2e_program_params())
     def program_name(self, request):
         return request.param
 
