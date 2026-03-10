@@ -8,6 +8,9 @@ Vectors are in tests/test-data/fri/.
 import pytest
 from helpers import load_test_vectors
 
+from primitives.field import BABYBEAR_PRIME, GENERATOR
+from protocol.fri import fri_fold, verify_fri
+
 
 class TestFRIFolding:
     """FRI folding produces golden-vector-identical intermediate states."""
@@ -18,17 +21,44 @@ class TestFRIFolding:
 
     def test_fold_per_round(self, vectors):
         """Each FRI folding round produces the expected polynomial."""
+        log_domain = vectors["log_poly_size"] + vectors["log_blowup"]
+        shift = GENERATOR
+
         for round_data in vectors["rounds"]:
-            round_idx = round_data["round"]
-            input_poly = round_data["input"]
-            challenge = round_data["challenge"]
-            expected_output = round_data["expected_output"]
-            assert False, f"Not implemented: FRI fold round {round_idx}"
+            result = fri_fold(
+                round_data["input"],
+                round_data["challenge"],
+                log_domain,
+                shift,
+            )
+            assert result == round_data["expected_output"], (
+                f"Round {round_data['round']} mismatch"
+            )
+            shift = (shift * shift) % BABYBEAR_PRIME
+            log_domain -= 1
 
     def test_final_polynomial(self, vectors):
-        """Final FRI polynomial matches golden value."""
+        """Running all fold rounds produces the final polynomial evaluations."""
+        log_domain = vectors["log_poly_size"] + vectors["log_blowup"]
+        shift = GENERATOR
+
+        current_evals = vectors["rounds"][0]["input"]
+        for round_data in vectors["rounds"]:
+            current_evals = fri_fold(
+                current_evals,
+                round_data["challenge"],
+                log_domain,
+                shift,
+            )
+            shift = (shift * shift) % BABYBEAR_PRIME
+            log_domain -= 1
+
+        # All remaining evaluations should equal the final polynomial constant
         expected = vectors["final_polynomial"]
-        assert False, f"Not implemented: FRI final polynomial ({len(expected)} coefficients)"
+        for val in current_evals:
+            assert val == expected[0], (
+                f"Final polynomial value mismatch: {val} != {expected[0]}"
+            )
 
 
 class TestFRIVerification:
@@ -39,7 +69,13 @@ class TestFRIVerification:
         return load_test_vectors("fri", "fri_verification")
 
     def test_query_verification(self, vectors):
-        """Each FRI query response verifies correctly."""
-        for query in vectors["queries"]:
-            query_index = query["index"]
-            assert False, f"Not implemented: FRI query verification at index {query_index}"
+        """FRI proof structure verifies: transcript replay and Merkle proof consistency."""
+        result = verify_fri(
+            vectors["commit_phase_commits"],
+            vectors["final_poly"],
+            vectors["queries"],
+            log_blowup=1,
+            log_final_poly_len=0,
+            num_queries=2,
+        )
+        assert result
