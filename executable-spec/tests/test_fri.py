@@ -143,8 +143,8 @@ class TestFRIVerification:
 
     def test_fold_chain_intermediates(self, vectors):
         """Each fold round produces golden-vector-identical intermediate values."""
-        from primitives.field import W, ff4, ff4_coeffs, ff4_from_base
-        from protocol.fri import fold_row, hash_fri_leaf, reverse_bits_len
+        from primitives.field import W, ff4, ff4_coeffs, ff4_from_base, reverse_bits_len
+        from protocol.fri import fold_row, hash_fri_leaf
         from primitives.merkle import verify_opening_prehashed
 
         log_max_height = vectors["log_max_height"]
@@ -217,7 +217,7 @@ class TestFRIProver:
             num_queries=vectors["num_queries"],
             challenger=challenger,
         )
-        assert result["commit_phase_commits"] == vectors["commit_phase_commits"], (
+        assert result.commit_phase_commits == vectors["commit_phase_commits"], (
             "Merkle root mismatch"
         )
 
@@ -231,7 +231,7 @@ class TestFRIProver:
             num_queries=vectors["num_queries"],
             challenger=challenger,
         )
-        assert result["final_poly"] == vectors["final_poly"], (
+        assert result.final_poly == vectors["final_poly"], (
             "Final polynomial mismatch"
         )
 
@@ -245,7 +245,7 @@ class TestFRIProver:
             num_queries=vectors["num_queries"],
             challenger=challenger,
         )
-        assert result["betas"] == vectors["betas"], "Beta mismatch"
+        assert result.betas == vectors["betas"], "Beta mismatch"
 
     def test_query_indices(self, vectors):
         """Query indices from transcript match golden indices."""
@@ -258,7 +258,7 @@ class TestFRIProver:
             challenger=challenger,
         )
         for qi in range(vectors["num_queries"]):
-            assert result["query_proofs"][qi]["index"] == \
+            assert result.query_proofs[qi].index == \
                 vectors["query_proofs"][qi]["index"], (
                     f"Query {qi}: index mismatch"
                 )
@@ -275,12 +275,12 @@ class TestFRIProver:
         )
         for qi in range(vectors["num_queries"]):
             for ri, step in enumerate(
-                result["query_proofs"][qi]["commit_phase_openings"]
+                result.query_proofs[qi].commit_phase_openings
             ):
                 expected = vectors["query_proofs"][qi][
                     "commit_phase_openings"
                 ][ri]["sibling_value"]
-                assert step["sibling_value"] == expected, (
+                assert step.sibling_value == expected, (
                     f"Query {qi}, round {ri}: sibling_value mismatch"
                 )
 
@@ -296,12 +296,12 @@ class TestFRIProver:
         )
         for qi in range(vectors["num_queries"]):
             for ri, step in enumerate(
-                result["query_proofs"][qi]["commit_phase_openings"]
+                result.query_proofs[qi].commit_phase_openings
             ):
                 expected = vectors["query_proofs"][qi][
                     "commit_phase_openings"
                 ][ri]["opening_proof"]
-                assert step["opening_proof"] == expected, (
+                assert step.opening_proof == expected, (
                     f"Query {qi}, round {ri}: opening_proof mismatch"
                 )
 
@@ -316,19 +316,28 @@ class TestFRIProver:
             challenger=challenger,
         )
         # Check commits
-        assert proof["commit_phase_commits"] == \
+        assert proof.commit_phase_commits == \
             vectors["commit_phase_commits"], "Commits mismatch"
         # Check final poly
-        assert proof["final_poly"] == vectors["final_poly"], \
+        assert proof.final_poly == vectors["final_poly"], \
             "Final poly mismatch"
         # Check betas
-        assert proof["betas"] == vectors["betas"], "Betas mismatch"
+        assert proof.betas == vectors["betas"], "Betas mismatch"
         # Check folded evals per round
-        assert proof["folded_per_round"] == \
+        assert proof.folded_per_round == \
             vectors["per_round_folded_evals"], "Folded evals mismatch"
         # Check query proofs
         for qi in range(vectors["num_queries"]):
-            assert proof["query_proofs"][qi] == \
-                vectors["query_proofs"][qi], (
-                    f"Query {qi}: full proof mismatch"
+            qp = proof.query_proofs[qi]
+            expected_qp = vectors["query_proofs"][qi]
+            assert qp.index == expected_qp["index"], (
+                f"Query {qi}: index mismatch"
+            )
+            for ri, step in enumerate(qp.commit_phase_openings):
+                expected_step = expected_qp["commit_phase_openings"][ri]
+                assert step.sibling_value == expected_step["sibling_value"], (
+                    f"Query {qi}, round {ri}: sibling_value mismatch"
+                )
+                assert step.opening_proof == expected_step["opening_proof"], (
+                    f"Query {qi}, round {ri}: opening_proof mismatch"
                 )

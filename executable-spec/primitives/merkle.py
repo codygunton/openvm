@@ -7,20 +7,23 @@ Reference:
     p3-merkle-tree (FieldMerkleTreeMmcs).
 """
 
+from primitives.field import Digest, MerklePath
 from primitives.poseidon2 import hash_to_digest, compress
 
 
 def build_merkle_tree(
     leaves: list[list[int]],
-) -> tuple[list[int], list[list[list[int]]]]:
-    """Build a binary Merkle tree from leaves.
+) -> tuple[Digest, list[list[Digest]]]:
+    """Build binary Merkle tree, returning (root, levels).
 
     Args:
-        leaves: List of leaf data (each leaf is a list of field elements).
+        leaves: Leaf data (each a list of field elements, hashed internally).
 
     Returns:
-        Tuple of (root_digest, tree_levels) where tree_levels[0] is the leaf
-        digests and tree_levels[-1] is [root].
+        (root_digest, tree_levels) where tree_levels[0] is leaf digests.
+
+    Reference:
+        p3-merkle-tree (FieldMerkleTreeMmcs)
     """
     # Hash each leaf to a digest
     digests = [hash_to_digest(leaf) for leaf in leaves]
@@ -40,16 +43,12 @@ def build_merkle_tree(
 
 
 def get_opening_proof(
-    tree: list[list[list[int]]], leaf_index: int
-) -> list[list[int]]:
-    """Get Merkle opening proof (sibling digests from leaf to root).
+    tree: list[list[Digest]], leaf_index: int
+) -> MerklePath:
+    """Get Merkle opening proof (sibling digests, leaf to root).
 
-    Args:
-        tree: Tree levels from build_merkle_tree.
-        leaf_index: Index of the leaf to open.
-
-    Returns:
-        List of sibling digests, one per tree level (excluding root level).
+    Reference:
+        p3-merkle-tree (FieldMerkleTreeMmcs)
     """
     proof = []
     idx = leaf_index
@@ -60,53 +59,16 @@ def get_opening_proof(
     return proof
 
 
-def verify_opening(
-    root: list[int],
-    leaf: list[int],
-    leaf_index: int,
-    proof: list[list[int]],
-) -> bool:
-    """Verify a Merkle opening proof.
-
-    Args:
-        root: Expected root digest.
-        leaf: Leaf data (unhashed).
-        leaf_index: Index of the leaf in the tree.
-        proof: Sibling digests from leaf level to root.
-
-    Returns:
-        True if the proof is valid.
-    """
-    current = hash_to_digest(leaf)
-    idx = leaf_index
-    for sibling in proof:
-        if idx % 2 == 0:
-            current = compress(current, sibling)
-        else:
-            current = compress(sibling, current)
-        idx >>= 1
-    return current == root
-
-
 def verify_opening_prehashed(
-    root: list[int],
-    leaf_digest: list[int],
+    root: Digest,
+    leaf_digest: Digest,
     leaf_index: int,
-    proof: list[list[int]],
+    proof: MerklePath,
 ) -> bool:
-    """Verify a Merkle opening proof when the leaf is already hashed.
+    """Verify Merkle opening proof for pre-hashed leaf.
 
-    Used for FRI commit-phase proofs where the leaf (pair of extension field
-    elements) is hashed externally.
-
-    Args:
-        root: Expected root digest.
-        leaf_digest: Already-hashed leaf digest.
-        leaf_index: Index of the leaf in the tree.
-        proof: Sibling digests from leaf level to root.
-
-    Returns:
-        True if the proof is valid.
+    Reference:
+        p3-merkle-tree (FieldMerkleTreeMmcs::verify_batch)
     """
     current = leaf_digest
     idx = leaf_index
@@ -117,3 +79,17 @@ def verify_opening_prehashed(
             current = compress(sibling, current)
         idx >>= 1
     return current == root
+
+
+def verify_opening(
+    root: Digest,
+    leaf: list[int],
+    leaf_index: int,
+    proof: MerklePath,
+) -> bool:
+    """Verify Merkle opening proof for unhashed leaf data.
+
+    Reference:
+        p3-merkle-tree (FieldMerkleTreeMmcs::verify_batch)
+    """
+    return verify_opening_prehashed(root, hash_to_digest(leaf), leaf_index, proof)

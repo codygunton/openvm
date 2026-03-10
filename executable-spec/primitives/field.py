@@ -32,6 +32,7 @@ BABYBEAR_PRIME = 2013265921  # 2^31 - 2^27 + 1
 FIELD_EXTENSION_DEGREE = 4
 TWO_ADICITY = 27  # p - 1 = 2^27 * 15
 GENERATOR = 31  # Multiplicative generator (Val::GENERATOR in Plonky3)
+TWO_INV = pow(2, BABYBEAR_PRIME - 2, BABYBEAR_PRIME)  # Multiplicative inverse of 2
 
 FF = galois.GF(BABYBEAR_PRIME)
 """Base field GF(p) - BabyBear prime field."""
@@ -68,6 +69,12 @@ else:
 FF4Poly = FF4  # Polynomial over extension field
 FFPoly = FF  # Polynomial over base field
 HashOutput = list[int]  # 8-element Poseidon2 digest
+
+# Semantic type aliases for protocol code
+Fe = int                    # Base field element (BabyBear, in [0, p))
+EF4Coeffs = list[int]       # Extension field element as [c0,c1,c2,c3]
+Digest = list[int]          # 8-element Poseidon2 digest (alias of HashOutput)
+MerklePath = list[Digest]   # Merkle opening proof (list of sibling digests)
 
 
 # --- Coefficient Order Conversion ---
@@ -208,6 +215,36 @@ def get_omega_inv(n_bits: int) -> int:
         Integer inverse root in [0, p).
     """
     return W_INV[n_bits]
+
+
+def inv_mod(x: int) -> int:
+    """Multiplicative inverse of x modulo BABYBEAR_PRIME."""
+    return pow(x, BABYBEAR_PRIME - 2, BABYBEAR_PRIME)
+
+
+# --- Bit Reversal Utilities ---
+
+
+def reverse_bits_len(x: int, bit_len: int) -> int:
+    """Reverse the lowest bit_len bits of x.
+
+    Reference:
+        p3-util-0.4.2/src/lib.rs
+    """
+    result = 0
+    for _ in range(bit_len):
+        result = (result << 1) | (x & 1)
+        x >>= 1
+    return result
+
+
+def bit_reverse_list(lst: list) -> list:
+    """Reorder list elements by bit-reversing their indices."""
+    n = len(lst)
+    if n <= 1:
+        return list(lst)
+    log_n = n.bit_length() - 1
+    return [lst[reverse_bits_len(i, log_n)] for i in range(n)]
 
 
 # --- Montgomery Batch Inversion ---
