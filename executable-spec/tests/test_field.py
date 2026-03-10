@@ -8,6 +8,8 @@ Vectors are in tests/test-data/primitives/babybear_field.json.
 import pytest
 from helpers import load_test_vectors
 
+from primitives.field import FF, FF4, ff4, ff4_coeffs
+
 
 class TestBabyBearField:
     """BabyBear prime field (p = 2^31 - 2^27 + 1) arithmetic."""
@@ -19,32 +21,32 @@ class TestBabyBearField:
     def test_addition(self, vectors):
         """Field addition: (a + b) mod p."""
         for case in vectors["addition"]:
-            a, b, expected = case["a"], case["b"], case["expected"]
-            assert False, f"Not implemented: {a} + {b} should equal {expected}"
+            a, b, expected = FF(case["a"]), FF(case["b"]), FF(case["expected"])
+            assert a + b == expected
 
     def test_multiplication(self, vectors):
         """Field multiplication: (a * b) mod p."""
         for case in vectors["multiplication"]:
-            a, b, expected = case["a"], case["b"], case["expected"]
-            assert False, f"Not implemented: {a} * {b} should equal {expected}"
+            a, b, expected = FF(case["a"]), FF(case["b"]), FF(case["expected"])
+            assert a * b == expected
 
     def test_inverse(self, vectors):
         """Multiplicative inverse: a^(-1) mod p."""
         for case in vectors["inverse"]:
-            a, expected = case["a"], case["expected"]
-            assert False, f"Not implemented: inverse({a}) should equal {expected}"
+            a, expected = FF(case["a"]), FF(case["expected"])
+            assert a ** -1 == expected
 
     def test_subtraction(self, vectors):
         """Field subtraction: (a - b) mod p."""
         for case in vectors["subtraction"]:
-            a, b, expected = case["a"], case["b"], case["expected"]
-            assert False, f"Not implemented: {a} - {b} should equal {expected}"
+            a, b, expected = FF(case["a"]), FF(case["b"]), FF(case["expected"])
+            assert a - b == expected
 
     def test_negation(self, vectors):
         """Additive inverse: -a mod p."""
         for case in vectors["negation"]:
-            a, expected = case["a"], case["expected"]
-            assert False, f"Not implemented: negation({a}) should equal {expected}"
+            a, expected = FF(case["a"]), FF(case["expected"])
+            assert -a == expected
 
 
 class TestBabyBearExtensionField:
@@ -57,14 +59,22 @@ class TestBabyBearExtensionField:
     def test_ext_addition(self, vectors):
         """Extension field addition."""
         for case in vectors["addition"]:
-            assert False, f"Not implemented: ext field addition"
+            a = ff4(case["a"]["coeffs"])
+            b = ff4(case["b"]["coeffs"])
+            expected = ff4(case["expected"]["coeffs"])
+            assert a + b == expected
 
     def test_ext_multiplication(self, vectors):
         """Extension field multiplication."""
         for case in vectors["multiplication"]:
-            assert False, f"Not implemented: ext field multiplication"
+            a = ff4(case["a"]["coeffs"])
+            b = ff4(case["b"]["coeffs"])
+            expected = ff4(case["expected"]["coeffs"])
+            assert a * b == expected
 
     def test_ext_inverse(self, vectors):
         """Extension field inverse."""
         for case in vectors["inverse"]:
-            assert False, f"Not implemented: ext field inverse"
+            a = ff4(case["a"]["coeffs"])
+            expected = ff4(case["expected"]["coeffs"])
+            assert a ** -1 == expected

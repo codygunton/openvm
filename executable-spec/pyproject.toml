@@ -3,10 +3,14 @@ name = "executable-spec"
 version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
+    "galois>=0.4.1",
     "numpy>=1.24.0",
     "pytest>=7.0.0",
     "pytest-xdist>=3.0.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["primitives*", "protocol*", "constraints*", "witness*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
