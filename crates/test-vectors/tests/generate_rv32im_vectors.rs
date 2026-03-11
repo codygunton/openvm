@@ -118,7 +118,12 @@ fn prove_rv32im_fibonacci() -> E2eProofVectors {
     .expect("rv32im fibonacci proof should succeed");
 
     assert!(!vdata.is_empty(), "should have at least one segment proof");
-    extract_proof_vectors("rv32im_fibonacci", &vdata[0].data.proof, &fri_params)
+    extract_proof_vectors(
+        "rv32im_fibonacci",
+        &vdata[0].data.proof,
+        &vdata[0].data.vk,
+        &fri_params,
+    )
 }
 
 #[test]

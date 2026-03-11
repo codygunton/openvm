@@ -102,3 +102,15 @@ class Challenger:
         self.sponge_state = permute(self.sponge_state)
 
         self.output_buffer = list(self.sponge_state[:RATE])
+
+    def clone(self) -> "Challenger":
+        """Deep copy this challenger's state.
+
+        Used by the prover for proof-of-work grinding.
+
+        Reference:
+            duplex_challenger.rs Clone impl
+        """
+        return Challenger.from_state(
+            self.sponge_state, self.input_buffer, self.output_buffer
+        )

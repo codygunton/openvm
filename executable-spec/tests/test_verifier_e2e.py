@@ -8,9 +8,43 @@ Vectors are in tests/test-data/e2e/.
 
 - ``fibonacci_stark`` is always available (fast, single-AIR).
 - ``rv32im_fibonacci`` is included when its vectors exist (heavy generation).
+- ``revm_transfer`` is included when its vectors exist (heavy generation).
 """
+import json
+
 import pytest
-from helpers import load_test_vectors, e2e_program_params, TEST_DATA_DIR
+from helpers import load_test_vectors, e2e_program_params
+
+from protocol.proof import (
+    parse_proof_json,
+    parse_vk_json,
+    parse_fri_params,
+)
+from protocol.stark import (
+    VerificationError,
+    verify_stark,
+)
+
+
+def _load_e2e(vectors):
+    """Parse proof, VK, and FRI params from e2e test vectors.
+
+    Returns (proof, vk, fri_params).
+    """
+    assert "verifying_key" in vectors and "vk_bytes_hex" in vectors["verifying_key"], (
+        "VK data not available — regenerate test vectors"
+    )
+
+    proof_bytes = bytes.fromhex(vectors["proof_bytes_hex"])
+    proof_json = json.loads(proof_bytes)
+    proof = parse_proof_json(proof_json)
+
+    vk_bytes = bytes.fromhex(vectors["verifying_key"]["vk_bytes_hex"])
+    vk_json = json.loads(vk_bytes)
+    vk = parse_vk_json(vk_json)
+
+    fri_params = parse_fri_params(vectors["fri_params"])
+    return proof, vk, fri_params
 
 
 class TestStarkVerifierE2E:
@@ -24,23 +58,47 @@ class TestStarkVerifierE2E:
     def vectors(self, program_name):
         return load_test_vectors("e2e", program_name)
 
-    @pytest.fixture
-    def proof_binary(self, program_name):
-        proof_path = TEST_DATA_DIR / "e2e" / f"{program_name}_proof.bin"
-        if not proof_path.exists():
-            raise FileNotFoundError(
-                f"Binary proof not found: {proof_path}\n"
-                f"Run generate-test-vectors.sh to create proof artifacts."
-            )
-        return proof_path.read_bytes()
-
-    def test_verify_rust_proof(self, program_name, vectors, proof_binary):
+    def test_verify_valid_proof(self, program_name, vectors):
         """Verifier accepts a valid proof from the Rust prover."""
-        assert False, (
-            f"Not implemented: verify Rust proof for '{program_name}' "
-            f"({len(proof_binary)} bytes)"
-        )
+        proof, vk, fri_params = _load_e2e(vectors)
+        verify_stark(vk, proof, fri_params)
 
-    def test_reject_corrupted_proof(self, program_name, vectors, proof_binary):
-        """Verifier rejects a proof with a corrupted commitment."""
-        assert False, f"Not implemented: reject corrupted proof for '{program_name}'"
+    def test_reject_corrupted_quotient_commitment(self, program_name, vectors):
+        """Verifier rejects a proof with a corrupted quotient commitment."""
+        proof, vk, fri_params = _load_e2e(vectors)
+        proof.commitments.quotient[0] ^= 1
+
+        with pytest.raises((VerificationError, AssertionError)):
+            verify_stark(vk, proof, fri_params)
+
+    def test_reject_corrupted_main_commitment(self, program_name, vectors):
+        """Verifier rejects a proof with a corrupted main trace commitment."""
+        proof, vk, fri_params = _load_e2e(vectors)
+        proof.commitments.main_trace[0][0] ^= 1
+
+        with pytest.raises((VerificationError, AssertionError)):
+            verify_stark(vk, proof, fri_params)
+
+    def test_reject_corrupted_public_value(self, program_name, vectors):
+        """Verifier rejects a proof with a corrupted public value."""
+        proof, vk, fri_params = _load_e2e(vectors)
+
+        # Find the first AIR that has public values
+        found = False
+        for ap in proof.per_air:
+            if ap.public_values:
+                ap.public_values[0] ^= 1
+                found = True
+                break
+        assert found, "No AIR with public values — test vector is incomplete"
+
+        with pytest.raises((VerificationError, AssertionError)):
+            verify_stark(vk, proof, fri_params)
+
+    def test_reject_wrong_vk(self, program_name, vectors):
+        """Verifier rejects a proof verified against a modified VK."""
+        proof, vk, fri_params = _load_e2e(vectors)
+        vk.pre_hash[0] ^= 1
+
+        with pytest.raises((VerificationError, AssertionError)):
+            verify_stark(vk, proof, fri_params)

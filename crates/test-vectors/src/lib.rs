@@ -6,7 +6,10 @@
 
 use std::path::Path;
 
-use openvm_stark_backend::proof::Proof;
+use openvm_stark_backend::{
+    keygen::types::MultiStarkVerifyingKey,
+    proof::Proof,
+};
 use openvm_stark_sdk::config::{baby_bear_poseidon2::BabyBearPoseidon2Config, FriParameters};
 use p3_baby_bear::BabyBear;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
@@ -637,6 +640,84 @@ pub struct AirProofMeta {
     pub public_values: Vec<u32>,
 }
 
+// ---------------------------------------------------------------------------
+// Verifying key (VK) vectors
+// ---------------------------------------------------------------------------
+
+/// Trace width metadata for a single AIR.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TraceWidthMeta {
+    pub preprocessed: Option<usize>,
+    pub cached_mains: Vec<usize>,
+    pub common_main: usize,
+    pub after_challenge: Vec<usize>,
+}
+
+/// STARK verifying parameters for a single AIR.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StarkVerifyingParamsMeta {
+    pub width: TraceWidthMeta,
+    pub num_public_values: usize,
+    pub num_exposed_values_after_challenge: Vec<usize>,
+    pub num_challenges_to_sample: Vec<usize>,
+}
+
+/// Interaction metadata (expressions are referenced by DAG node index).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InteractionMeta {
+    pub message: Vec<usize>,
+    pub count: usize,
+    pub bus_index: u16,
+    pub count_weight: u32,
+}
+
+/// Per-AIR verifying key data.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AirVerifyingKeyMeta {
+    pub params: StarkVerifyingParamsMeta,
+    pub quotient_degree: u8,
+    pub rap_phase_seq_kind: String,
+    /// Optional preprocessed commitment (8 canonical u32s), or null.
+    pub preprocessed_commitment: Option<Vec<u32>>,
+    /// Number of symbolic expression DAG nodes.
+    pub num_symbolic_nodes: usize,
+    /// Number of AIR constraints (indices into the DAG).
+    pub num_constraints: usize,
+    /// Number of interactions.
+    pub num_interactions: usize,
+    /// Interaction metadata (message field indices, count index, bus).
+    pub interactions: Vec<InteractionMeta>,
+}
+
+/// Linear constraint on trace heights.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinearConstraintMeta {
+    pub coefficients: Vec<u32>,
+    pub threshold: u32,
+}
+
+/// Serialized verifying key data, suitable for Python consumption.
+///
+/// Provides both a hex-encoded full VK (for exact round-trip fidelity) and
+/// human-readable extracted metadata.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerifyingKeyVectors {
+    /// VK hash observed at the start of the Fiat-Shamir transcript (8 canonical u32s).
+    pub pre_hash: Vec<u32>,
+    /// Per-AIR verifying key metadata.
+    pub per_air: Vec<AirVerifyingKeyMeta>,
+    /// Linear constraints on trace heights.
+    pub trace_height_constraints: Vec<LinearConstraintMeta>,
+    /// Proof-of-work bits for the deep composition polynomial.
+    pub deep_pow_bits: usize,
+    /// Proof-of-work bits for the log-up phase.
+    pub log_up_pow_bits: usize,
+    /// Hex-encoded serde_json-serialized `MultiStarkVerifyingKey<BabyBearPoseidon2Config>`.
+    pub vk_bytes_hex: String,
+    /// Length of the serialized VK in bytes.
+    pub vk_bytes_len: usize,
+}
+
 /// E2E proof test vectors for a Fibonacci STARK.
 ///
 /// Contains serialized proof bytes (via `serde_json`), FRI parameters, and
@@ -653,6 +734,8 @@ pub struct E2eProofVectors {
     /// Quotient commitment as an array of canonical u32 values.
     pub quotient_commitment: Vec<u32>,
     pub fri_params: FriParamsMeta,
+    /// Verifying key data for Python verification.
+    pub verifying_key: VerifyingKeyVectors,
     /// Hex-encoded serde_json-serialized `Proof<BabyBearPoseidon2Config>`.
     pub proof_bytes_hex: String,
     /// Length of the binary proof in bytes.
@@ -703,17 +786,110 @@ pub fn generate_e2e_fibonacci_vectors() -> E2eProofVectors {
         .run_test(fib_air, fib_ctx)
         .expect("Fibonacci STARK proof should succeed");
 
-    extract_proof_vectors("fibonacci_stark", &vdata.data.proof, &fri_params)
+    extract_proof_vectors(
+        "fibonacci_stark",
+        &vdata.data.proof,
+        &vdata.data.vk,
+        &fri_params,
+    )
 }
 
-/// Extract [`E2eProofVectors`] from a proof and FRI parameters.
+/// Extract [`VerifyingKeyVectors`] from a `MultiStarkVerifyingKey`.
+///
+/// Serializes the VK to hex-encoded JSON bytes and extracts human-readable
+/// metadata for each AIR's constraints, widths, and interactions.
+pub fn extract_vk_vectors(
+    vk: &MultiStarkVerifyingKey<BabyBearPoseidon2Config>,
+) -> VerifyingKeyVectors {
+    let pre_hash_arr: [BabyBear; 8] = vk.pre_hash.into();
+    let pre_hash: Vec<u32> = pre_hash_arr.iter().map(|x| x.as_canonical_u32()).collect();
+
+    let per_air: Vec<AirVerifyingKeyMeta> = vk
+        .inner
+        .per_air
+        .iter()
+        .map(|svk| {
+            let preprocessed_commitment = svk.preprocessed_data.as_ref().map(|pd| {
+                let arr: [BabyBear; 8] = pd.commit.into();
+                arr.iter().map(|x| x.as_canonical_u32()).collect()
+            });
+
+            let params = StarkVerifyingParamsMeta {
+                width: TraceWidthMeta {
+                    preprocessed: svk.params.width.preprocessed,
+                    cached_mains: svk.params.width.cached_mains.clone(),
+                    common_main: svk.params.width.common_main,
+                    after_challenge: svk.params.width.after_challenge.clone(),
+                },
+                num_public_values: svk.params.num_public_values,
+                num_exposed_values_after_challenge: svk
+                    .params
+                    .num_exposed_values_after_challenge
+                    .clone(),
+                num_challenges_to_sample: svk.params.num_challenges_to_sample.clone(),
+            };
+
+            let interactions: Vec<InteractionMeta> = svk
+                .symbolic_constraints
+                .interactions
+                .iter()
+                .map(|interaction| InteractionMeta {
+                    message: interaction.message.clone(),
+                    count: interaction.count,
+                    bus_index: interaction.bus_index,
+                    count_weight: interaction.count_weight,
+                })
+                .collect();
+
+            let rap_kind_str = format!("{:?}", svk.rap_phase_seq_kind);
+
+            AirVerifyingKeyMeta {
+                params,
+                quotient_degree: svk.quotient_degree,
+                rap_phase_seq_kind: rap_kind_str,
+                preprocessed_commitment,
+                num_symbolic_nodes: svk.symbolic_constraints.constraints.nodes.len(),
+                num_constraints: svk.symbolic_constraints.constraints.constraint_idx.len(),
+                num_interactions: svk.symbolic_constraints.interactions.len(),
+                interactions,
+            }
+        })
+        .collect();
+
+    let trace_height_constraints: Vec<LinearConstraintMeta> = vk
+        .inner
+        .trace_height_constraints
+        .iter()
+        .map(|lc| LinearConstraintMeta {
+            coefficients: lc.coefficients.clone(),
+            threshold: lc.threshold,
+        })
+        .collect();
+
+    let vk_json_bytes = serde_json::to_vec(vk).expect("VK should serialize to JSON bytes");
+    let vk_bytes_hex = hex_encode(&vk_json_bytes);
+    let vk_bytes_len = vk_json_bytes.len();
+
+    VerifyingKeyVectors {
+        pre_hash,
+        per_air,
+        trace_height_constraints,
+        deep_pow_bits: vk.inner.deep_pow_bits,
+        log_up_pow_bits: vk.inner.log_up_pow_bits,
+        vk_bytes_hex,
+        vk_bytes_len,
+    }
+}
+
+/// Extract [`E2eProofVectors`] from a proof, VK, and FRI parameters.
 ///
 /// This is a shared helper used by both the single-AIR Fibonacci generator and
 /// multi-AIR VM proof generators. It extracts commitment metadata, per-AIR info,
-/// and serializes the proof to hex-encoded JSON bytes.
+/// VK data, and serializes the proof to hex-encoded JSON bytes.
 pub fn extract_proof_vectors(
     program_name: &str,
     proof: &Proof<BabyBearPoseidon2Config>,
+    vk: &MultiStarkVerifyingKey<BabyBearPoseidon2Config>,
     fri_params: &FriParameters,
 ) -> E2eProofVectors {
     let main_trace_commitments: Vec<Vec<u32>> = proof
@@ -763,6 +939,8 @@ pub fn extract_proof_vectors(
         commit_proof_of_work_bits: fri_params.commit_proof_of_work_bits,
     };
 
+    let verifying_key = extract_vk_vectors(vk);
+
     let proof_json_bytes =
         serde_json::to_vec(proof).expect("Proof should serialize to JSON bytes");
     let proof_bytes_hex = hex_encode(&proof_json_bytes);
@@ -775,6 +953,7 @@ pub fn extract_proof_vectors(
         after_challenge_commitments,
         quotient_commitment,
         fri_params: fri_meta,
+        verifying_key,
         proof_bytes_hex,
         proof_bytes_len: proof_json_bytes.len(),
     }

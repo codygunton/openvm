@@ -33,6 +33,8 @@ FIELD_EXTENSION_DEGREE = 4
 TWO_ADICITY = 27  # p - 1 = 2^27 * 15
 GENERATOR = 31  # Multiplicative generator (Val::GENERATOR in Plonky3)
 TWO_INV = pow(2, BABYBEAR_PRIME - 2, BABYBEAR_PRIME)  # Multiplicative inverse of 2
+MONTY_R = pow(2, 32, BABYBEAR_PRIME)  # Montgomery form multiplier: 2^32 mod p = 268435454
+MONTY_RINV = pow(MONTY_R, BABYBEAR_PRIME - 2, BABYBEAR_PRIME)  # Montgomery inverse
 
 FF = galois.GF(BABYBEAR_PRIME)
 """Base field GF(p) - BabyBear prime field."""
@@ -223,6 +225,37 @@ def inv_mod(x: int) -> int:
 
 
 # --- Bit Reversal Utilities ---
+
+
+def to_monty(x: int) -> int:
+    """Convert a canonical integer to BabyBear Montgomery form.
+
+    In Plonky3, BabyBear uses Montgomery representation internally.
+    All serde-serialized BabyBear values are in Montgomery form.
+    When the Rust verifier calls `BabyBear::from_usize(x)` or
+    `BabyBear::from_canonical_u32(x)`, the result is stored as
+    `x * 2^32 mod p` (Montgomery form).
+
+    Reference:
+        p3-monty-31/src/monty_31.rs (MontyField31 Serialize/Deserialize)
+    """
+    return (x * MONTY_R) % BABYBEAR_PRIME
+
+
+def from_monty(x: int) -> int:
+    """Convert a BabyBear Montgomery-form value to canonical form.
+
+    Serde serialization preserves Montgomery form. To get the canonical
+    integer value, multiply by R^{-1} mod p.
+
+    Our Poseidon2 FFI treats inputs/outputs as canonical values (it
+    internally converts to/from Montgomery for the permutation). So all
+    values must be in canonical form when used in the Python transcript.
+
+    Reference:
+        p3-monty-31/src/monty_31.rs (MontyField31::as_canonical_u32)
+    """
+    return (x * MONTY_RINV) % BABYBEAR_PRIME
 
 
 def reverse_bits_len(x: int, bit_len: int) -> int:

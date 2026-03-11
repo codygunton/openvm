@@ -87,11 +87,13 @@ fn prove_revm_transfer() -> E2eProofVectors {
         .with_program_name("revm_transfer");
     let proof = prover.prove(StdIn::default()).expect("revm_transfer proof should succeed");
 
+    let app_vk = sdk.app_pk().get_app_vk();
+
     assert!(
         !proof.per_segment.is_empty(),
         "should have at least one segment proof"
     );
-    extract_proof_vectors("revm_transfer", &proof.per_segment[0], &fri_params)
+    extract_proof_vectors("revm_transfer", &proof.per_segment[0], &app_vk.vk, &fri_params)
 }
 
 #[test]

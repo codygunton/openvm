@@ -49,6 +49,7 @@ class CommitPhaseResult:
     trees: list
     folded_per_round: list[list[EF4Coeffs]]
     all_round_evals: list[list[EF4Coeffs]]
+    commit_pow_witnesses: list[int]
 
 
 @dataclass
@@ -358,6 +359,7 @@ def commit_phase(
     log_blowup: int,
     log_final_poly_len: int,
     challenger: Challenger,
+    commit_pow_bits: int = 0,
 ) -> CommitPhaseResult:
     """FRI commit phase: iterative folding with Merkle commitments.
 
@@ -370,6 +372,7 @@ def commit_phase(
     trees: list = []
     folded_per_round: list[list[EF4Coeffs]] = []
     all_round_evals: list[list[EF4Coeffs]] = []
+    commit_pow_witnesses: list[int] = []
     blowup = 1 << log_blowup
     final_poly_len = 1 << log_final_poly_len
 
@@ -391,6 +394,11 @@ def commit_phase(
         challenger.observe_many(root)
         commits.append(root)
         trees.append(tree)
+
+        # Per-round PoW
+        from protocol.pcs import _grind
+        pow_witness = _grind(challenger, commit_pow_bits)
+        commit_pow_witnesses.append(pow_witness)
 
         # Sample folding challenge
         beta = challenger.sample_ext()
@@ -417,6 +425,7 @@ def commit_phase(
         trees=trees,
         folded_per_round=folded_per_round,
         all_round_evals=all_round_evals,
+        commit_pow_witnesses=commit_pow_witnesses,
     )
 
 
