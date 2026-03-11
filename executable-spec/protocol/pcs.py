@@ -673,35 +673,16 @@ def pcs_commit(
         all_coeffs.append(coeffs_per_col)
         all_domains.append(domain)
 
-    # Build Merkle tree from concatenated rows.
-    # Group matrices by height. For same-height matrices, concatenate rows.
+    # Build Merkle tree using Plonky3's multi-height MMCS protocol.
+    # Tallest matrices go at the leaf level; shorter matrices are "injected"
+    # at higher tree levels via compress(node, hash(shorter_rows)).
+    # This matches _verify_batch_opening (p3-merkle-tree mmcs.rs verify_batch).
     if not all_lde_rows:
         return CommittedData(
             root=[0] * 8, tree=[], lde_rows=[], coeffs=[], domains=[]
         )
 
-    max_height = max(len(rows) for rows in all_lde_rows)
-
-    # Build leaves: concatenate row values from all matrices at max height.
-    # Shorter matrices are handled via the multi-height MMCS protocol.
-    # For now, handle the common case where all matrices have the same height.
-    leaves: list[list[Fe]] = []
-    for row_idx in range(max_height):
-        leaf_data: list[Fe] = []
-        for mat_idx in range(len(all_lde_rows)):
-            mat_height = len(all_lde_rows[mat_idx])
-            if mat_height == max_height:
-                leaf_data.extend(all_lde_rows[mat_idx][row_idx])
-            elif mat_height <= max_height:
-                # Multi-height: inject at reduced index
-                reduced_idx = row_idx >> (
-                    max_height.bit_length() - 1 - (mat_height.bit_length() - 1)
-                )
-                if reduced_idx < mat_height:
-                    leaf_data.extend(all_lde_rows[mat_idx][reduced_idx])
-        leaves.append(leaf_data)
-
-    root, tree = build_merkle_tree(leaves)
+    root, tree = _build_mmcs_tree(all_lde_rows)
 
     return CommittedData(
         root=root,
@@ -710,6 +691,88 @@ def pcs_commit(
         coeffs=all_coeffs,
         domains=all_domains,
     )
+
+
+def _build_mmcs_tree(
+    all_lde_rows: list[list[list[Fe]]],
+) -> tuple[Digest, list[list[Digest]]]:
+    """Build multi-height MMCS Merkle tree matching Plonky3.
+
+    Tallest matrices are hashed at the leaf level. Shorter matrices are
+    "injected" at higher levels by compressing their row hashes with tree
+    nodes. This mirrors the verify_batch logic in _verify_batch_opening.
+
+    Reference:
+        p3-merkle-tree-0.4.1/src/mmcs.rs MerkleTreeMmcs::commit
+    """
+    # Group matrices by padded height, sorted tallest first.
+    heights = [(i, len(rows)) for i, rows in enumerate(all_lde_rows)]
+    sorted_entries = sorted(heights, key=lambda x: -x[1])
+
+    max_height = sorted_entries[0][1]
+    curr_height_padded = _next_power_of_two(max_height)
+    log_max = curr_height_padded.bit_length() - 1
+
+    # Collect tallest group (all matrices whose padded height == curr_height_padded)
+    entry_ptr = 0
+    tallest_group: list[int] = []  # matrix indices
+    while (entry_ptr < len(sorted_entries)
+           and _next_power_of_two(sorted_entries[entry_ptr][1]) == curr_height_padded):
+        tallest_group.append(sorted_entries[entry_ptr][0])
+        entry_ptr += 1
+
+    # Hash leaf rows from tallest matrices only
+    leaf_digests: list[Digest] = []
+    for row_idx in range(max_height):
+        leaf_data: list[Fe] = []
+        for mat_idx in tallest_group:
+            leaf_data.extend(all_lde_rows[mat_idx][row_idx])
+        leaf_digests.append(hash_to_digest(leaf_data))
+
+    # Pad to power-of-two if needed
+    while len(leaf_digests) < curr_height_padded:
+        leaf_digests.append(hash_to_digest([]))
+
+    # Build tree bottom-up, injecting shorter matrices at appropriate levels
+    tree_levels: list[list[Digest]] = [leaf_digests]
+    current_level = leaf_digests
+    level_height = curr_height_padded
+
+    while level_height > 1:
+        # Pair siblings to form parent level
+        next_level: list[Digest] = []
+        for i in range(0, len(current_level), 2):
+            next_level.append(compress(current_level[i], current_level[i + 1]))
+        level_height >>= 1
+
+        # Check if shorter matrices should be injected at this level
+        if (entry_ptr < len(sorted_entries)
+                and _next_power_of_two(sorted_entries[entry_ptr][1]) == level_height):
+            inject_height = sorted_entries[entry_ptr][1]
+            inject_group: list[int] = []  # matrix indices
+            while (entry_ptr < len(sorted_entries)
+                   and sorted_entries[entry_ptr][1] == inject_height):
+                inject_group.append(sorted_entries[entry_ptr][0])
+                entry_ptr += 1
+
+            # For each position, hash the row data from injected matrices
+            # and compress with the existing node
+            for pos in range(len(next_level)):
+                # Map tree position to matrix row index
+                row_idx = pos if pos < inject_height else pos % inject_height
+                inject_data: list[Fe] = []
+                for mat_idx in inject_group:
+                    if row_idx < len(all_lde_rows[mat_idx]):
+                        inject_data.extend(all_lde_rows[mat_idx][row_idx])
+                if inject_data:
+                    inject_digest = hash_to_digest(inject_data)
+                    next_level[pos] = compress(next_level[pos], inject_digest)
+
+        current_level = next_level
+        tree_levels.append(current_level)
+
+    root = list(current_level[0]) if current_level else hash_to_digest([])
+    return root, tree_levels
 
 
 # ---------------------------------------------------------------------------
@@ -795,24 +858,46 @@ def pcs_open(
         p3-fri-0.4.1/src/two_adic_pcs.rs TwoAdicFriPcs::open lines 286-440
     """
     # --- Step A: Evaluate polynomials at opening points ---
+    import time as _t
+    _t_pcs = _t.time()
+    def _pcs_log(msg: str) -> None:
+        print(f"    [pcs_open {_t.time() - _t_pcs:6.1f}s] {msg}", flush=True)
+
+    from protocol.vectorized import eval_poly_ef4_batch
+
     all_opened_values: list[list[list[list[EF4Coeffs]]]] = []
 
-    for rnd in rounds:
+    for rnd_idx, rnd in enumerate(rounds):
         round_values: list[list[list[EF4Coeffs]]] = []
         for mat_idx in range(len(rnd.committed.domains)):
             domain = rnd.committed.domains[mat_idx]
             coeffs_per_col = rnd.committed.coeffs[mat_idx]
             points = rnd.points_per_mat[mat_idx]
+            degree = len(coeffs_per_col[0]) if coeffs_per_col else 0
 
             mat_values: list[list[EF4Coeffs]] = []
             for point in points:
-                col_values = [
-                    _eval_poly_ef4(col_coeffs, point, domain.shift)
-                    for col_coeffs in coeffs_per_col
-                ]
+                # Compute eval_point = point / domain_shift
+                if domain.shift == 1:
+                    eval_pt = list(point)
+                else:
+                    eval_pt = ff4_coeffs(
+                        ff4(point) * ff4_from_base(inv_mod(domain.shift))
+                    )
+
+                if degree >= 256 and len(coeffs_per_col) > 0:
+                    col_values = eval_poly_ef4_batch(
+                        coeffs_per_col, eval_pt,
+                    )
+                else:
+                    col_values = [
+                        _eval_poly_ef4(col_coeffs, point, domain.shift)
+                        for col_coeffs in coeffs_per_col
+                    ]
                 mat_values.append(col_values)
             round_values.append(mat_values)
         all_opened_values.append(round_values)
+        _pcs_log(f"Step A round {rnd_idx}: {len(rnd.committed.domains)} mats evaluated")
 
     # --- Step B: Observe all opened values ---
     for round_values in all_opened_values:
@@ -821,16 +906,59 @@ def pcs_open(
                 for val in point_values:
                     challenger.observe_many(val)
 
+    _pcs_log("Step B: observed opened values")
+
     # --- Step C: Sample FRI alpha ---
     alpha = ff4(challenger.sample_ext())
 
     # --- Step D: Compute reduced polynomials per height ---
-    # Group by LDE height, accumulate alpha-weighted quotients
-    reduced_evals: dict[int, list[EF4Coeffs]] = {}
+    # Group by LDE height, accumulate alpha-weighted quotients.
+    # Vectorized with numpy for large heights.
+    import numpy as np
+    from protocol.vectorized import (
+        ef4v_add, ef4v_from_base, ef4v_from_scalar, ef4v_inv,
+        ef4v_mul, ef4v_mul_scalar, ef4v_sub,
+    )
 
-    alpha_pow = ff4_from_base(1)
+    reduced_evals_np: dict[int, tuple] = {}  # log_height → EF4Vec
+    # Cache (z - x_i)^{-1} per (log_height, z_tuple) to avoid recomputation
+    inv_diff_cache: dict[tuple, tuple] = {}
 
-    for rnd in rounds:
+    # Pre-compute bit-reversed domain points x_i per log_height
+    x_arrays: dict[int, np.ndarray] = {}
+
+    def _get_x_array(log_height: int) -> np.ndarray:
+        if log_height not in x_arrays:
+            height = 1 << log_height
+            omega = get_omega(log_height)
+            x_arr = np.array([
+                (GENERATOR * pow(omega, reverse_bits_len(i, log_height), p)) % p
+                for i in range(height)
+            ], dtype=np.int64)
+            x_arrays[log_height] = x_arr
+        return x_arrays[log_height]
+
+    def _get_inv_diff(log_height: int, point: EF4Coeffs) -> tuple:
+        key = (log_height, tuple(point))
+        if key not in inv_diff_cache:
+            height = 1 << log_height
+            x_arr = _get_x_array(log_height)
+            z_v = ef4v_from_scalar(point, height)
+            diff = ef4v_sub(z_v, ef4v_from_base(x_arr))
+            inv_diff_cache[key] = ef4v_inv(diff)
+        return inv_diff_cache[key]
+
+    # Per-height alpha_pow accumulators (matching Rust's num_reduced[log_height]).
+    # Each height independently tracks alpha^k for its k-th column.
+    # Reference: p3-fri two_adic_pcs.rs lines 226,253,271
+    from primitives.field import ef4_mul as _ef4_mul
+    alpha_coeffs = ff4_coeffs(alpha)
+    alpha_pow_per_height: dict[int, list[int]] = {}  # log_height -> EF4 coeffs
+    import time as _td
+    _td_start = _td.time()
+
+    for rnd_idx, rnd in enumerate(rounds):
+        _td_rnd = _td.time()
         for mat_idx in range(len(rnd.committed.domains)):
             domain = rnd.committed.domains[mat_idx]
             lde_rows = rnd.committed.lde_rows[mat_idx]
@@ -838,56 +966,70 @@ def pcs_open(
             log_height = domain.log_n + fri_params.log_blowup
             height = 1 << log_height
 
-            if log_height not in reduced_evals:
-                reduced_evals[log_height] = [
-                    [0, 0, 0, 0] for _ in range(height)
-                ]
+            if log_height not in reduced_evals_np:
+                z = np.zeros(height, dtype=np.int64)
+                reduced_evals_np[log_height] = (z.copy(), z.copy(), z.copy(), z.copy())
 
-            re = reduced_evals[log_height]
+            if log_height not in alpha_pow_per_height:
+                alpha_pow_per_height[log_height] = [1, 0, 0, 0]
+
             num_cols = len(lde_rows[0]) if lde_rows else 0
+            mat_opened_values = all_opened_values[rnd_idx][mat_idx]
 
-            # Opened values for this matrix
-            round_idx = rounds.index(rnd)
-            mat_opened_values = all_opened_values[round_idx][mat_idx]
+            # Pre-extract LDE columns as numpy arrays for this matrix
+            lde_cols_np = [
+                np.array([lde_rows[i][c] for i in range(height)], dtype=np.int64)
+                for c in range(num_cols)
+            ]
 
             for pt_idx, point in enumerate(points):
-                z_ef = ff4(point)
+                inv_diff = _get_inv_diff(log_height, point)
                 point_values = mat_opened_values[pt_idx]
 
                 for col_idx in range(num_cols):
-                    p_at_z = ff4(point_values[col_idx])
+                    # p_at_z is scalar EF4, p_at_x is base field array
+                    p_at_z_v = ef4v_from_scalar(point_values[col_idx], height)
+                    p_at_x_v = ef4v_from_base(lde_cols_np[col_idx])
 
-                    for i in range(height):
-                        # x_i = GENERATOR * omega^(rev(i, log_height))
-                        x_i = (
-                            GENERATOR
-                            * pow(
-                                get_omega(log_height),
-                                reverse_bits_len(i, log_height),
-                                p,
-                            )
-                        ) % p
+                    # (p_at_z - p_at_x) * inv_diff
+                    quotient = ef4v_mul(ef4v_sub(p_at_z_v, p_at_x_v), inv_diff)
 
-                        p_at_x = ff4_from_base(lde_rows[i][col_idx])
-                        diff_inv = (z_ef - ff4_from_base(x_i)) ** (-1)
-                        contribution = alpha_pow * (p_at_z - p_at_x) * diff_inv
-                        re[i] = ff4_coeffs(ff4(re[i]) + contribution)
+                    # alpha_pow * quotient (per-height alpha_pow)
+                    scaled = ef4v_mul_scalar(quotient, alpha_pow_per_height[log_height])
 
-                    alpha_pow = alpha_pow * alpha
+                    # Accumulate
+                    re = reduced_evals_np[log_height]
+                    reduced_evals_np[log_height] = ef4v_add(re, scaled)
+
+                    # Advance this height's alpha_pow
+                    alpha_pow_per_height[log_height] = _ef4_mul(
+                        alpha_pow_per_height[log_height], alpha_coeffs
+                    )
+        _pcs_log(f"Step D round {rnd_idx}: {len(rnd.committed.domains)} mats, "
+                 f"{_td.time()-_td_rnd:.2f}s")
+
+    # Convert numpy EF4Vec back to list-of-EF4Coeffs for FRI
+    reduced_evals: dict[int, list[EF4Coeffs]] = {}
+    for log_h, ev in reduced_evals_np.items():
+        height = 1 << log_h
+        arr = np.stack(ev, axis=1)  # (height, 4)
+        reduced_evals[log_h] = arr.tolist()
+
+    _pcs_log(f"Step D: reduced polys computed ({len(reduced_evals)} heights)")
 
     # --- Step E: FRI prove ---
     # Collect reduced evaluations in descending height order
     sorted_heights = sorted(reduced_evals.keys(), reverse=True)
     log_global_max_height = sorted_heights[0] if sorted_heights else 0
 
-    # For single-height case (Fibonacci), feed directly to FRI
-    # For multi-height, we need to interleave reduced openings during FRI
-    # For now, handle single-height case
-    if len(sorted_heights) == 1:
-        reduced_br = reduced_evals[sorted_heights[0]]
-    else:
-        # Multi-height: start with the tallest, others rolled in during FRI
-        reduced_br = reduced_evals[sorted_heights[0]]
+    # Tallest height goes directly to FRI; shorter heights are rolled in
+    reduced_br = reduced_evals[sorted_heights[0]]
+    reduced_openings_by_height = None
+    if len(sorted_heights) > 1:
+        reduced_openings_by_height = {
+            log_h: reduced_evals[log_h]
+            for log_h in sorted_heights[1:]
+        }
 
     # FRI commit phase
     from protocol.fri import commit_phase as fri_commit_phase, answer_query  # noqa: F811
@@ -898,7 +1040,10 @@ def pcs_open(
         fri_params.log_final_poly_len,
         challenger,
         fri_params.commit_proof_of_work_bits,
+        reduced_openings_by_height=reduced_openings_by_height,
     )
+
+    _pcs_log(f"Step E: FRI commit done ({len(fri_result.commits)} rounds)")
 
     # Query PoW
     query_pow_witness = grind(challenger, fri_params.query_proof_of_work_bits)
@@ -920,6 +1065,8 @@ def pcs_open(
             num_fri_rounds,
         )
         fri_query_proofs.append((query_index, fri_openings))
+
+    _pcs_log(f"Step F: {fri_params.num_queries} queries answered")
 
     # Package FRI proof data
     fri_proof_data = {

@@ -628,6 +628,42 @@ pub fn generate_merkle_vectors() -> MerkleVectors {
 }
 
 // ---------------------------------------------------------------------------
+// Prover input vectors (raw traces for Python prover)
+// ---------------------------------------------------------------------------
+
+/// Per-AIR raw input trace data needed by the Python prover.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AirInputVectors {
+    pub air_id: usize,
+    /// Common main trace: [rows][cols] canonical u32 values.
+    pub common_main: Option<Vec<Vec<u32>>>,
+    /// Cached main traces: list of matrices [rows][cols].
+    pub cached_mains: Vec<Vec<Vec<u32>>>,
+    /// Preprocessed trace: [rows][cols] (from proving key).
+    pub preprocessed: Option<Vec<Vec<u32>>>,
+}
+
+/// All input trace data needed by the Python prover.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProverInputVectors {
+    /// Per-AIR input trace data.
+    pub per_air: Vec<AirInputVectors>,
+}
+
+/// Convert a RowMajorMatrix to Vec<Vec<u32>> using canonical field representation.
+pub fn matrix_to_u32_vecs(values: &[BabyBear], width: usize) -> Vec<Vec<u32>> {
+    let height = values.len() / width;
+    (0..height)
+        .map(|r| {
+            values[r * width..(r + 1) * width]
+                .iter()
+                .map(|x| x.as_canonical_u32())
+                .collect()
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // E2E proof vectors (Fibonacci STARK)
 // ---------------------------------------------------------------------------
 
@@ -1849,12 +1885,22 @@ pub fn generate_fri_prover_vectors() -> FriProverVectors {
 // Utilities
 // ---------------------------------------------------------------------------
 
-/// Write vectors to a JSON file, creating parent directories as needed.
+/// Write vectors to a JSON file (pretty-printed), creating parent directories as needed.
 pub fn write_vectors_json<T: Serialize>(vectors: &T, path: &Path) -> eyre::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let json = serde_json::to_string_pretty(vectors)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+/// Write vectors to a compact JSON file (no whitespace), creating parent directories as needed.
+pub fn write_vectors_json_compact<T: Serialize>(vectors: &T, path: &Path) -> eyre::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string(vectors)?;
     std::fs::write(path, json)?;
     Ok(())
 }

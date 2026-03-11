@@ -38,7 +38,7 @@ def build_merkle_tree(
         current_level = next_level
         tree.append(current_level)
 
-    root = current_level[0]
+    root = list(current_level[0])  # defensive copy to avoid aliasing with tree
     return root, tree
 
 

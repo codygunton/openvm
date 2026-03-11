@@ -339,6 +339,10 @@ def fold_matrix(
     # Bit-reverse the powers
     halve_inv_powers = bit_reverse_list(halve_inv_powers)
 
+    if height >= 256:
+        from protocol.vectorized import fold_matrix_numpy
+        return fold_matrix_numpy(evals_bit_reversed, beta, log_height, halve_inv_powers)
+
     folded = []
     for i in range(height):
         lo = ff4(evals_bit_reversed[2 * i])
@@ -360,12 +364,23 @@ def commit_phase(
     log_final_poly_len: int,
     challenger: Challenger,
     commit_pow_bits: int = 0,
+    reduced_openings_by_height: dict[int, list[EF4Coeffs]] | None = None,
 ) -> CommitPhaseResult:
     """FRI commit phase: iterative folding with Merkle commitments.
+
+    For multi-height FRI, reduced_openings_by_height maps log_height to
+    bit-reversed reduced evaluations at that height.  After folding to a
+    given height, the corresponding reduced opening is rolled in using
+    beta^2 as the combination factor (matching the verifier).
 
     Reference:
         p3-fri prover.rs (commit_phase)
     """
+    import time as _t
+    _t_fri = _t.time()
+    def _fri_log(msg: str) -> None:
+        print(f"      [fri {_t.time()-_t_fri:6.1f}s] {msg}", flush=True)
+
     folded = list(evals_bit_reversed)
     commits: list[Digest] = []
     betas: list[EF4Coeffs] = []
@@ -375,6 +390,7 @@ def commit_phase(
     commit_pow_witnesses: list[int] = []
     blowup = 1 << log_blowup
     final_poly_len = 1 << log_final_poly_len
+    _fri_log(f"start: {len(folded)} evals, target {blowup*final_poly_len}")
 
     while len(folded) > blowup * final_poly_len:
         height = len(folded) // 2
@@ -385,10 +401,18 @@ def commit_phase(
 
         # Build Merkle tree from pairs of evaluations.
         # Each leaf = hash of [lo_c0..lo_c3, hi_c0..hi_c3] (8 base field elements).
-        leaves = []
-        for i in range(0, len(folded), 2):
-            leaves.append(folded[i] + folded[i + 1])
+        _t_step = _t.time()
+        if len(folded) >= 512:
+            from protocol.vectorized import leaves_from_folded_numpy
+            leaves = leaves_from_folded_numpy(folded)
+        else:
+            leaves = []
+            for i in range(0, len(folded), 2):
+                leaves.append(folded[i] + folded[i + 1])
+        _fri_log(f"  leaves: {len(folded)}→{len(leaves)} → {_t.time()-_t_step:.2f}s")
+        _t_step = _t.time()
         root, tree = build_merkle_tree(leaves)
+        _fri_log(f"  merkle: {len(leaves)} leaves → {_t.time()-_t_step:.2f}s")
 
         # Observe commitment
         challenger.observe_many(root)
@@ -405,7 +429,28 @@ def commit_phase(
         betas.append(beta)
 
         # Fold
+        _t_step = _t.time()
         folded = fold_matrix(folded, beta, log_height)
+        _fri_log(f"  fold: {len(folded)*2}→{len(folded)} → {_t.time()-_t_step:.2f}s")
+
+        # Roll in reduced openings at this folded height, if any.
+        # This mirrors the verifier's: folded += beta^2 * reduced_opening
+        # Reference: p3-fri verifier.rs verify_query (line ~310)
+        if reduced_openings_by_height and log_height in reduced_openings_by_height:
+            roll_in = reduced_openings_by_height[log_height]
+            assert len(roll_in) == len(folded), (
+                f"Roll-in size mismatch at log_height {log_height}: "
+                f"{len(roll_in)} vs {len(folded)}"
+            )
+            beta_sq_coeffs = ff4_coeffs(ff4(beta) * ff4(beta))
+            if len(folded) >= 256:
+                from protocol.vectorized import roll_in_numpy
+                folded = roll_in_numpy(folded, roll_in, beta_sq_coeffs)
+            else:
+                beta_sq = ff4(beta_sq_coeffs)
+                for j in range(len(folded)):
+                    folded[j] = ff4_coeffs(ff4(folded[j]) + beta_sq * ff4(roll_in[j]))
+
         folded_per_round.append(folded)
 
     # Compute final polynomial via IDFT:

@@ -917,6 +917,52 @@ def parse_fri_params(data: dict) -> FriParameters:
     )
 
 
+@dataclass
+class AirInputData:
+    """Raw input trace matrices for one AIR, used by the prover.
+
+    Reference:
+        crates/test-vectors/src/lib.rs (struct AirInputVectors)
+    """
+    air_id: int
+    common_main: list[list[Fe]] | None  # [rows][cols]
+    cached_mains: list[list[list[Fe]]]  # list of [rows][cols]
+    preprocessed: list[list[Fe]] | None  # [rows][cols]
+
+
+@dataclass
+class ProverInputs:
+    """All input trace data needed by the prover.
+
+    Reference:
+        crates/test-vectors/src/lib.rs (struct ProverInputVectors)
+    """
+    per_air: list[AirInputData]
+
+
+def parse_prover_inputs(data: dict) -> ProverInputs:
+    """Parse prover input vectors from JSON.
+
+    Field values are canonical u32, no Montgomery conversion needed
+    (traces are raw field elements, not serialized proof data).
+
+    Reference:
+        crates/test-vectors/src/lib.rs (struct ProverInputVectors)
+    """
+    per_air = []
+    for air_data in data["per_air"]:
+        common_main = air_data["common_main"]
+        cached_mains = air_data["cached_mains"]
+        preprocessed = air_data["preprocessed"]
+        per_air.append(AirInputData(
+            air_id=air_data["air_id"],
+            common_main=common_main,
+            cached_mains=cached_mains,
+            preprocessed=preprocessed,
+        ))
+    return ProverInputs(per_air=per_air)
+
+
 def parse_e2e_vectors(vectors: dict) -> tuple[Proof, FriParameters, dict]:
     """Parse complete E2E test vectors.
 

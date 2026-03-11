@@ -426,3 +426,43 @@ def batch_inverse(values):
     results[0] = z
 
     return results
+
+
+def ef4_batch_inverse(values: list[EF4Coeffs]) -> list[EF4Coeffs]:
+    """Montgomery batch inversion for EF4 elements using coefficient representation.
+
+    Converts N extension field inversions into 3N-3 multiplications + 1 inversion.
+
+    Args:
+        values: List of EF4Coeffs to invert (must all be non-zero).
+
+    Returns:
+        List of EF4Coeffs where result[i] = values[i]^{-1}.
+
+    Reference:
+        p3-field batch_multiplicative_inverse
+    """
+    n = len(values)
+    if n == 0:
+        return []
+    if n == 1:
+        return [ef4_inv(values[0])]
+
+    # Forward pass: prefix products
+    cumprods: list[EF4Coeffs] = [None] * n
+    cumprods[0] = values[0]
+    for i in range(1, n):
+        cumprods[i] = ef4_mul(cumprods[i - 1], values[i])
+
+    # Single inversion of the total product
+    inv_total = ef4_inv(cumprods[n - 1])
+
+    # Backward pass
+    results: list[EF4Coeffs] = [None] * n
+    z = inv_total
+    for i in range(n - 1, 0, -1):
+        results[i] = ef4_mul(z, cumprods[i - 1])
+        z = ef4_mul(z, values[i])
+    results[0] = z
+
+    return results

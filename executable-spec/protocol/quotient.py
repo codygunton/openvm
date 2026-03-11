@@ -20,13 +20,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from typing import Optional
+
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
     Fe,
     ef4_add,
+    ef4_from_base,
     ef4_mul,
     ef4_mul_base,
+    ef4_neg,
+    ef4_sub,
     get_omega,
     inv_mod,
 )
@@ -411,6 +416,128 @@ def eval_symbolic_expression_dag(
     return node_values
 
 
+def eval_symbolic_expression_dag_full(
+    dag: SymbolicExpressionDag,
+    partitioned_local: list[list[Fe]],
+    partitioned_next: list[list[Fe]],
+    public_values: list[Fe],
+    is_first_row: Fe,
+    is_last_row: Fe,
+    is_transition: Fe,
+    preprocessed_local: list[Fe],
+    preprocessed_next: list[Fe],
+    after_challenge_local: Optional[list[EF4Coeffs]] = None,
+    after_challenge_next: Optional[list[EF4Coeffs]] = None,
+    challenges: Optional[list[list[EF4Coeffs]]] = None,
+    exposed_values: Optional[list[list[EF4Coeffs]]] = None,
+) -> list[EF4Coeffs]:
+    """Evaluate all DAG nodes for multi-AIR quotient computation, in EF4.
+
+    Handles all entry types: PREPROCESSED, MAIN, PUBLIC, PERMUTATION,
+    CHALLENGE, EXPOSED.  All arithmetic is in EF4 since PERMUTATION/CHALLENGE/
+    EXPOSED variables are inherently extension field.
+
+    For MAIN, partitioned_local[part_index][col_index] gives the base field
+    value for the current row.  part_index selects the trace partition
+    (cached mains first, then common main).
+
+    For PERMUTATION, after_challenge_local[index] and after_challenge_next[index]
+    are EF4 values indexed by extension field column number.
+
+    Reference:
+        stark-backend/src/prover/cpu/quotient/evaluator.rs
+        ProverConstraintEvaluator (eval_var + eval_nodes_mut)
+    """
+    node_values: list[EF4Coeffs] = [[0, 0, 0, 0]] * len(dag.nodes)
+
+    for i, node in enumerate(dag.nodes):
+        kind = node.kind
+
+        if kind == SymbolicNodeKind.VARIABLE:
+            var = node.variable
+            entry = var.entry
+            if entry.kind == EntryType.MAIN:
+                if entry.offset == 0:
+                    node_values[i] = ef4_from_base(partitioned_local[entry.part_index][var.index])
+                else:
+                    node_values[i] = ef4_from_base(partitioned_next[entry.part_index][var.index])
+            elif entry.kind == EntryType.PREPROCESSED:
+                if entry.offset == 0:
+                    node_values[i] = ef4_from_base(preprocessed_local[var.index])
+                else:
+                    node_values[i] = ef4_from_base(preprocessed_next[var.index])
+            elif entry.kind == EntryType.PUBLIC:
+                node_values[i] = ef4_from_base(public_values[var.index])
+            elif entry.kind == EntryType.PERMUTATION:
+                if entry.offset == 0:
+                    node_values[i] = list(after_challenge_local[var.index])
+                else:
+                    node_values[i] = list(after_challenge_next[var.index])
+            elif entry.kind == EntryType.CHALLENGE:
+                node_values[i] = list(challenges[0][var.index])
+            elif entry.kind == EntryType.EXPOSED:
+                node_values[i] = list(exposed_values[0][var.index])
+            else:
+                raise ValueError(f"Unknown entry kind: {entry.kind}")
+
+        elif kind == SymbolicNodeKind.CONSTANT:
+            node_values[i] = ef4_from_base(node.constant_value)
+
+        elif kind == SymbolicNodeKind.IS_FIRST_ROW:
+            node_values[i] = ef4_from_base(is_first_row)
+
+        elif kind == SymbolicNodeKind.IS_LAST_ROW:
+            node_values[i] = ef4_from_base(is_last_row)
+
+        elif kind == SymbolicNodeKind.IS_TRANSITION:
+            node_values[i] = ef4_from_base(is_transition)
+
+        elif kind == SymbolicNodeKind.ADD:
+            node_values[i] = ef4_add(node_values[node.left_idx], node_values[node.right_idx])
+
+        elif kind == SymbolicNodeKind.SUB:
+            node_values[i] = ef4_sub(node_values[node.left_idx], node_values[node.right_idx])
+
+        elif kind == SymbolicNodeKind.MUL:
+            node_values[i] = ef4_mul(node_values[node.left_idx], node_values[node.right_idx])
+
+        elif kind == SymbolicNodeKind.NEG:
+            node_values[i] = ef4_neg(node_values[node.idx])
+
+        else:
+            raise ValueError(f"Unknown node kind: {kind}")
+
+    return node_values
+
+
+def accumulate_constraints_ef4(
+    dag: SymbolicExpressionDag,
+    node_values: list[EF4Coeffs],
+    alpha: EF4Coeffs,
+) -> EF4Coeffs:
+    """Fold constraint values using powers of alpha (EF4 variant).
+
+    Same as accumulate_constraints but node_values are already EF4.
+
+    Reference:
+        stark-backend/src/prover/cpu/quotient/evaluator.rs accumulate (lines 229-247)
+    """
+    num_constraints = len(dag.constraint_idx)
+    alpha_powers: list[EF4Coeffs] = []
+    current = [1, 0, 0, 0]
+    for _ in range(num_constraints):
+        alpha_powers.append(current)
+        current = ef4_mul(current, alpha)
+
+    accumulator: EF4Coeffs = [0, 0, 0, 0]
+    for alpha_pow, node_idx in zip(alpha_powers, reversed(dag.constraint_idx)):
+        constraint_val = node_values[node_idx]
+        term = ef4_mul(alpha_pow, constraint_val)
+        accumulator = ef4_add(accumulator, term)
+
+    return accumulator
+
+
 def accumulate_constraints(
     dag: SymbolicExpressionDag,
     node_values: list[Fe],
@@ -467,6 +594,11 @@ def compute_quotient_values(
     alpha: EF4Coeffs,
     quotient_domain: TwoAdicMultiplicativeCoset,
     trace_domain: TwoAdicMultiplicativeCoset,
+    preprocessed_on_quot: Optional[list[list[Fe]]] = None,
+    after_challenge_on_quot: Optional[list[list[EF4Coeffs]]] = None,
+    challenges: Optional[list[list[EF4Coeffs]]] = None,
+    exposed_values: Optional[list[list[EF4Coeffs]]] = None,
+    partitioned_trace_on_quot: Optional[list[list[list[Fe]]]] = None,
 ) -> list[EF4Coeffs]:
     """Compute quotient polynomial evaluations on the quotient domain.
 
@@ -479,9 +611,9 @@ def compute_quotient_values(
     4. Fold constraints: accumulator = sum(alpha^k * C_k).
     5. Divide by vanishing polynomial: quotient[x] = accumulator * inv_zeroifier[x].
 
-    The constraint evaluation is entirely in the base field; the alpha folding
-    lifts to extension field, and division by Z_H (via inv_zeroifier) remains
-    in extension field.
+    When preprocessed/after_challenge/challenges/exposed_values are provided,
+    uses the full EF4 evaluator to handle PERMUTATION/CHALLENGE/EXPOSED variables.
+    Otherwise, uses the base field evaluator for simple AIRs.
 
     Reference:
         stark-backend/src/prover/cpu/quotient/single.rs
@@ -494,6 +626,11 @@ def compute_quotient_values(
         alpha: Alpha challenge for constraint folding (extension field element).
         quotient_domain: The quotient domain (disjoint coset).
         trace_domain: The trace domain (shift=1 subgroup).
+        preprocessed_on_quot: Preprocessed trace on quotient domain (optional).
+        after_challenge_on_quot: After-challenge trace on quotient domain as
+            [rows][perm_width] of EF4Coeffs (optional).
+        challenges: Challenges per phase (optional).
+        exposed_values: Exposed values per phase (optional).
 
     Returns:
         List of EF4 values, one per quotient domain point.
@@ -501,6 +638,18 @@ def compute_quotient_values(
     quot_size = quotient_domain.size()
     trace_size = trace_domain.size()
     step = quot_size // trace_size  # quotient_degree
+
+    # Use numpy vectorization for large quotient domains with full evaluator
+    use_full_evaluator = after_challenge_on_quot is not None
+    if use_full_evaluator and quot_size >= 256:
+        from protocol.vectorized import compute_quotient_values_numpy
+        return compute_quotient_values_numpy(
+            trace_on_quotient_domain, constraints_dag, public_values, alpha,
+            quotient_domain, trace_domain,
+            preprocessed_on_quot, after_challenge_on_quot,
+            challenges, exposed_values,
+            partitioned_trace_on_quot,
+        )
 
     # Precompute selectors at all quotient domain points (base field)
     sels = selectors_on_coset(trace_domain, quotient_domain)
@@ -511,19 +660,49 @@ def compute_quotient_values(
         next_idx = (i + step) % quot_size
         next_row = trace_on_quotient_domain[next_idx]
 
-        # Evaluate DAG at this point (base field)
-        node_values = eval_symbolic_expression_dag(
-            constraints_dag,
-            local_row,
-            next_row,
-            public_values,
-            sels.is_first_row[i],
-            sels.is_last_row[i],
-            sels.is_transition[i],
-        )
+        if use_full_evaluator:
+            # Full EF4 evaluator for multi-AIR with interactions
+            prep_local = preprocessed_on_quot[i] if preprocessed_on_quot else []
+            prep_next = preprocessed_on_quot[next_idx] if preprocessed_on_quot else []
+            ac_local = after_challenge_on_quot[i]
+            ac_next = after_challenge_on_quot[next_idx]
 
-        # Fold with alpha powers (lifts to extension field)
-        accumulated = accumulate_constraints(constraints_dag, node_values, alpha)
+            # Build partitioned main rows
+            if partitioned_trace_on_quot is not None:
+                part_local = [partitioned_trace_on_quot[p][i]
+                              for p in range(len(partitioned_trace_on_quot))]
+                part_next = [partitioned_trace_on_quot[p][next_idx]
+                             for p in range(len(partitioned_trace_on_quot))]
+            else:
+                part_local = [local_row]
+                part_next = [next_row]
+
+            node_values = eval_symbolic_expression_dag_full(
+                constraints_dag,
+                part_local, part_next,
+                public_values,
+                sels.is_first_row[i],
+                sels.is_last_row[i],
+                sels.is_transition[i],
+                prep_local, prep_next,
+                ac_local, ac_next,
+                challenges, exposed_values,
+            )
+            accumulated = accumulate_constraints_ef4(
+                constraints_dag, node_values, alpha,
+            )
+        else:
+            # Base field evaluator for simple AIRs
+            node_values = eval_symbolic_expression_dag(
+                constraints_dag,
+                local_row,
+                next_row,
+                public_values,
+                sels.is_first_row[i],
+                sels.is_last_row[i],
+                sels.is_transition[i],
+            )
+            accumulated = accumulate_constraints(constraints_dag, node_values, alpha)
 
         # Divide by vanishing polynomial: quotient[i] = accumulated * inv_zeroifier[i]
         # inv_zeroifier is base field, accumulated is EF4
@@ -591,6 +770,59 @@ def quotient_values_to_chunks(
 # ---------------------------------------------------------------------------
 
 
+def extend_after_challenge_to_quotient_domain(
+    after_challenge_trace: list[list[EF4Coeffs]],
+    trace_domain: TwoAdicMultiplicativeCoset,
+    quotient_domain: TwoAdicMultiplicativeCoset,
+) -> list[list[EF4Coeffs]]:
+    """Extend after-challenge trace (EF4 values) to the quotient domain.
+
+    Each EF4 element has 4 base field coefficients. We LDE each coefficient
+    column independently, then reconstruct EF4 values at quotient domain points.
+
+    Args:
+        after_challenge_trace: [rows][perm_width] of EF4Coeffs on trace domain.
+        trace_domain: Trace domain (shift=1 subgroup).
+        quotient_domain: Quotient domain (disjoint coset).
+
+    Returns:
+        [quot_rows][perm_width] of EF4Coeffs on quotient domain.
+    """
+    n_trace = trace_domain.size()
+    n_quot = quotient_domain.size()
+    perm_width = len(after_challenge_trace[0])
+
+    # Flatten: extract 4 base field columns per EF4 column
+    # Total base field columns = perm_width * 4
+    num_base_cols = perm_width * 4
+    base_columns: list[list[Fe]] = [[] for _ in range(num_base_cols)]
+    for row in range(n_trace):
+        for col in range(perm_width):
+            ef4_val = after_challenge_trace[row][col]
+            for coeff_idx in range(4):
+                base_columns[col * 4 + coeff_idx].append(ef4_val[coeff_idx])
+
+    # LDE each base field column
+    lde_columns = [
+        coset_lde_column(col, trace_domain, quotient_domain)
+        for col in base_columns
+    ]
+
+    # Reconstruct EF4 values at quotient domain points
+    result: list[list[EF4Coeffs]] = []
+    for row in range(n_quot):
+        ef4_row: list[EF4Coeffs] = []
+        for col in range(perm_width):
+            ef4_val = [
+                lde_columns[col * 4 + ci][row]
+                for ci in range(4)
+            ]
+            ef4_row.append(ef4_val)
+        result.append(ef4_row)
+
+    return result
+
+
 def compute_quotient_chunks(
     trace: list[list[Fe]],
     constraints_dag: SymbolicExpressionDag,
@@ -598,6 +830,11 @@ def compute_quotient_chunks(
     alpha: EF4Coeffs,
     trace_domain: TwoAdicMultiplicativeCoset,
     quotient_degree: int,
+    preprocessed_trace: Optional[list[list[Fe]]] = None,
+    after_challenge_trace: Optional[list[list[EF4Coeffs]]] = None,
+    challenges: Optional[list[list[EF4Coeffs]]] = None,
+    exposed_values: Optional[list[list[EF4Coeffs]]] = None,
+    partitioned_traces: Optional[list[list[list[Fe]]]] = None,
 ) -> tuple[list[list[list[Fe]]], list[TwoAdicMultiplicativeCoset]]:
     """End-to-end quotient computation: trace -> quotient chunks ready for commitment.
 
@@ -618,6 +855,10 @@ def compute_quotient_chunks(
         alpha: Alpha challenge (extension field element).
         trace_domain: Trace domain (shift=1 subgroup).
         quotient_degree: Factor multiplying trace degree to get quotient degree.
+        preprocessed_trace: Preprocessed trace matrix [rows][cols] (optional).
+        after_challenge_trace: After-challenge trace [rows][perm_width] of EF4 (optional).
+        challenges: Challenges per phase (optional).
+        exposed_values: Exposed values per phase (optional).
 
     Returns:
         Tuple of (chunks, chunk_domains) where:
@@ -637,6 +878,28 @@ def compute_quotient_chunks(
         trace, trace_domain, quotient_domain,
     )
 
+    # Step 2b: LDE preprocessed trace if present
+    preprocessed_on_quot = None
+    if preprocessed_trace is not None:
+        preprocessed_on_quot = extend_trace_to_quotient_domain(
+            preprocessed_trace, trace_domain, quotient_domain,
+        )
+
+    # Step 2c: LDE after_challenge trace if present
+    after_challenge_on_quot = None
+    if after_challenge_trace is not None:
+        after_challenge_on_quot = extend_after_challenge_to_quotient_domain(
+            after_challenge_trace, trace_domain, quotient_domain,
+        )
+
+    # Step 2d: LDE partitioned traces if present
+    partitioned_trace_on_quot = None
+    if partitioned_traces is not None:
+        partitioned_trace_on_quot = [
+            extend_trace_to_quotient_domain(part, trace_domain, quotient_domain)
+            for part in partitioned_traces
+        ]
+
     # Step 3: Compute quotient values
     quotient_values = compute_quotient_values(
         trace_on_quot,
@@ -645,6 +908,11 @@ def compute_quotient_chunks(
         alpha,
         quotient_domain,
         trace_domain,
+        preprocessed_on_quot=preprocessed_on_quot,
+        after_challenge_on_quot=after_challenge_on_quot,
+        challenges=challenges,
+        exposed_values=exposed_values,
+        partitioned_trace_on_quot=partitioned_trace_on_quot,
     )
 
     # Step 4: Split into chunks

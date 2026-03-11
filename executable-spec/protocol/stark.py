@@ -724,6 +724,9 @@ def prove_stark(
     traces: list[list[list[Fe]]],
     public_values_per_air: list[list[Fe]],
     fri_params: FriParameters,
+    preprocessed_traces: Optional[list[Optional[list[list[Fe]]]]] = None,
+    cached_main_traces: Optional[list[list[list[list[Fe]]]]] = None,
+    air_ids: Optional[list[int]] = None,
 ) -> Proof:
     """Generate a multi-AIR STARK proof.
 
@@ -733,9 +736,13 @@ def prove_stark(
 
     Args:
         vk: The multi-AIR verifying key.
-        traces: Per-AIR trace matrices (list of rows, each row is list of Fe).
+        traces: Per-AIR common main trace matrices (list of rows).
         public_values_per_air: Per-AIR public values.
         fri_params: FRI protocol parameters.
+        preprocessed_traces: Per-AIR preprocessed trace matrices (None if absent).
+        cached_main_traces: Per-AIR list of cached main trace matrices.
+        air_ids: Maps proof index to VK AIR index. If None, assumes identity
+            mapping (all VK AIRs have data).
 
     Returns:
         A Proof matching the Rust prover output.
@@ -743,7 +750,13 @@ def prove_stark(
     Reference:
         stark-backend/src/prover/coordinator.rs prove
     """
+    import time as _time
+    _t0 = _time.time()
+    def _log(msg):
+        print(f"  [prove_stark {_time.time()-_t0:6.1f}s] {msg}", flush=True)
+
     from protocol.pcs import (
+        CommittedData,
         PcsOpeningRound,
         _generate_batch_opening,
         pcs_commit,
@@ -751,9 +764,10 @@ def prove_stark(
     )
     from protocol.quotient import compute_quotient_chunks
 
-    per_air_vks = vk.inner.per_air
-    num_airs = len(per_air_vks)
-    air_ids = list(range(num_airs))
+    if air_ids is None:
+        air_ids = list(range(len(vk.inner.per_air)))
+    per_air_vks = _get_vk_view(vk, air_ids)
+    num_airs = len(air_ids)
 
     # --- Phase 1: Transcript initialization ---
     challenger = Challenger()
@@ -768,53 +782,192 @@ def prove_stark(
     for air_id in air_ids:
         challenger.observe(air_id)
 
-    # --- Phase 2: Commit main traces ---
+    # --- Phase 2: Commit traces ---
     # Build domains for each AIR
     domains: list[TwoAdicMultiplicativeCoset] = []
     for i_air in range(num_airs):
-        degree = len(traces[i_air])
-        domain = natural_domain_for_degree(degree)
+        # Determine height from available trace data
+        if traces[i_air]:
+            height = len(traces[i_air])
+        elif cached_main_traces and cached_main_traces[i_air]:
+            height = len(cached_main_traces[i_air][0])
+        elif preprocessed_traces and preprocessed_traces[i_air] is not None:
+            height = len(preprocessed_traces[i_air])
+        else:
+            raise ValueError(f"AIR {i_air} has no trace data to determine height")
+        domain = natural_domain_for_degree(height)
         domains.append(domain)
 
-    # Commit common main trace (all AIR traces in one batch)
+    _log(f"start: {num_airs} AIRs, air_ids={air_ids}")
+
+    # (a) Commit preprocessed traces (each AIR gets its own commitment).
+    # Re-commit from raw data so we have Merkle trees for PCS openings.
+    # Verify roots match VK to ensure consistency.
+    preprocessed_committed_list: list[tuple[int, CommittedData]] = []
+    for i_air in range(num_airs):
+        svk = per_air_vks[i_air]
+        if svk.preprocessed_data is not None:
+            prep = preprocessed_traces[i_air] if preprocessed_traces else None
+            assert prep is not None, (
+                f"VK expects preprocessed for AIR {i_air} but none provided"
+            )
+            committed = pcs_commit([(domains[i_air], prep)], fri_params.log_blowup)
+            assert committed.root == svk.preprocessed_data.commit, (
+                f"Preprocessed commitment mismatch for AIR {i_air}"
+            )
+            preprocessed_committed_list.append((i_air, committed))
+
+    _log(f"preprocessed committed ({len(preprocessed_committed_list)} AIRs)")
+
+    # (b) Commit cached main traces (each partition gets its own commitment).
+    # Order: for each AIR, for each cached main partition -> separate commit.
+    cached_committed_list: list[CommittedData] = []
+    main_commits: list[Digest] = []
+    for i_air in range(num_airs):
+        svk = per_air_vks[i_air]
+        num_cached = len(svk.params.width.cached_mains)
+        if num_cached > 0:
+            air_cached = cached_main_traces[i_air] if cached_main_traces else []
+            assert len(air_cached) == num_cached, (
+                f"AIR {i_air}: expected {num_cached} cached mains, got {len(air_cached)}"
+            )
+            for cached_matrix in air_cached:
+                committed = pcs_commit(
+                    [(domains[i_air], cached_matrix)], fri_params.log_blowup
+                )
+                cached_committed_list.append(committed)
+                main_commits.append(committed.root)
+
+    _log(f"cached mains committed ({len(cached_committed_list)})")
+
+    # (c) Commit common main trace (all AIRs in one batch).
     common_main_evals = []
     for i_air in range(num_airs):
         if _has_common_main(per_air_vks[i_air]):
             common_main_evals.append((domains[i_air], traces[i_air]))
-
     main_committed = pcs_commit(common_main_evals, fri_params.log_blowup)
+    main_commits.append(main_committed.root)
+
+    _log(f"common main committed ({len(common_main_evals)} mats)")
 
     # --- Phase 3: Observe into transcript ---
     # (4) Observe public values
     for pis in public_values_per_air:
         challenger.observe_many(pis)
 
-    # (5) Observe preprocessed commitments
+    # (5) Observe preprocessed commitments (from VK, not re-committed roots)
     for commit in _flattened_preprocessed_commits(per_air_vks):
         challenger.observe_many(commit)
 
-    # (6) Observe main trace commitments
-    # For simple case: just the common main commit
-    main_commits = [main_committed.root]
+    # (6) Observe main trace commitments (cached + common)
     for commit in main_commits:
         challenger.observe_many(commit)
 
     # (7) Observe log_degree for each AIR
     for i_air in range(num_airs):
-        degree = len(traces[i_air])
+        degree = domains[i_air].size()
         log_degree = degree.bit_length() - 1
         challenger.observe(log_degree)
 
     # --- Phase 4: RAP phase (interactions) ---
-    # For simple AIRs (no interactions): skip
     has_any_interaction = any(_has_interaction(svk) for svk in per_air_vks)
     rap_phase_seq_proof = None
-    _challenges_per_phase: list[list[EF4Coeffs]] = []
+    challenges_per_phase: list[list[EF4Coeffs]] = []
     after_challenge_commits: list[Digest] = []
+    after_challenge_per_air: list[Optional[list[list[EF4Coeffs]]]] = [None] * num_airs
+    exposed_values_per_air: list[list[list[EF4Coeffs]]] = [[] for _ in range(num_airs)]
+    ac_committed: Optional[CommittedData] = None
+
+    _log("starting RAP phase")
 
     if has_any_interaction:
-        # TODO: implement RAP phase for multi-AIR with interactions
-        raise NotImplementedError("RAP phase not yet implemented in prover")
+        from protocol.logup import (
+            compute_after_challenge_trace,
+            compute_max_constraint_degree,
+            find_interaction_chunks,
+        )
+
+        max_cd = compute_max_constraint_degree(vk.inner.per_air)
+
+        # (a) LogUp PoW grinding
+        logup_pow_witness = grind(challenger, vk.inner.log_up_pow_bits)
+
+        # (b) Sample 2 interaction challenges
+        interaction_challenges: list[EF4Coeffs] = [
+            challenger.sample_ext() for _ in range(STARK_LU_NUM_CHALLENGES)
+        ]
+        alpha_lu, beta_lu = interaction_challenges[0], interaction_challenges[1]
+
+        # (c) Compute after_challenge trace per AIR
+        for i_air in range(num_airs):
+            svk = per_air_vks[i_air]
+            interactions = svk.symbolic_constraints.interactions
+            if not interactions:
+                continue
+
+            dag = svk.symbolic_constraints.constraints
+            partitions = find_interaction_chunks(interactions, dag, max_cd)
+
+            # Build partitioned_main: [cached_mains..., common_main]
+            partitioned_main: list[list[list[Fe]]] = []
+            if cached_main_traces and cached_main_traces[i_air]:
+                for cm in cached_main_traces[i_air]:
+                    partitioned_main.append(cm)
+            if _has_common_main(svk):
+                partitioned_main.append(traces[i_air])
+
+            prep = None
+            if preprocessed_traces and preprocessed_traces[i_air] is not None:
+                prep = preprocessed_traces[i_air]
+
+            height = domains[i_air].size()
+            _log(f"  logup AIR {air_ids[i_air]}: h={height}, inters={len(interactions)}")
+            perm_trace, cum_sum = compute_after_challenge_trace(
+                interactions, partitions, dag,
+                partitioned_main, prep,
+                public_values_per_air[i_air],
+                alpha_lu, beta_lu, height,
+            )
+            after_challenge_per_air[i_air] = perm_trace
+            exposed_values_per_air[i_air] = [[cum_sum]]
+
+        # (d) Observe exposed values (cumulative sums)
+        for i_air in range(num_airs):
+            evs = exposed_values_per_air[i_air]
+            if evs:
+                for ev in evs[0]:  # phase 0
+                    challenger.observe_many(ev)
+
+        # (e) Flatten after_challenge traces to base field and commit.
+        # Each EF4 element → 4 base field columns.
+        ac_evals = []
+        for i_air in range(num_airs):
+            if after_challenge_per_air[i_air] is not None:
+                domain = domains[i_air]
+                perm_trace = after_challenge_per_air[i_air]
+                height = len(perm_trace)
+                perm_width = len(perm_trace[0])
+                base_field_rows: list[list[Fe]] = []
+                for row_idx in range(height):
+                    row: list[Fe] = []
+                    for col in range(perm_width):
+                        row.extend(perm_trace[row_idx][col])
+                    base_field_rows.append(row)
+                ac_evals.append((domain, base_field_rows))
+
+        _log(f"committing after_challenge ({len(ac_evals)} mats)")
+        ac_committed = pcs_commit(ac_evals, fri_params.log_blowup)
+
+        # (f) Observe after_challenge commitment
+        challenger.observe_many(ac_committed.root)
+
+        rap_phase_seq_proof = FriLogUpPartialProof(
+            logup_pow_witness=logup_pow_witness
+        )
+        challenges_per_phase = [interaction_challenges]
+        after_challenge_commits = [ac_committed.root]
+
+    _log("starting quotient phase")
 
     # --- Phase 5: Sample alpha and compute quotient ---
     alpha: EF4Coeffs = challenger.sample_ext()
@@ -827,6 +980,32 @@ def prove_stark(
         svk = per_air_vks[i_air]
         domain = domains[i_air]
 
+        # Build partitioned traces for quotient evaluation
+        partitioned_traces_list: Optional[list[list[list[Fe]]]] = None
+        num_cached = _num_cached_mains(svk)
+        if num_cached > 0 or (preprocessed_traces and preprocessed_traces[i_air]):
+            # Multi-partition or preprocessed: need partitioned traces
+            parts: list[list[list[Fe]]] = []
+            if cached_main_traces and cached_main_traces[i_air]:
+                for cm in cached_main_traces[i_air]:
+                    parts.append(cm)
+            if _has_common_main(svk):
+                parts.append(traces[i_air])
+            partitioned_traces_list = parts
+
+        # Prepare challenges and exposed values for quotient
+        chall = None
+        exp_vals = None
+        if has_any_interaction and _has_interaction(svk):
+            chall = [challenges_per_phase[0]]
+            evs = exposed_values_per_air[i_air]
+            exp_vals = evs if evs else None
+
+        prep = None
+        if preprocessed_traces and preprocessed_traces[i_air] is not None:
+            prep = preprocessed_traces[i_air]
+
+        _log(f"  quotient AIR {air_ids[i_air]}: h={domain.size()}, qd={svk.quotient_degree}")
         chunks, qc_doms = compute_quotient_chunks(
             trace=traces[i_air],
             constraints_dag=svk.symbolic_constraints.constraints,
@@ -834,18 +1013,23 @@ def prove_stark(
             alpha=alpha,
             trace_domain=domain,
             quotient_degree=svk.quotient_degree,
+            preprocessed_trace=prep,
+            after_challenge_trace=after_challenge_per_air[i_air],
+            challenges=chall,
+            exposed_values=exp_vals,
+            partitioned_traces=partitioned_traces_list,
         )
         all_quotient_chunks.append(chunks)
         quotient_chunk_domains.append(qc_doms)
 
     # --- Phase 6: Commit quotient ---
-    # All quotient chunks across all AIRs are committed together
     quotient_evals = []
     for i_air in range(num_airs):
         for chunk_idx, chunk_matrix in enumerate(all_quotient_chunks[i_air]):
             qc_domain = quotient_chunk_domains[i_air][chunk_idx]
             quotient_evals.append((qc_domain, chunk_matrix))
 
+    _log(f"committing quotient ({len(quotient_evals)} mats)")
     quotient_committed = pcs_commit(quotient_evals, fri_params.log_blowup)
 
     # (8) Observe quotient commitment
@@ -857,23 +1041,35 @@ def prove_stark(
     # --- Phase 8: Sample zeta ---
     zeta: EF4Coeffs = challenger.sample_ext()
 
-    # --- Phase 9: Build opening rounds and PCS open ---
-    # Build PCS opening rounds matching the verifier's expected structure
+    _log("starting PCS open phase")
+
+    # --- Phase 9: Build PCS opening rounds ---
+    # Round order must match the verifier exactly:
+    # preprocessed (each own round) → cached mains (each own round) →
+    # common main (one round) → after_challenge (one round) → quotient (one round)
     opening_rounds: list[PcsOpeningRound] = []
+    next_points = [domains[i_air].next_point(zeta) for i_air in range(num_airs)]
 
     # (a) Preprocessed traces (each in its own round)
+    for i_air, committed in preprocessed_committed_list:
+        opening_rounds.append(PcsOpeningRound(
+            committed=committed,
+            points_per_mat=[[zeta, next_points[i_air]]],
+        ))
+
+    # (b) Cached main traces (each in its own round)
+    cached_idx = 0
     for i_air in range(num_airs):
         svk = per_air_vks[i_air]
-        if svk.preprocessed_data is not None:
-            raise NotImplementedError("Preprocessed trace opening not yet implemented")
+        for _ in svk.params.width.cached_mains:
+            committed = cached_committed_list[cached_idx]
+            opening_rounds.append(PcsOpeningRound(
+                committed=committed,
+                points_per_mat=[[zeta, next_points[i_air]]],
+            ))
+            cached_idx += 1
 
-    # (b) Cached main traces
-    for svk in per_air_vks:
-        if len(svk.params.width.cached_mains) > 0:
-            raise NotImplementedError("Cached main trace not yet implemented")
-
-    # (c) Common main trace
-    next_points = [domains[i_air].next_point(zeta) for i_air in range(num_airs)]
+    # (c) Common main trace (one round, multiple matrices)
     common_main_points = []
     for i_air in range(num_airs):
         if _has_common_main(per_air_vks[i_air]):
@@ -883,10 +1079,18 @@ def prove_stark(
         points_per_mat=common_main_points,
     ))
 
-    # (d) After-challenge traces
-    # Skip for simple AIRs
+    # (d) After-challenge traces (one round if present)
+    if has_any_interaction and ac_committed is not None:
+        ac_points = []
+        for i_air in range(num_airs):
+            if _has_interaction(per_air_vks[i_air]):
+                ac_points.append([zeta, next_points[i_air]])
+        opening_rounds.append(PcsOpeningRound(
+            committed=ac_committed,
+            points_per_mat=ac_points,
+        ))
 
-    # (e) Quotient chunks
+    # (e) Quotient chunks (one round)
     quotient_points = []
     for i_air in range(num_airs):
         for _ in all_quotient_chunks[i_air]:
@@ -896,42 +1100,70 @@ def prove_stark(
         points_per_mat=quotient_points,
     ))
 
-    # --- Step 10: PCS open ---
+    # --- Phase 10: PCS open ---
     all_opened_values, fri_proof_data, query_indices = pcs_open(
         opening_rounds, challenger, fri_params
     )
 
-    # --- Step 11: Build proof structure ---
-    # Extract opened values into the proof format
-    # all_opened_values[round_idx][mat_idx][point_idx] = list[EF4Coeffs]
+    _log("PCS open complete, building proof structure")
+
+    # --- Phase 11: Build proof structure ---
+    # Extract opened values from all_opened_values[round_idx][mat_idx][point_idx]
+    round_idx = 0
 
     # Preprocessed opened values
     preprocessed_ov: list[AdjacentOpenedValues] = []
+    for _ in preprocessed_committed_list:
+        mat_values = all_opened_values[round_idx][0]  # single matrix
+        preprocessed_ov.append(AdjacentOpenedValues(
+            local=mat_values[0],
+            next=mat_values[1],
+        ))
+        round_idx += 1
 
-    # Main trace opened values
-    # Round 0 = common main; each matrix has 2 points (zeta, next)
-    common_main_ov_round = all_opened_values[0]
+    # Main trace opened values: [cached_0, ..., cached_n, common_main_batch]
     main_ov: list[list[AdjacentOpenedValues]] = []
+
+    # Cached mains (each has 1 matrix)
+    for _ in cached_committed_list:
+        mat_values = all_opened_values[round_idx][0]
+        main_ov.append([AdjacentOpenedValues(
+            local=mat_values[0],
+            next=mat_values[1],
+        )])
+        round_idx += 1
+
+    # Common main (multiple matrices, one per AIR with common main)
+    common_main_round = all_opened_values[round_idx]
     common_main_avs: list[AdjacentOpenedValues] = []
-    for mat_values in common_main_ov_round:
+    for mat_values in common_main_round:
         common_main_avs.append(AdjacentOpenedValues(
             local=mat_values[0],
             next=mat_values[1],
         ))
     main_ov.append(common_main_avs)
+    round_idx += 1
 
     # After-challenge opened values
     after_challenge_ov: list[list[AdjacentOpenedValues]] = []
+    if has_any_interaction and ac_committed is not None:
+        ac_round = all_opened_values[round_idx]
+        ac_avs: list[AdjacentOpenedValues] = []
+        for mat_values in ac_round:
+            ac_avs.append(AdjacentOpenedValues(
+                local=mat_values[0],
+                next=mat_values[1],
+            ))
+        after_challenge_ov.append(ac_avs)
+        round_idx += 1
 
     # Quotient opened values
-    # Round 1 = quotient; each chunk has 1 point (zeta), 4 cols
-    quotient_round = all_opened_values[1]
+    quotient_round = all_opened_values[round_idx]
     quotient_ov: list[list[list[EF4Coeffs]]] = []
     chunk_idx = 0
     for i_air in range(num_airs):
         air_chunks_ov: list[list[EF4Coeffs]] = []
         for _ in all_quotient_chunks[i_air]:
-            # mat_values[0] is the list of 4 EF4Coeffs at zeta
             air_chunks_ov.append(quotient_round[chunk_idx][0])
             chunk_idx += 1
         quotient_ov.append(air_chunks_ov)
@@ -955,7 +1187,6 @@ def prove_stark(
         query_index = query_indices[qi]
         _, fri_openings = fri_proof_data["fri_query_proofs"][qi]
 
-        # Generate input proofs (Merkle openings) for each committed batch
         input_proof: list[BatchOpening] = []
         for rnd in opening_rounds:
             batch_opening = _generate_batch_opening(
@@ -963,7 +1194,6 @@ def prove_stark(
             )
             input_proof.append(batch_opening)
 
-        # Convert FRI openings to CommitPhaseProofStep
         commit_phase_openings: list[CommitPhaseProofStep] = []
         for step in fri_openings:
             commit_phase_openings.append(CommitPhaseProofStep(
@@ -996,8 +1226,8 @@ def prove_stark(
     for i_air in range(num_airs):
         per_air_proof_data.append(AirProofData(
             air_id=air_ids[i_air],
-            degree=len(traces[i_air]),
-            exposed_values_after_challenge=[],
+            degree=domains[i_air].size(),
+            exposed_values_after_challenge=exposed_values_per_air[i_air],
             public_values=public_values_per_air[i_air],
         ))
 
@@ -1006,6 +1236,8 @@ def prove_stark(
         after_challenge=after_challenge_commits,
         quotient=quotient_committed.root,
     )
+
+    _log("proof complete")
 
     return Proof(
         commitments=commitments,
