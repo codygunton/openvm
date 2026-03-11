@@ -60,18 +60,18 @@ class FriQueryStep:
 
 
 @dataclass
-class FriQueryProof:
+class FriQueryResult:
     """FRI query proof for a single query index."""
     index: int
     commit_phase_openings: list[FriQueryStep]
 
 
 @dataclass
-class FriProof:
+class CommitPhaseOutput:
     """Complete FRI proof."""
     commit_phase_commits: list[Digest]
     final_poly: list[EF4Coeffs]
-    query_proofs: list[FriQueryProof]
+    query_proofs: list[FriQueryResult]
     betas: list[EF4Coeffs]
     folded_per_round: list[list[EF4Coeffs]]
 
@@ -396,8 +396,8 @@ def commit_phase(
         trees.append(tree)
 
         # Per-round PoW
-        from protocol.pcs import _grind
-        pow_witness = _grind(challenger, commit_pow_bits)
+        from primitives.transcript import grind
+        pow_witness = grind(challenger, commit_pow_bits)
         commit_pow_witnesses.append(pow_witness)
 
         # Sample folding challenge
@@ -468,7 +468,7 @@ def prove_fri(
     log_final_poly_len: int,
     num_queries: int,
     challenger: Challenger,
-) -> FriProof:
+) -> CommitPhaseOutput:
     """Full FRI proof generation.
 
     Reference:
@@ -492,12 +492,12 @@ def prove_fri(
             query_index,
             num_rounds,
         )
-        query_proofs.append(FriQueryProof(
+        query_proofs.append(FriQueryResult(
             index=query_index,
             commit_phase_openings=openings,
         ))
 
-    return FriProof(
+    return CommitPhaseOutput(
         commit_phase_commits=result.commits,
         final_poly=result.final_poly,
         query_proofs=query_proofs,

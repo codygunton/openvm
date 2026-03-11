@@ -19,30 +19,23 @@ Reference:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
     Fe,
-    inv_mod,
+    ef4_add,
+    ef4_mul,
+    ef4_mul_base,
     get_omega,
+    inv_mod,
 )
 from primitives.ntt import ntt, intt
 from protocol.domain import (
     TwoAdicMultiplicativeCoset,
-    DomainSelectors,
-    ef4_from_base,
-    ef4_mul,
-    ef4_mul_base,
-    ef4_add,
-    ef4_sub,
-    ef4_inv,
-    ef4_div,
 )
 from protocol.proof import (
     SymbolicExpressionDag,
-    SymbolicExpressionNode,
     SymbolicNodeKind,
     EntryType,
 )
@@ -301,7 +294,7 @@ def _batch_inverse_base(values: list[Fe]) -> list[Fe]:
         return [inv_mod(values[0])]
 
     # Forward pass: prefix products
-    cumprods = [0] * n
+    cumprods: list[Fe] = [0] * n
     cumprods[0] = values[0] % p
     for i in range(1, n):
         cumprods[i] = (cumprods[i - 1] * values[i]) % p
@@ -310,7 +303,7 @@ def _batch_inverse_base(values: list[Fe]) -> list[Fe]:
     inv_total = inv_mod(cumprods[n - 1])
 
     # Backward pass
-    results = [0] * n
+    results: list[Fe] = [0] * n
     z = inv_total
     for i in range(n - 1, 0, -1):
         results[i] = (z * cumprods[i - 1]) % p

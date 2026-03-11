@@ -21,7 +21,7 @@ VK types reference:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
@@ -917,7 +917,7 @@ def parse_fri_params(data: dict) -> FriParameters:
     )
 
 
-def parse_e2e_vectors(vectors: dict) -> tuple:
+def parse_e2e_vectors(vectors: dict) -> tuple[Proof, FriParameters, dict]:
     """Parse complete E2E test vectors.
 
     Returns:

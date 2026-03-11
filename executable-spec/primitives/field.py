@@ -179,6 +179,109 @@ def ff4_to_json(arr) -> list[list[int]]:
     return [ff4_coeffs(elem) for elem in arr]
 
 
+# --- Extension Field Helpers ---
+# These operate on EF4Coeffs (list[int]) representation, delegating to
+# the galois FF4 type for arithmetic.
+
+
+def ef4_from_base(x: Fe) -> EF4Coeffs:
+    """Embed base field element into extension field as (x, 0, 0, 0).
+
+    Reference:
+        p3-field ExtensionField::from_base
+    """
+    return [x % BABYBEAR_PRIME, 0, 0, 0]
+
+
+def ef4_mul(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
+    """Multiply two extension field elements.
+
+    Reference:
+        p3-field BinomialExtensionField::mul
+    """
+    return ff4_coeffs(ff4(a) * ff4(b))
+
+
+def ef4_mul_base(a: EF4Coeffs, b: Fe) -> EF4Coeffs:
+    """Multiply extension field element by a base field element.
+
+    Reference:
+        p3-field ExtensionField::mul_base
+    """
+    return ff4_coeffs(ff4(a) * ff4_from_base(b))
+
+
+def ef4_add(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
+    """Add two extension field elements.
+
+    Reference:
+        p3-field BinomialExtensionField::add
+    """
+    return ff4_coeffs(ff4(a) + ff4(b))
+
+
+def ef4_sub(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
+    """Subtract two extension field elements.
+
+    Reference:
+        p3-field BinomialExtensionField::sub
+    """
+    return ff4_coeffs(ff4(a) - ff4(b))
+
+
+def ef4_neg(a: EF4Coeffs) -> EF4Coeffs:
+    """Negate an extension field element: -a.
+
+    Reference:
+        p3-field BinomialExtensionField::neg
+    """
+    return [(BABYBEAR_PRIME - c) % BABYBEAR_PRIME for c in a]
+
+
+def ef4_inv(x: EF4Coeffs) -> EF4Coeffs:
+    """Multiplicative inverse in extension field.
+
+    Reference:
+        p3-field BinomialExtensionField::inverse
+    """
+    return ff4_coeffs(ff4(x) ** (-1))
+
+
+def ef4_div(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
+    """Division in extension field: a / b.
+
+    Reference:
+        p3-field BinomialExtensionField::div
+    """
+    return ff4_coeffs(ff4(a) * ff4(b) ** (-1))
+
+
+def ef4_pow(x: EF4Coeffs, n: int) -> EF4Coeffs:
+    """Exponentiation in extension field by non-negative integer.
+
+    Uses square-and-multiply.
+
+    Reference:
+        p3-field FieldAlgebra::exp_u64
+    """
+    if n == 0:
+        return [1, 0, 0, 0]
+    result = ff4(x) ** n
+    return ff4_coeffs(result)
+
+
+def ef4_exp_power_of_2(x: EF4Coeffs, log_power: int) -> EF4Coeffs:
+    """Compute x^(2^log_power) by repeated squaring.
+
+    Reference:
+        p3-field Field::exp_power_of_2
+    """
+    result = ff4(x)
+    for _ in range(log_power):
+        result = result * result
+    return ff4_coeffs(result)
+
+
 # --- NTT Support ---
 
 # Precomputed roots of unity: W[n] is a primitive 2^n-th root of unity in BabyBear.

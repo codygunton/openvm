@@ -14,22 +14,23 @@ from __future__ import annotations
 
 from typing import Optional
 
-from primitives.field import EF4Coeffs, Fe
-from protocol.domain import (
-    DomainSelectors,
-    TwoAdicMultiplicativeCoset,
+from primitives.field import (
+    EF4Coeffs,
+    Fe,
     ef4_add,
     ef4_from_base,
     ef4_mul,
     ef4_neg,
     ef4_sub,
 )
+from protocol.domain import (
+    DomainSelectors,
+    TwoAdicMultiplicativeCoset,
+)
 from protocol.proof import (
     AdjacentOpenedValues,
-    Entry,
     EntryType,
     SymbolicExpressionDag,
-    SymbolicExpressionNode,
     SymbolicNodeKind,
     SymbolicVariable,
 )
@@ -284,7 +285,7 @@ def reconstruct_quotient(
     Reference:
         stark-backend/src/verifier/constraints.rs lines 38-63
     """
-    from protocol.domain import ef4_div
+    from primitives.field import ef4_div
 
     num_chunks = len(qc_domains)
     assert len(quotient_chunks) == num_chunks

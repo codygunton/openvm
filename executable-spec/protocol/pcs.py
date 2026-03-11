@@ -21,6 +21,7 @@ from primitives.field import (
     Digest,
     EF4Coeffs,
     Fe,
+    FF4,
     GENERATOR,
     W,
     bit_reverse_list,
@@ -34,15 +35,14 @@ from primitives.field import (
 from primitives.merkle import build_merkle_tree, get_opening_proof, verify_opening_prehashed
 from primitives.ntt import intt, ntt
 from primitives.poseidon2 import compress, hash_to_digest
-from primitives.transcript import Challenger
+from primitives.transcript import Challenger, check_witness, grind
 from protocol.domain import TwoAdicMultiplicativeCoset
-from protocol.fri import commit_phase, answer_query, fold_row, hash_fri_leaf
+from protocol.fri import fold_row, hash_fri_leaf
 from protocol.proof import (
     BatchOpening,
     CommitPhaseProofStep,
     FriParameters,
     FriProof,
-    QueryProof,
 )
 
 p = BABYBEAR_PRIME
@@ -68,7 +68,7 @@ class PcsRound:
     # domain: TwoAdicMultiplicativeCoset
     # point: EF4Coeffs (extension field evaluation point)
     # values: list[EF4Coeffs] (claimed evaluations at that point)
-    domains_and_openings: list  # list of (TwoAdicMultiplicativeCoset, list[(EF4Coeffs, list[EF4Coeffs])])
+    domains_and_openings: list[tuple]  # list of (TwoAdicMultiplicativeCoset, list[(EF4Coeffs, list[EF4Coeffs])])
 
 
 # ---------------------------------------------------------------------------
@@ -212,9 +212,9 @@ def _open_input(
     log_global_max_height: int,
     index: int,
     input_proof: list[BatchOpening],
-    alpha: "FF4",
+    alpha: FF4,
     rounds: list[PcsRound],
-) -> list[tuple[int, "FF4"]]:
+) -> list[tuple[int, FF4]]:
     """Open input polynomials and combine into FRI reduced openings.
 
     For each batch commitment and its opening proof:
@@ -325,13 +325,13 @@ def _open_input(
 def _verify_query(
     fri_params: FriParameters,
     start_index: int,
-    betas: list,
+    betas: list[FF4],
     commit_phase_commits: list[Digest],
     commit_phase_openings: list[CommitPhaseProofStep],
-    reduced_openings: list[tuple[int, "FF4"]],
+    reduced_openings: list[tuple[int, FF4]],
     log_global_max_height: int,
     log_final_height: int,
-) -> tuple["FF4", int]:
+) -> tuple[FF4, int]:
     """Verify a single FRI query: fold chain with reduced openings rolled in.
 
     Starting from the initial reduced opening at log_global_max_height,
@@ -411,25 +411,6 @@ def _verify_query(
 
 
 # ---------------------------------------------------------------------------
-# PoW (Proof of Work) verification
-# ---------------------------------------------------------------------------
-
-
-def _check_witness(challenger: Challenger, bits: int, witness: int) -> bool:
-    """Verify a proof-of-work witness.
-
-    Observes the witness, samples `bits` bits, and checks == 0.
-
-    Reference:
-        p3-challenger GrindingChallenger::check_witness
-    """
-    if bits == 0:
-        return True
-    challenger.observe(witness)
-    return challenger.sample_bits(bits) == 0
-
-
-# ---------------------------------------------------------------------------
 # Main PCS verification
 # ---------------------------------------------------------------------------
 
@@ -506,7 +487,7 @@ def pcs_verify(
         challenger.observe_many(comm)
 
         # Check per-round PoW
-        assert _check_witness(
+        assert check_witness(
             challenger, fri_params.commit_proof_of_work_bits, pow_witness
         ), f"commit phase PoW failed at round {round_idx}"
 
@@ -531,7 +512,7 @@ def pcs_verify(
     )
 
     # --- Step 8: Check query-phase PoW ---
-    assert _check_witness(
+    assert check_witness(
         challenger, fri_params.query_proof_of_work_bits, fri_proof.query_pow_witness
     ), "query phase PoW failed"
 
@@ -606,7 +587,7 @@ class CommittedData:
         p3-merkle-tree MerkleTreeMmcs::commit
     """
     root: Digest
-    tree: list  # Merkle tree levels
+    tree: list[list[list[int]]]  # Merkle tree levels
     # Per-matrix LDE rows (bit-reversed): [mat][row][col]
     lde_rows: list[list[list[Fe]]]
     # Per-matrix coefficient form: [mat][col][coeff]
@@ -773,42 +754,6 @@ def _eval_poly_ef4(
 
 
 # ---------------------------------------------------------------------------
-# Proof-of-work grinding
-# ---------------------------------------------------------------------------
-
-
-def _grind(challenger: Challenger, bits: int) -> int:
-    """Find a proof-of-work witness by brute force.
-
-    Tries witness = 0, 1, 2, ... until check_witness passes.
-    Then calls check_witness on the original challenger to update its state.
-
-    Args:
-        challenger: The Fiat-Shamir challenger.
-        bits: Number of bits for the PoW check.
-
-    Returns:
-        The winning witness value.
-
-    Reference:
-        p3-challenger grinding_challenger.rs GrindingChallenger::grind
-    """
-    if bits == 0:
-        return 0
-
-    for witness in range(2**31):
-        test = challenger.clone()
-        test.observe(witness)
-        if test.sample_bits(bits) == 0:
-            # Update original challenger state
-            challenger.observe(witness)
-            challenger.sample_bits(bits)
-            return witness
-
-    raise RuntimeError(f"failed to find PoW witness for {bits} bits")
-
-
-# ---------------------------------------------------------------------------
 # PCS open (prover side)
 # ---------------------------------------------------------------------------
 
@@ -829,7 +774,7 @@ def pcs_open(
     rounds: list[PcsOpeningRound],
     challenger: Challenger,
     fri_params: FriParameters,
-) -> tuple[list[list[list[list[EF4Coeffs]]]], "FriProof", list[int]]:
+) -> tuple[list[list[list[list[EF4Coeffs]]]], FriProof, list[int]]:
     """Open committed polynomials at specified points.
 
     Prover-side PCS open: evaluates polynomials, computes reduced
@@ -945,7 +890,7 @@ def pcs_open(
         reduced_br = reduced_evals[sorted_heights[0]]
 
     # FRI commit phase
-    from protocol.fri import commit_phase as fri_commit_phase, answer_query
+    from protocol.fri import commit_phase as fri_commit_phase, answer_query  # noqa: F811
 
     fri_result = fri_commit_phase(
         reduced_br,
@@ -956,12 +901,12 @@ def pcs_open(
     )
 
     # Query PoW
-    query_pow_witness = _grind(challenger, fri_params.query_proof_of_work_bits)
+    query_pow_witness = grind(challenger, fri_params.query_proof_of_work_bits)
 
     # --- Step F: Query phase ---
     num_fri_rounds = len(fri_result.commits)
     query_indices: list[int] = []
-    fri_query_proofs: list = []
+    fri_query_proofs: list[tuple] = []
 
     for _ in range(fri_params.num_queries):
         query_index = challenger.sample_bits(log_global_max_height)

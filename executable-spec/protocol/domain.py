@@ -16,117 +16,17 @@ from primitives.field import (
     EF4Coeffs,
     Fe,
     GENERATOR,
-    ff4,
-    ff4_coeffs,
-    ff4_from_base,
+    ef4_div,
+    ef4_exp_power_of_2,
+    ef4_from_base,
+    ef4_inv,
+    ef4_mul_base,
+    ef4_sub,
     get_omega,
     inv_mod,
 )
 
 p = BABYBEAR_PRIME
-
-
-# --- Extension Field Helpers ---
-# These operate on EF4Coeffs (list[int]) representation, delegating to
-# the galois FF4 type for arithmetic.
-
-
-def ef4_from_base(x: Fe) -> EF4Coeffs:
-    """Embed base field element into extension field as (x, 0, 0, 0).
-
-    Reference:
-        p3-field ExtensionField::from_base
-    """
-    return [x % p, 0, 0, 0]
-
-
-def ef4_mul(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
-    """Multiply two extension field elements.
-
-    Reference:
-        p3-field BinomialExtensionField::mul
-    """
-    return ff4_coeffs(ff4(a) * ff4(b))
-
-
-def ef4_mul_base(a: EF4Coeffs, b: Fe) -> EF4Coeffs:
-    """Multiply extension field element by a base field element.
-
-    Reference:
-        p3-field ExtensionField::mul_base
-    """
-    return ff4_coeffs(ff4(a) * ff4_from_base(b))
-
-
-def ef4_add(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
-    """Add two extension field elements.
-
-    Reference:
-        p3-field BinomialExtensionField::add
-    """
-    return ff4_coeffs(ff4(a) + ff4(b))
-
-
-def ef4_sub(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
-    """Subtract two extension field elements.
-
-    Reference:
-        p3-field BinomialExtensionField::sub
-    """
-    return ff4_coeffs(ff4(a) - ff4(b))
-
-
-def ef4_neg(a: EF4Coeffs) -> EF4Coeffs:
-    """Negate an extension field element: -a.
-
-    Reference:
-        p3-field BinomialExtensionField::neg
-    """
-    return [(BABYBEAR_PRIME - c) % BABYBEAR_PRIME for c in a]
-
-
-def ef4_inv(x: EF4Coeffs) -> EF4Coeffs:
-    """Multiplicative inverse in extension field.
-
-    Reference:
-        p3-field BinomialExtensionField::inverse
-    """
-    return ff4_coeffs(ff4(x) ** (-1))
-
-
-def ef4_div(a: EF4Coeffs, b: EF4Coeffs) -> EF4Coeffs:
-    """Division in extension field: a / b.
-
-    Reference:
-        p3-field BinomialExtensionField::div
-    """
-    return ff4_coeffs(ff4(a) * ff4(b) ** (-1))
-
-
-def ef4_pow(x: EF4Coeffs, n: int) -> EF4Coeffs:
-    """Exponentiation in extension field by non-negative integer.
-
-    Uses square-and-multiply.
-
-    Reference:
-        p3-field FieldAlgebra::exp_u64
-    """
-    if n == 0:
-        return [1, 0, 0, 0]
-    result = ff4(x) ** n
-    return ff4_coeffs(result)
-
-
-def ef4_exp_power_of_2(x: EF4Coeffs, log_power: int) -> EF4Coeffs:
-    """Compute x^(2^log_power) by repeated squaring.
-
-    Reference:
-        p3-field Field::exp_power_of_2
-    """
-    result = ff4(x)
-    for _ in range(log_power):
-        result = result * result
-    return ff4_coeffs(result)
 
 
 # --- Data Structures ---
@@ -349,23 +249,6 @@ def natural_domain_for_degree(degree: int) -> TwoAdicMultiplicativeCoset:
     return TwoAdicMultiplicativeCoset(log_n=log_n, shift=1)
 
 
-def natural_domain_for_log_degree(log_degree: int) -> TwoAdicMultiplicativeCoset:
-    """Return the canonical domain (subgroup) for the given log degree.
-
-    Convenience wrapper: natural_domain_for_degree(2^log_degree).
-
-    Args:
-        log_degree: log2 of the domain size.
-
-    Returns:
-        TwoAdicMultiplicativeCoset with shift=1 and log_n = log_degree.
-
-    Reference:
-        openvm-native-recursion commit.rs (PcsVariable::natural_domain_for_log_degree)
-    """
-    return TwoAdicMultiplicativeCoset(log_n=log_degree, shift=1)
-
-
 def create_disjoint_domain(
     domain: TwoAdicMultiplicativeCoset,
     min_size: int,
@@ -395,80 +278,3 @@ def create_disjoint_domain(
     return TwoAdicMultiplicativeCoset(log_n=log_n, shift=new_shift)
 
 
-def split_domains(
-    quotient_domain: TwoAdicMultiplicativeCoset,
-    num_chunks: int,
-) -> list[TwoAdicMultiplicativeCoset]:
-    """Split a quotient domain into sub-cosets.
-
-    Convenience wrapper around TwoAdicMultiplicativeCoset.split_domains.
-
-    Args:
-        quotient_domain: The domain to split.
-        num_chunks: Number of chunks (must be a power of 2).
-
-    Returns:
-        List of sub-domains.
-
-    Reference:
-        p3-commit domain.rs PolynomialSpace::split_domains (lines 174-186)
-    """
-    return quotient_domain.split_domains(num_chunks)
-
-
-def recompute_quotient(
-    quotient_chunks: list[list[EF4Coeffs]],
-    qc_domains: list[TwoAdicMultiplicativeCoset],
-    zeta: EF4Coeffs,
-) -> EF4Coeffs:
-    """Recompute the full quotient polynomial from chunks at the evaluation point.
-
-    For each chunk domain D_i, compute:
-        zp_i = prod_{j != i} Z_{D_j}(zeta) / Z_{D_j}(first_point(D_i))
-
-    Then the full quotient at zeta is:
-        Q(zeta) = sum_i zp_i * sum_e ch[i][e] * monomial(e)
-
-    The "monomial" reconstruction converts the 4 base-field components of
-    each quotient chunk back into a single extension field element using
-    the canonical basis {1, x, x^2, x^3} of GF(p^4).
-
-    Args:
-        quotient_chunks: For each chunk, a list of 4 base-field evaluation values.
-        qc_domains: The quotient chunk sub-domains from split_domains.
-        zeta: The evaluation point (extension field element).
-
-    Returns:
-        The reconstructed quotient polynomial value at zeta.
-
-    Reference:
-        stark-backend verifier/constraints.rs lines 38-52
-        openvm-native-recursion stark/mod.rs StarkVerifier::recompute_quotient
-    """
-    num_chunks = len(qc_domains)
-    assert len(quotient_chunks) == num_chunks
-
-    # Compute zps[i] = prod_{j!=i} Z_{D_j}(zeta) / Z_{D_j}(D_i.first_point())
-    zps = []
-    for i in range(num_chunks):
-        prod = [1, 0, 0, 0]
-        for j in range(num_chunks):
-            if j != i:
-                zp_at_zeta = qc_domains[j].vanishing_poly_at_point(zeta)
-                first_pt = ef4_from_base(qc_domains[i].first_point())
-                zp_at_first = qc_domains[j].vanishing_poly_at_point(first_pt)
-                # prod *= zp_at_zeta / zp_at_first
-                factor = ef4_div(zp_at_zeta, zp_at_first)
-                prod = ef4_mul(prod, factor)
-        zps.append(prod)
-
-    # Reconstruct: Q(zeta) = sum_i zps[i] * (ch[i][0] + ch[i][1]*x + ch[i][2]*x^2 + ch[i][3]*x^3)
-    # The quotient_chunks[i] has 4 elements which are the coefficients in the
-    # extension field basis. So quotient_chunks[i] IS an EF4Coeffs.
-    result = [0, 0, 0, 0]
-    for i in range(num_chunks):
-        chunk_ef4 = quotient_chunks[i]  # Already [c0, c1, c2, c3]
-        term = ef4_mul(zps[i], chunk_ef4)
-        result = ef4_add(result, term)
-
-    return result

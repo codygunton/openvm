@@ -114,3 +114,48 @@ class Challenger:
         return Challenger.from_state(
             self.sponge_state, self.input_buffer, self.output_buffer
         )
+
+
+def check_witness(challenger: Challenger, bits: int, witness: int) -> bool:
+    """Verify a proof-of-work witness against the Fiat-Shamir transcript.
+
+    Observes the witness, samples `bits` bits, and checks == 0.
+
+    Reference:
+        p3-challenger GrindingChallenger::check_witness
+    """
+    if bits == 0:
+        return True
+    challenger.observe(witness)
+    return challenger.sample_bits(bits) == 0
+
+
+def grind(challenger: Challenger, bits: int) -> int:
+    """Brute-force search for a proof-of-work witness.
+
+    Tries witness = 0, 1, 2, ... until check_witness passes.
+    Then calls check_witness on the original challenger to update its state.
+
+    Args:
+        challenger: The Fiat-Shamir challenger.
+        bits: Number of bits for the PoW check.
+
+    Returns:
+        The winning witness value.
+
+    Reference:
+        p3-challenger grinding_challenger.rs GrindingChallenger::grind
+    """
+    if bits == 0:
+        return 0
+
+    for witness in range(2**31):
+        test = challenger.clone()
+        test.observe(witness)
+        if test.sample_bits(bits) == 0:
+            # Update original challenger state
+            challenger.observe(witness)
+            challenger.sample_bits(bits)
+            return witness
+
+    raise RuntimeError(f"failed to find PoW witness for {bits} bits")

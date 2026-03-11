@@ -16,14 +16,15 @@ from __future__ import annotations
 
 from typing import Optional
 
-from primitives.field import BABYBEAR_PRIME, EF4Coeffs, Fe
-from primitives.transcript import Challenger
-from protocol.constraints import verify_single_rap_constraints
+from primitives.field import BABYBEAR_PRIME, Digest, EF4Coeffs, Fe, ef4_add
+from primitives.transcript import Challenger, check_witness, grind
+from protocol.constraints import (
+    VerificationError,
+    verify_single_rap_constraints,
+)
 from protocol.domain import (
     TwoAdicMultiplicativeCoset,
     create_disjoint_domain,
-    ef4_add,
-    ef4_from_base,
     natural_domain_for_degree,
 )
 from protocol.pcs import PcsRound, pcs_verify
@@ -58,18 +59,8 @@ EXT_DEGREE = 4
 # ---------------------------------------------------------------------------
 # Verification errors
 # ---------------------------------------------------------------------------
-
-
-class VerificationError(Exception):
-    """Base class for STARK verification failures.
-
-    Reference:
-        stark-backend/src/verifier/error.rs (enum VerificationError)
-    """
-
-    def __init__(self, error_type: str, message: str = "") -> None:
-        self.error_type = error_type
-        super().__init__(f"{error_type}: {message}" if message else error_type)
+# VerificationError and OodEvaluationMismatch are defined in protocol.constraints
+# and re-exported here (imported above) to avoid circular imports.
 
 
 class InvalidProofShape(VerificationError):
@@ -80,18 +71,7 @@ class InvalidProofShape(VerificationError):
     """
 
     def __init__(self, message: str = "") -> None:
-        super().__init__("InvalidProofShape", message)
-
-
-class OodEvaluationMismatch(VerificationError):
-    """Out-of-domain evaluation mismatch.
-
-    Reference:
-        stark-backend/src/verifier/error.rs (VerificationError::OodEvaluationMismatch)
-    """
-
-    def __init__(self, message: str = "") -> None:
-        super().__init__("OodEvaluationMismatch", message)
+        super().__init__(f"InvalidProofShape: {message}" if message else "InvalidProofShape")
 
 
 class InvalidOpeningArgument(VerificationError):
@@ -102,7 +82,7 @@ class InvalidOpeningArgument(VerificationError):
     """
 
     def __init__(self, message: str = "") -> None:
-        super().__init__("InvalidOpeningArgument", message)
+        super().__init__(f"InvalidOpeningArgument: {message}" if message else "InvalidOpeningArgument")
 
 
 class ChallengePhaseError(VerificationError):
@@ -113,7 +93,7 @@ class ChallengePhaseError(VerificationError):
     """
 
     def __init__(self, message: str = "") -> None:
-        super().__init__("ChallengePhaseError", message)
+        super().__init__(f"ChallengePhaseError: {message}" if message else "ChallengePhaseError")
 
 
 class InvalidDeepPowWitness(VerificationError):
@@ -124,7 +104,7 @@ class InvalidDeepPowWitness(VerificationError):
     """
 
     def __init__(self, message: str = "") -> None:
-        super().__init__("InvalidDeepPowWitness", message)
+        super().__init__(f"InvalidDeepPowWitness: {message}" if message else "InvalidDeepPowWitness")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +162,7 @@ def _num_phases(per_air_vks: list[StarkVerifyingKey]) -> int:
     return max(len(vk.params.width.after_challenge) for vk in per_air_vks)
 
 
-def _flattened_preprocessed_commits(per_air_vks: list[StarkVerifyingKey]):
+def _flattened_preprocessed_commits(per_air_vks: list[StarkVerifyingKey]) -> list[Digest]:
     """Return all non-None preprocessed commitments.
 
     Reference:
@@ -196,7 +176,7 @@ def _flattened_preprocessed_commits(per_air_vks: list[StarkVerifyingKey]):
     return commits
 
 
-def _preprocessed_commits(per_air_vks: list[StarkVerifyingKey]):
+def _preprocessed_commits(per_air_vks: list[StarkVerifyingKey]) -> list[Optional[Digest]]:
     """Return preprocessed commit for each AIR (None if not present).
 
     Reference:
@@ -210,26 +190,6 @@ def _preprocessed_commits(per_air_vks: list[StarkVerifyingKey]):
         else:
             result.append(None)
     return result
-
-
-# ---------------------------------------------------------------------------
-# Helper: check_witness (PoW verification)
-# ---------------------------------------------------------------------------
-
-
-def _check_witness(challenger: Challenger, bits: int, witness: int) -> bool:
-    """Verify a proof-of-work witness.
-
-    Observes the witness into the transcript, then samples `bits` bits and
-    checks that the result is zero.
-
-    Reference:
-        p3-challenger GrindingChallenger::check_witness (grinding_challenger.rs lines 40-46)
-    """
-    if bits == 0:
-        return True
-    challenger.observe(witness)
-    return challenger.sample_bits(bits) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +231,7 @@ def _partially_verify_fri_log_up(
 
     # PoW check for LogUp security
     # Reference: fri_log_up.rs lines 181-189
-    if not _check_witness(challenger, log_up_pow_bits, partial_proof.logup_pow_witness):
+    if not check_witness(challenger, log_up_pow_bits, partial_proof.logup_pow_witness):
         return [], "InvalidPowWitness"
 
     # Sample interaction challenges (2 for FRI LogUp)
@@ -325,7 +285,7 @@ def _build_trace_domain_and_openings(
     domain: TwoAdicMultiplicativeCoset,
     zeta: EF4Coeffs,
     values: AdjacentOpenedValues,
-) -> tuple:
+) -> tuple[TwoAdicMultiplicativeCoset, list[tuple]]:
     """Build (domain, [(zeta, local_values), (next_point, next_values)]).
 
     Reference:
@@ -414,7 +374,7 @@ def verify_stark(
     sorted_ids = sorted(air_ids)
     for i in range(len(sorted_ids) - 1):
         if sorted_ids[i] >= sorted_ids[i + 1]:
-            raise VerificationError("DuplicateAirs", "duplicate air_id found")
+            raise VerificationError("DuplicateAirs: duplicate air_id found")
 
     # --- Get public values per AIR ---
     # Reference: mod.rs lines 96-104
@@ -512,7 +472,7 @@ def verify_stark(
     # DEEP proof-of-work check
     # Reference: mod.rs lines 193-198
     deep_pow_bits = vk.inner.deep_pow_bits
-    if not _check_witness(challenger, deep_pow_bits, proof.opening.deep_pow_witness):
+    if not check_witness(challenger, deep_pow_bits, proof.opening.deep_pow_witness):
         raise InvalidDeepPowWitness("DEEP proof-of-work witness is invalid")
 
     # Sample zeta (OOD evaluation point)
@@ -784,10 +744,8 @@ def prove_stark(
         stark-backend/src/prover/coordinator.rs prove
     """
     from protocol.pcs import (
-        CommittedData,
         PcsOpeningRound,
         _generate_batch_opening,
-        _grind,
         pcs_commit,
         pcs_open,
     )
@@ -851,8 +809,8 @@ def prove_stark(
     # For simple AIRs (no interactions): skip
     has_any_interaction = any(_has_interaction(svk) for svk in per_air_vks)
     rap_phase_seq_proof = None
-    challenges_per_phase: list[list[EF4Coeffs]] = []
-    after_challenge_commits: list = []
+    _challenges_per_phase: list[list[EF4Coeffs]] = []
+    after_challenge_commits: list[Digest] = []
 
     if has_any_interaction:
         # TODO: implement RAP phase for multi-AIR with interactions
@@ -894,7 +852,7 @@ def prove_stark(
     challenger.observe_many(quotient_committed.root)
 
     # --- Phase 7: DEEP PoW ---
-    deep_pow_witness = _grind(challenger, vk.inner.deep_pow_bits)
+    deep_pow_witness = grind(challenger, vk.inner.deep_pow_bits)
 
     # --- Phase 8: Sample zeta ---
     zeta: EF4Coeffs = challenger.sample_ext()
