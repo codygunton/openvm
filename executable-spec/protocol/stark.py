@@ -14,8 +14,6 @@ Reference:
 
 from __future__ import annotations
 
-from typing import Optional
-
 from primitives.field import BABYBEAR_PRIME, Digest, EF4Coeffs, Fe, ef4_add
 from primitives.transcript import Challenger, check_witness, grind
 from protocol.constraints import (
@@ -176,7 +174,7 @@ def _flattened_preprocessed_commits(per_air_vks: list[StarkVerifyingKey]) -> lis
     return commits
 
 
-def _preprocessed_commits(per_air_vks: list[StarkVerifyingKey]) -> list[Optional[Digest]]:
+def _preprocessed_commits(per_air_vks: list[StarkVerifyingKey]) -> list[Digest | None]:
     """Return preprocessed commit for each AIR (None if not present).
 
     Reference:
@@ -199,11 +197,11 @@ def _preprocessed_commits(per_air_vks: list[StarkVerifyingKey]) -> list[Optional
 
 def _partially_verify_fri_log_up(
     challenger: Challenger,
-    partial_proof: Optional[FriLogUpPartialProof],
+    partial_proof: FriLogUpPartialProof | None,
     exposed_values_per_air_per_phase: list[list[list[EF4Coeffs]]],
-    commitments_per_phase: list,  # list[Digest]
+    commitments_per_phase: list[Digest],
     log_up_pow_bits: int,
-) -> tuple[list[list[EF4Coeffs]], Optional[str]]:
+) -> tuple[list[list[EF4Coeffs]], str | None]:
     """Partially verify the FRI LogUp challenge phase.
 
     Returns (challenges_per_phase, error_or_none).
@@ -661,7 +659,7 @@ def verify_stark(
 
         # Preprocessed values
         # Reference: mod.rs lines 378-382
-        preprocessed_values: Optional[AdjacentOpenedValues] = None
+        preprocessed_values: AdjacentOpenedValues | None = None
         if svk.preprocessed_data is not None:
             preprocessed_values = opened_values.preprocessed[preprocessed_idx]
             preprocessed_idx += 1
@@ -724,9 +722,9 @@ def prove_stark(
     traces: list[list[list[Fe]]],
     public_values_per_air: list[list[Fe]],
     fri_params: FriParameters,
-    preprocessed_traces: Optional[list[Optional[list[list[Fe]]]]] = None,
-    cached_main_traces: Optional[list[list[list[list[Fe]]]]] = None,
-    air_ids: Optional[list[int]] = None,
+    preprocessed_traces: list[list[list[Fe]] | None] | None = None,
+    cached_main_traces: list[list[list[list[Fe]]]] | None = None,
+    air_ids: list[int] | None = None,
 ) -> Proof:
     """Generate a multi-AIR STARK proof.
 
@@ -861,9 +859,9 @@ def prove_stark(
     rap_phase_seq_proof = None
     challenges_per_phase: list[list[EF4Coeffs]] = []
     after_challenge_commits: list[Digest] = []
-    after_challenge_per_air: list[Optional[list[list[EF4Coeffs]]]] = [None] * num_airs
+    after_challenge_per_air: list[list[list[EF4Coeffs]] | None] = [None] * num_airs
     exposed_values_per_air: list[list[list[EF4Coeffs]]] = [[] for _ in range(num_airs)]
-    ac_committed: Optional[CommittedData] = None
+    ac_committed: CommittedData | None = None
 
     if has_any_interaction:
         from protocol.logup import (
@@ -962,7 +960,7 @@ def prove_stark(
         domain = domains[i_air]
 
         # Build partitioned traces for quotient evaluation
-        partitioned_traces_list: Optional[list[list[list[Fe]]]] = None
+        partitioned_traces_list: list[list[list[Fe]]] | None = None
         num_cached = _num_cached_mains(svk)
         if num_cached > 0 or (preprocessed_traces and preprocessed_traces[i_air]):
             # Multi-partition or preprocessed: need partitioned traces

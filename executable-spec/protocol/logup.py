@@ -189,6 +189,27 @@ def generate_betas(beta: EF4Coeffs, interactions: list[Interaction]) -> list[EF4
 # ---------------------------------------------------------------------------
 
 
+def _max_field_degree(
+    interaction_idx: int,
+    interactions: list[Interaction],
+    dag: SymbolicExpressionDag,
+) -> int:
+    """Max degree among message fields for an interaction."""
+    return max(
+        (node_degree(dag.nodes[msg_idx]) for msg_idx in interactions[interaction_idx].message),
+        default=0,
+    )
+
+
+def _count_degree(
+    interaction_idx: int,
+    interactions: list[Interaction],
+    dag: SymbolicExpressionDag,
+) -> int:
+    """Degree of the count field for an interaction."""
+    return node_degree(dag.nodes[interactions[interaction_idx].count])
+
+
 def find_interaction_chunks(
     interactions: list[Interaction],
     dag: SymbolicExpressionDag,
@@ -210,18 +231,11 @@ def find_interaction_chunks(
     if not interactions:
         return []
 
-    def max_field_degree(i: int) -> int:
-        return max(
-            (node_degree(dag.nodes[msg_idx]) for msg_idx in interactions[i].message),
-            default=0,
-        )
-
-    def count_degree(i: int) -> int:
-        return node_degree(dag.nodes[interactions[i].count])
-
     # Sort by ascending (max_field_degree, count_degree)
     interaction_idxs = list(range(len(interactions)))
-    interaction_idxs.sort(key=lambda i: (max_field_degree(i), count_degree(i)))
+    interaction_idxs.sort(
+        key=lambda i: (_max_field_degree(i, interactions, dag), _count_degree(i, interactions, dag))
+    )
 
     # Greedily pack into chunks
     running_sum_field_degree = 0
@@ -230,8 +244,8 @@ def find_interaction_chunks(
     cur_chunk: list[int] = []
 
     for interaction_idx in interaction_idxs:
-        field_deg = max_field_degree(interaction_idx)
-        count_deg = count_degree(interaction_idx)
+        field_deg = _max_field_degree(interaction_idx, interactions, dag)
+        count_deg = _count_degree(interaction_idx, interactions, dag)
 
         new_num_max_degree = max(
             numerator_max_degree + field_deg,

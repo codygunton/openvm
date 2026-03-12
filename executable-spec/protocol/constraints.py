@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from primitives.field import (
     EF4Coeffs,
+    FF,
     Fe,
     ef4_add,
     ef4_div,
@@ -256,9 +257,7 @@ def fold_constraints(
     """
     accumulator = list(EF4_ZERO)
     for c_eval in constraint_evals:
-        # accumulator *= alpha
         accumulator = ef4_mul(accumulator, alpha)
-        # accumulator += c_eval
         accumulator = ef4_add(accumulator, c_eval)
     return accumulator
 
@@ -334,7 +333,7 @@ def eval_dag_all_rows(
     preprocessed: list[list[Fe]] | None,
     public_values: list[Fe],
     height: int,
-) -> list:
+) -> list[FF | None]:
     """Evaluate full DAG at ALL rows simultaneously using field column arrays.
 
     Each DAG node evaluates to a base-field column vector of length height.
