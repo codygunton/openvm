@@ -16,6 +16,11 @@ When to use FF4 (extension field):
 - Constraint polynomial values
 - FRI folding values
 
+When to use EF4Vec (vectorized extension field):
+- Prover-side batch computations over all trace rows
+- FRI folding, quotient evaluation, LogUp trace computation
+- Internal to primitives; protocol code uses ef4v_* functions
+
 FF4 is loaded from a pre-computed cache file (ff4_cache.pkl) to avoid the ~3.5s
 initialization cost of galois.GF() for extension fields. If the cache does not exist,
 it is generated automatically on first import.
@@ -31,6 +36,7 @@ import numpy as np
 
 BABYBEAR_PRIME = 2013265921  # 2^31 - 2^27 + 1
 FIELD_EXTENSION_DEGREE = 4
+DIGEST_WIDTH = 8  # Poseidon2 digest width in BabyBear elements
 TWO_ADICITY = 27  # p - 1 = 2^27 * 15
 GENERATOR = 31  # Multiplicative generator (Val::GENERATOR in Plonky3)
 TWO_INV = pow(2, BABYBEAR_PRIME - 2, BABYBEAR_PRIME)  # Multiplicative inverse of 2
@@ -468,6 +474,47 @@ def ef4_batch_inverse(values: list[EF4Coeffs]) -> list[EF4Coeffs]:
     return results
 
 
+def batch_inverse_base(values: list[Fe]) -> list[Fe]:
+    """Montgomery batch inversion in the base field.
+
+    Converts N base field inversions into 3N-3 multiplications + 1 inversion.
+
+    Reference:
+        p3-field batch_multiplicative_inverse
+
+    Args:
+        values: List of base field elements (must all be non-zero).
+
+    Returns:
+        List of inverses, values[i]^{-1} mod p.
+    """
+    p = BABYBEAR_PRIME
+    n = len(values)
+    if n == 0:
+        return []
+    if n == 1:
+        return [inv_mod(values[0])]
+
+    # Forward pass: prefix products
+    cumprods: list[Fe] = [0] * n
+    cumprods[0] = values[0] % p
+    for i in range(1, n):
+        cumprods[i] = (cumprods[i - 1] * values[i]) % p
+
+    # Single inversion
+    inv_total = inv_mod(cumprods[n - 1])
+
+    # Backward pass
+    results: list[Fe] = [0] * n
+    z = inv_total
+    for i in range(n - 1, 0, -1):
+        results[i] = (z * cumprods[i - 1]) % p
+        z = (z * values[i]) % p
+    results[0] = z
+
+    return results
+
+
 # --- Vectorized EF4 Arithmetic (numpy int64) ---
 # EF4 element = (c0, c1, c2, c3) where element = c0 + c1*x + c2*x^2 + c3*x^3
 # and x^4 = _W_EXT = 11.
@@ -565,7 +612,7 @@ def ef4v_from_base(b: np.ndarray) -> EF4Vec:
     if not isinstance(b, np.ndarray) or b.dtype != np.int64:
         b = np.asarray(b, dtype=np.int64)
     z = np.zeros(len(b), dtype=np.int64)
-    return (b % _P, z, z, z)
+    return (b % _P, z.copy(), z.copy(), z.copy())
 
 
 def ef4v_from_scalar(coeffs: EF4Coeffs, n: int) -> EF4Vec:
@@ -610,7 +657,10 @@ def ef4v_inv(a: EF4Vec) -> EF4Vec:
 
 def ef4v_mul_scalar(a: EF4Vec, s: EF4Coeffs) -> EF4Vec:
     """Multiply vectorized EF4 by a scalar EF4 element."""
-    s0, s1, s2, s3 = np.int64(s[0] % _P), np.int64(s[1] % _P), np.int64(s[2] % _P), np.int64(s[3] % _P)
+    s0 = np.int64(s[0] % _P)
+    s1 = np.int64(s[1] % _P)
+    s2 = np.int64(s[2] % _P)
+    s3 = np.int64(s[3] % _P)
     a0, a1, a2, a3 = a
     Wc = np.int64(_W_EXT)
     # c0 = a0*s0 + W*(a1*s3 + a2*s2 + a3*s1)
@@ -646,7 +696,7 @@ def ff_constant(val: Fe, n: int) -> FF:
     return FF.Ones(n) * FF(val % BABYBEAR_PRIME)
 
 
-def ff_roll(arr, shift: int):
+def ff_roll(arr: FF, shift: int) -> FF:
     """Circular shift a base-field column vector (wraps np.roll)."""
     return np.roll(arr, shift)
 
@@ -687,17 +737,13 @@ def ef4v_roll(v: EF4Vec, shift: int) -> EF4Vec:
 
 def ef4v_cumsum(v: EF4Vec) -> EF4Vec:
     """Compute prefix sum of an EF4Vec, reducing each component mod p."""
+    # Safe for height <= 2^27: max cumsum = 2^27 * (p-1) < 2^58 << 2^63
     return (
         np.cumsum(v[0].astype(np.int64)) % _P,
         np.cumsum(v[1].astype(np.int64)) % _P,
         np.cumsum(v[2].astype(np.int64)) % _P,
         np.cumsum(v[3].astype(np.int64)) % _P,
     )
-
-
-def ef4_pairs_to_leaves(evals: list[EF4Coeffs]) -> list[list[int]]:
-    """Pair consecutive EF4 elements into 8-element Merkle leaves."""
-    return [evals[i] + evals[i + 1] for i in range(0, len(evals), 2)]
 
 
 # --- Batch polynomial evaluation at a single EF4 point ---
@@ -713,7 +759,17 @@ def _ef4_mul_raw(
     c1 = (a0 * b1 + a1 * b0 + _W_EXT * (a2 * b3 + a3 * b2)) % _P
     c2 = (a0 * b2 + a1 * b1 + a2 * b0 + _W_EXT * a3 * b3) % _P
     c3 = (a0 * b3 + a1 * b2 + a2 * b1 + a3 * b0) % _P
-    return (c0, c1, c2, c3)
+    return [c0, c1, c2, c3]
+
+
+def _outer_flat(a: np.ndarray, b: np.ndarray, length: int) -> np.ndarray:
+    """Compute outer product, flatten, and truncate to length."""
+    return np.outer(a, b).ravel()[:length]
+
+
+def _outer_mod(a: np.ndarray, b: np.ndarray, length: int) -> np.ndarray:
+    """Compute outer product, flatten, truncate, and reduce mod p."""
+    return _outer_flat(a, b, length) % _P
 
 
 def _precompute_z_powers_bsgs(
@@ -743,27 +799,21 @@ def _precompute_z_powers_bsgs(
     small_np = [np.array([s[c] for s in small], dtype=np.int64) for c in range(4)]
     big_np = [np.array([b[c] for b in big], dtype=np.int64) for c in range(4)]
 
-    def _outer_flat(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-        return np.outer(a, b).ravel()[:degree]
-
-    def _outer_mod(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-        return _outer_flat(a, b) % _P
-
-    c0 = _outer_mod(big_np[0], small_np[0])
-    w_sum = (_outer_flat(big_np[1], small_np[3]) + _outer_flat(big_np[2], small_np[2])) % _P
-    w_sum = (w_sum + _outer_mod(big_np[3], small_np[1])) % _P
+    c0 = _outer_mod(big_np[0], small_np[0], degree)
+    w_sum = (_outer_flat(big_np[1], small_np[3], degree) + _outer_flat(big_np[2], small_np[2], degree)) % _P
+    w_sum = (w_sum + _outer_mod(big_np[3], small_np[1], degree)) % _P
     c0 = (c0 + _W_EXT * w_sum) % _P
 
-    t1 = (_outer_flat(big_np[0], small_np[1]) + _outer_flat(big_np[1], small_np[0])) % _P
-    w_sum1 = (_outer_flat(big_np[2], small_np[3]) + _outer_flat(big_np[3], small_np[2])) % _P
+    t1 = (_outer_flat(big_np[0], small_np[1], degree) + _outer_flat(big_np[1], small_np[0], degree)) % _P
+    w_sum1 = (_outer_flat(big_np[2], small_np[3], degree) + _outer_flat(big_np[3], small_np[2], degree)) % _P
     c1 = (t1 + _W_EXT * w_sum1) % _P
 
-    t2 = (_outer_flat(big_np[0], small_np[2]) + _outer_flat(big_np[1], small_np[1])) % _P
-    t2 = (t2 + _outer_mod(big_np[2], small_np[0])) % _P
-    c2 = (t2 + _W_EXT * _outer_mod(big_np[3], small_np[3])) % _P
+    t2 = (_outer_flat(big_np[0], small_np[2], degree) + _outer_flat(big_np[1], small_np[1], degree)) % _P
+    t2 = (t2 + _outer_mod(big_np[2], small_np[0], degree)) % _P
+    c2 = (t2 + _W_EXT * _outer_mod(big_np[3], small_np[3], degree)) % _P
 
-    t3 = (_outer_flat(big_np[0], small_np[3]) + _outer_flat(big_np[1], small_np[2])) % _P
-    t3_2 = (_outer_flat(big_np[2], small_np[1]) + _outer_flat(big_np[3], small_np[0])) % _P
+    t3 = (_outer_flat(big_np[0], small_np[3], degree) + _outer_flat(big_np[1], small_np[2], degree)) % _P
+    t3_2 = (_outer_flat(big_np[2], small_np[1], degree) + _outer_flat(big_np[3], small_np[0], degree)) % _P
     c3 = (t3 + t3_2) % _P
 
     return (c0, c1, c2, c3)
