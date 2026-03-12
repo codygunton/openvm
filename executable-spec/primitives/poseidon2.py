@@ -6,7 +6,19 @@ Reference:
     p3-symmetric (PaddingFreeSponge, TruncatedPermutation).
 """
 
-from poseidon2_ffi import poseidon2_permute, WIDTH, RATE, DIGEST_SIZE
+import os
+
+from poseidon2_ffi import (
+    poseidon2_permute, poseidon2_compress_batch, poseidon2_hash_batch,
+    set_num_threads, WIDTH, RATE, DIGEST_SIZE,
+)
+
+# Initialize rayon thread pool (default: 48 threads, override with RAYON_NUM_THREADS)
+_NUM_THREADS = int(os.environ.get("RAYON_NUM_THREADS", "48"))
+try:
+    set_num_threads(_NUM_THREADS)
+except RuntimeError:
+    pass  # already initialized
 
 
 def permute(state: list[int]) -> list[int]:
@@ -41,6 +53,33 @@ def compress(left: list[int], right: list[int]) -> list[int]:
     state = list(left) + list(right)
     state = permute(state)
     return state[:DIGEST_SIZE]
+
+
+def compress_batch(lefts: list[list[int]], rights: list[list[int]]) -> list[list[int]]:
+    """Batch compress N pairs of 8-element digests in parallel via rayon.
+
+    Args:
+        lefts: N left digests (each 8 elements).
+        rights: N right digests (each 8 elements).
+
+    Returns:
+        N compressed 8-element digests.
+    """
+    return poseidon2_compress_batch(lefts, rights)
+
+
+def hash_batch(inputs: list[list[int]]) -> list[list[int]]:
+    """Batch hash N variable-length inputs to 8-element digests in parallel via rayon.
+
+    Each input is hashed via PaddingFreeSponge (same as hash_to_digest).
+
+    Args:
+        inputs: N variable-length lists of BabyBear field elements.
+
+    Returns:
+        N 8-element digests.
+    """
+    return poseidon2_hash_batch(inputs)
 
 
 def hash_to_digest(inputs: list[int]) -> list[int]:

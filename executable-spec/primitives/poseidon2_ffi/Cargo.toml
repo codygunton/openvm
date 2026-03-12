@@ -11,8 +11,12 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.25", features = ["extension-module"] }
 p3-baby-bear = "=0.4.1"
 p3-symmetric = "=0.4.1"
+p3-dft = "=0.4.1"
+p3-field = "=0.4.1"
+p3-matrix = "=0.4.1"
 openvm-stark-sdk = { git = "https://github.com/openvm-org/stark-backend.git", tag = "v1.3.0", default-features = false }
 lazy_static = "1.4"
+rayon = "1.10"
 
 [profile.release]
 opt-level = 3

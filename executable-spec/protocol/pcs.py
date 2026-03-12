@@ -34,7 +34,8 @@ from primitives.field import (
 )
 from primitives.merkle import build_merkle_tree, get_opening_proof, verify_opening_prehashed
 from primitives.ntt import intt, ntt
-from primitives.poseidon2 import compress, hash_to_digest
+from poseidon2_ffi import coset_lde_batch as _coset_lde_batch_ffi, ntt_batch as _ntt_batch_ffi, intt_batch as _intt_batch_ffi
+from primitives.poseidon2 import compress, hash_to_digest, compress_batch, hash_batch
 from primitives.transcript import Challenger, check_witness, grind
 from protocol.domain import TwoAdicMultiplicativeCoset
 from protocol.fri import fold_row, hash_fri_leaf
@@ -638,29 +639,16 @@ def pcs_commit(
         # LDE shift = GENERATOR / domain.shift
         lde_shift = (GENERATOR * inv_mod(domain.shift)) % p
 
-        # Extract columns and compute LDE
-        lde_columns: list[list[Fe]] = []
-        coeffs_per_col: list[list[Fe]] = []
+        # Extract columns
+        columns = [[matrix[r][c] for r in range(n)] for c in range(num_cols)]
 
-        for c in range(num_cols):
-            col = [matrix[r][c] for r in range(n)]
+        # Compute coefficients via batch INTT (Rust FFI, parallelized)
+        coeffs_columns = _intt_batch_ffi(columns) if columns else []
+        coeffs_per_col = [list(c) for c in coeffs_columns]
 
-            # INTT → coefficients
-            coeffs = intt(col)
-            coeffs_per_col.append(list(coeffs))
-
-            # Zero-pad
-            coeffs_ext = list(coeffs) + [0] * (n_ext - n)
-
-            # Coset shift
-            shift_pow = 1
-            for i in range(n_ext):
-                coeffs_ext[i] = (coeffs_ext[i] * shift_pow) % p
-                shift_pow = (shift_pow * lde_shift) % p
-
-            # NTT on extended subgroup
-            lde_col = ntt(coeffs_ext)
-            lde_columns.append(lde_col)
+        # Coset LDE via Rust FFI (INTT + pad + shift + NTT, all parallelized)
+        # Note: coset_lde_batch does its own INTT internally, so we pass evals
+        lde_columns = list(_coset_lde_batch_ffi(columns, lde_shift, log_blowup)) if columns else []
 
         # Transpose to rows and bit-reverse
         lde_matrix = [
@@ -721,17 +709,20 @@ def _build_mmcs_tree(
         tallest_group.append(sorted_entries[entry_ptr][0])
         entry_ptr += 1
 
-    # Hash leaf rows from tallest matrices only
-    leaf_digests: list[Digest] = []
+    # Hash leaf rows from tallest matrices only (batch parallel)
+    leaf_inputs: list[list[Fe]] = []
     for row_idx in range(max_height):
         leaf_data: list[Fe] = []
         for mat_idx in tallest_group:
             leaf_data.extend(all_lde_rows[mat_idx][row_idx])
-        leaf_digests.append(hash_to_digest(leaf_data))
+        leaf_inputs.append(leaf_data)
 
     # Pad to power-of-two if needed
-    while len(leaf_digests) < curr_height_padded:
-        leaf_digests.append(hash_to_digest([]))
+    pad_count = curr_height_padded - max_height
+    for _ in range(pad_count):
+        leaf_inputs.append([])
+
+    leaf_digests: list[Digest] = hash_batch(leaf_inputs)
 
     # Build tree bottom-up, injecting shorter matrices at appropriate levels
     tree_levels: list[list[Digest]] = [leaf_digests]
@@ -739,10 +730,10 @@ def _build_mmcs_tree(
     level_height = curr_height_padded
 
     while level_height > 1:
-        # Pair siblings to form parent level
-        next_level: list[Digest] = []
-        for i in range(0, len(current_level), 2):
-            next_level.append(compress(current_level[i], current_level[i + 1]))
+        # Pair siblings to form parent level (batch parallel)
+        lefts = current_level[0::2]
+        rights = current_level[1::2]
+        next_level: list[Digest] = compress_batch(lefts, rights)
         level_height >>= 1
 
         # Check if shorter matrices should be injected at this level
@@ -755,18 +746,26 @@ def _build_mmcs_tree(
                 inject_group.append(sorted_entries[entry_ptr][0])
                 entry_ptr += 1
 
-            # For each position, hash the row data from injected matrices
-            # and compress with the existing node
+            # Batch: collect all inject data, hash in parallel, then compress
+            inject_inputs: list[list[Fe]] = []
+            inject_positions: list[int] = []
             for pos in range(len(next_level)):
-                # Map tree position to matrix row index
                 row_idx = pos if pos < inject_height else pos % inject_height
                 inject_data: list[Fe] = []
                 for mat_idx in inject_group:
                     if row_idx < len(all_lde_rows[mat_idx]):
                         inject_data.extend(all_lde_rows[mat_idx][row_idx])
                 if inject_data:
-                    inject_digest = hash_to_digest(inject_data)
-                    next_level[pos] = compress(next_level[pos], inject_digest)
+                    inject_inputs.append(inject_data)
+                    inject_positions.append(pos)
+
+            if inject_inputs:
+                inject_digests = hash_batch(inject_inputs)
+                # Batch compress: node with inject_digest
+                node_lefts = [next_level[pos] for pos in inject_positions]
+                inject_results = compress_batch(node_lefts, inject_digests)
+                for pos, result in zip(inject_positions, inject_results):
+                    next_level[pos] = result
 
         current_level = next_level
         tree_levels.append(current_level)

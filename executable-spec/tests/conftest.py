@@ -1,6 +1,13 @@
 """Shared test fixtures for executable-spec tests."""
+import os
 import sys
 from pathlib import Path
+
+# Set numpy/OpenBLAS thread count before numpy is imported.
+# Default to 48 threads; override with OMP_NUM_THREADS env var.
+if "OMP_NUM_THREADS" not in os.environ:
+    os.environ["OMP_NUM_THREADS"] = "48"
+    os.environ["OPENBLAS_NUM_THREADS"] = "48"
 
 import pytest
 
