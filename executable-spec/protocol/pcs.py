@@ -43,12 +43,12 @@ from primitives.field import (
     inv_mod,
     reverse_bits_len,
 )
-from primitives.merkle import build_merkle_tree, get_opening_proof, verify_opening_prehashed
-from primitives.ntt import intt, ntt, coset_lde_batch as _coset_lde_batch_ffi, intt_batch as _intt_batch_ffi
+from primitives.merkle import get_opening_proof, verify_opening_prehashed
+from primitives.ntt import coset_lde_batch as _coset_lde_batch_ffi, intt_batch as _intt_batch_ffi
 from primitives.poseidon2 import compress, hash_to_digest, compress_batch, hash_batch
 from primitives.transcript import Challenger, check_witness, grind
 from protocol.domain import TwoAdicMultiplicativeCoset
-from protocol.fri import fold_row, hash_fri_leaf
+from protocol.fri import answer_query, commit_phase as fri_commit_phase, fold_row, hash_fri_leaf
 from protocol.proof import (
     BatchOpening,
     CommitPhaseProofStep,
@@ -709,7 +709,6 @@ def _build_mmcs_tree(
 
     max_height = sorted_entries[0][1]
     curr_height_padded = _next_power_of_two(max_height)
-    log_max = curr_height_padded.bit_length() - 1
 
     # Collect tallest group (all matrices whose padded height == curr_height_padded)
     entry_ptr = 0
@@ -1016,8 +1015,6 @@ def pcs_open(
         }
 
     # FRI commit phase
-    from protocol.fri import commit_phase as fri_commit_phase, answer_query  # noqa: F811
-
     fri_result = fri_commit_phase(
         reduced_br,
         fri_params.log_blowup,

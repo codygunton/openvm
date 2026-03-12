@@ -20,8 +20,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from typing import Optional
-
 import numpy as np
 
 from primitives.field import (
@@ -436,10 +434,10 @@ def eval_symbolic_expression_dag_full(
     is_transition: Fe,
     preprocessed_local: list[Fe],
     preprocessed_next: list[Fe],
-    after_challenge_local: Optional[list[EF4Coeffs]] = None,
-    after_challenge_next: Optional[list[EF4Coeffs]] = None,
-    challenges: Optional[list[list[EF4Coeffs]]] = None,
-    exposed_values: Optional[list[list[EF4Coeffs]]] = None,
+    after_challenge_local: list[EF4Coeffs] | None = None,
+    after_challenge_next: list[EF4Coeffs] | None = None,
+    challenges: list[list[EF4Coeffs]] | None = None,
+    exposed_values: list[list[EF4Coeffs]] | None = None,
 ) -> list[EF4Coeffs]:
     """Evaluate all DAG nodes for multi-AIR quotient computation, in EF4.
 
@@ -604,11 +602,11 @@ def compute_quotient_values(
     alpha: EF4Coeffs,
     quotient_domain: TwoAdicMultiplicativeCoset,
     trace_domain: TwoAdicMultiplicativeCoset,
-    preprocessed_on_quot: Optional[list[list[Fe]]] = None,
-    after_challenge_on_quot: Optional[list[list[EF4Coeffs]]] = None,
-    challenges: Optional[list[list[EF4Coeffs]]] = None,
-    exposed_values: Optional[list[list[EF4Coeffs]]] = None,
-    partitioned_trace_on_quot: Optional[list[list[list[Fe]]]] = None,
+    preprocessed_on_quot: list[list[Fe]] | None = None,
+    after_challenge_on_quot: list[list[EF4Coeffs]] | None = None,
+    challenges: list[list[EF4Coeffs]] | None = None,
+    exposed_values: list[list[EF4Coeffs]] | None = None,
+    partitioned_trace_on_quot: list[list[list[Fe]]] | None = None,
 ) -> list[EF4Coeffs]:
     """Compute quotient polynomial evaluations on the quotient domain.
 
@@ -687,18 +685,22 @@ def compute_quotient_values(
 
 
 def _compute_quotient_values_vectorized(
-    trace_on_quotient_domain, constraints_dag, public_values, alpha,
-    quotient_domain, trace_domain,
-    preprocessed_on_quot, after_challenge_on_quot,
-    challenges, exposed_values,
-    partitioned_trace_on_quot,
-):
+    trace_on_quotient_domain: list[list[Fe]],
+    constraints_dag: SymbolicExpressionDag,
+    public_values: list[Fe],
+    alpha: EF4Coeffs,
+    quotient_domain: TwoAdicMultiplicativeCoset,
+    trace_domain: TwoAdicMultiplicativeCoset,
+    preprocessed_on_quot: list[list[Fe]] | None,
+    after_challenge_on_quot: list[list[EF4Coeffs]] | None,
+    challenges: list[list[EF4Coeffs]] | None,
+    exposed_values: list[list[EF4Coeffs]] | None,
+    partitioned_trace_on_quot: list[list[list[Fe]]] | None,
+) -> list[EF4Coeffs]:
     """Numpy-vectorized quotient computation for multi-AIR with interactions.
 
     Evaluates the constraint DAG at ALL quotient domain points simultaneously.
     """
-    from primitives.field import ef4_mul as scalar_ef4_mul
-
     quot_size = quotient_domain.size()
     trace_size = trace_domain.size()
     step = quot_size // trace_size
@@ -845,7 +847,7 @@ def _compute_quotient_values_vectorized(
     current_alpha = [1, 0, 0, 0]
     for _ in range(num_constraints):
         alpha_powers.append(current_alpha)
-        current_alpha = scalar_ef4_mul(current_alpha, alpha)
+        current_alpha = ef4_mul(current_alpha, alpha)
 
     acc = (zero_np.copy(), zero_np.copy(), zero_np.copy(), zero_np.copy())
     for alpha_pow, node_idx in zip(alpha_powers, reversed(constraints_dag.constraint_idx)):
@@ -977,11 +979,11 @@ def compute_quotient_chunks(
     alpha: EF4Coeffs,
     trace_domain: TwoAdicMultiplicativeCoset,
     quotient_degree: int,
-    preprocessed_trace: Optional[list[list[Fe]]] = None,
-    after_challenge_trace: Optional[list[list[EF4Coeffs]]] = None,
-    challenges: Optional[list[list[EF4Coeffs]]] = None,
-    exposed_values: Optional[list[list[EF4Coeffs]]] = None,
-    partitioned_traces: Optional[list[list[list[Fe]]]] = None,
+    preprocessed_trace: list[list[Fe]] | None = None,
+    after_challenge_trace: list[list[EF4Coeffs]] | None = None,
+    challenges: list[list[EF4Coeffs]] | None = None,
+    exposed_values: list[list[EF4Coeffs]] | None = None,
+    partitioned_traces: list[list[list[Fe]]] | None = None,
 ) -> tuple[list[list[list[Fe]]], list[TwoAdicMultiplicativeCoset]]:
     """End-to-end quotient computation: trace -> quotient chunks ready for commitment.
 

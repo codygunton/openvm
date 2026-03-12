@@ -12,8 +12,6 @@ Reference:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 
 from primitives.field import (
@@ -21,6 +19,7 @@ from primitives.field import (
     EF4Coeffs,
     Fe,
     ef4_add,
+    ef4_div,
     ef4_from_base,
     ef4_mul,
     ef4_neg,
@@ -288,8 +287,6 @@ def reconstruct_quotient(
     Reference:
         stark-backend/src/verifier/constraints.rs lines 38-63
     """
-    from primitives.field import ef4_div
-
     num_chunks = len(qc_domains)
     assert len(quotient_chunks) == num_chunks
 
@@ -330,10 +327,16 @@ def reconstruct_quotient(
 # Vectorized DAG evaluation (all rows at once, base field)
 # ---------------------------------------------------------------------------
 
-_p = BABYBEAR_PRIME
+p = BABYBEAR_PRIME
 
 
-def eval_dag_all_rows(dag, partitioned_main, preprocessed, public_values, height):
+def eval_dag_all_rows(
+    dag: SymbolicExpressionDag,
+    partitioned_main: list[list[list[Fe]]],
+    preprocessed: list[list[Fe]] | None,
+    public_values: list[Fe],
+    height: int,
+) -> list:
     """Evaluate full DAG at ALL rows simultaneously using numpy arrays.
 
     Each DAG node evaluates to a numpy int64 array of shape (height,).
@@ -378,23 +381,23 @@ def eval_dag_all_rows(dag, partitioned_main, preprocessed, public_values, height
             entry = var.entry
             if entry.kind == EntryType.MAIN:
                 if entry.offset == 0:
-                    node_values[i] = np_parts[entry.part_index][var.index] % _p
+                    node_values[i] = np_parts[entry.part_index][var.index] % p
                 else:
                     col = np_parts[entry.part_index][var.index]
-                    node_values[i] = np.roll(col, -entry.offset) % _p
+                    node_values[i] = np.roll(col, -entry.offset) % p
             elif entry.kind == EntryType.PREPROCESSED:
                 if entry.offset == 0:
-                    node_values[i] = np_prep[var.index] % _p
+                    node_values[i] = np_prep[var.index] % p
                 else:
                     col = np_prep[var.index]
-                    node_values[i] = np.roll(col, -entry.offset) % _p
+                    node_values[i] = np.roll(col, -entry.offset) % p
             elif entry.kind == EntryType.PUBLIC:
-                node_values[i] = np.full(height, public_values[var.index] % _p, dtype=np.int64)
+                node_values[i] = np.full(height, public_values[var.index] % p, dtype=np.int64)
             else:
                 node_values[i] = zero.copy()
 
         elif kind == SymbolicNodeKind.CONSTANT:
-            node_values[i] = np.full(height, node.constant_value % _p, dtype=np.int64)
+            node_values[i] = np.full(height, node.constant_value % p, dtype=np.int64)
 
         elif kind in (SymbolicNodeKind.IS_FIRST_ROW,
                       SymbolicNodeKind.IS_LAST_ROW,
@@ -402,16 +405,16 @@ def eval_dag_all_rows(dag, partitioned_main, preprocessed, public_values, height
             node_values[i] = zero.copy()
 
         elif kind == SymbolicNodeKind.ADD:
-            node_values[i] = (node_values[node.left_idx] + node_values[node.right_idx]) % _p
+            node_values[i] = (node_values[node.left_idx] + node_values[node.right_idx]) % p
 
         elif kind == SymbolicNodeKind.SUB:
-            node_values[i] = (node_values[node.left_idx] - node_values[node.right_idx]) % _p
+            node_values[i] = (node_values[node.left_idx] - node_values[node.right_idx]) % p
 
         elif kind == SymbolicNodeKind.MUL:
-            node_values[i] = (node_values[node.left_idx] * node_values[node.right_idx]) % _p
+            node_values[i] = (node_values[node.left_idx] * node_values[node.right_idx]) % p
 
         elif kind == SymbolicNodeKind.NEG:
-            node_values[i] = (-node_values[node.idx]) % _p
+            node_values[i] = (-node_values[node.idx]) % p
 
         else:
             raise ValueError(f"Unknown node kind: {kind}")
@@ -449,7 +452,7 @@ class OodEvaluationMismatch(VerificationError):
 
 def verify_single_rap_constraints(
     constraints: SymbolicExpressionDag,
-    preprocessed_values: Optional[AdjacentOpenedValues],
+    preprocessed_values: AdjacentOpenedValues | None,
     partitioned_main_values: list[AdjacentOpenedValues],
     after_challenge_values: list[AdjacentOpenedValues],
     quotient_chunks: list[list[EF4Coeffs]],

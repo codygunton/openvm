@@ -514,40 +514,58 @@ def _v_inv(a: np.ndarray) -> np.ndarray:
 
 
 def ef4v_add(a: EF4Vec, b: EF4Vec) -> EF4Vec:
+    """Add two vectorized EF4 elements coefficient-wise."""
     return (_v_add(a[0], b[0]), _v_add(a[1], b[1]),
             _v_add(a[2], b[2]), _v_add(a[3], b[3]))
 
 
 def ef4v_sub(a: EF4Vec, b: EF4Vec) -> EF4Vec:
+    """Subtract two vectorized EF4 elements coefficient-wise."""
     return (_v_sub(a[0], b[0]), _v_sub(a[1], b[1]),
             _v_sub(a[2], b[2]), _v_sub(a[3], b[3]))
 
 
 def ef4v_neg(a: EF4Vec) -> EF4Vec:
+    """Negate a vectorized EF4 element coefficient-wise."""
     return (_v_neg(a[0]), _v_neg(a[1]), _v_neg(a[2]), _v_neg(a[3]))
 
 
 def ef4v_mul(a: EF4Vec, b: EF4Vec) -> EF4Vec:
+    """Multiply two vectorized EF4 elements using x^4 = W_EXT.
+
+    Reference: p3-field BinomialExtensionField::mul (vectorized variant)
+    """
     a0, a1, a2, a3 = a
     b0, b1, b2, b3 = b
     Wc = np.int64(_W_EXT)
-    c0 = _v_add(_v_mul(a0, b0), _v_mul(Wc, _v_add(_v_add(_v_mul(a1, b3), _v_mul(a2, b2)), _v_mul(a3, b1))))
-    c1 = _v_add(_v_add(_v_mul(a0, b1), _v_mul(a1, b0)), _v_mul(Wc, _v_add(_v_mul(a2, b3), _v_mul(a3, b2))))
-    c2 = _v_add(_v_add(_v_add(_v_mul(a0, b2), _v_mul(a1, b1)), _v_mul(a2, b0)), _v_mul(Wc, _v_mul(a3, b3)))
-    c3 = _v_add(_v_add(_v_add(_v_mul(a0, b3), _v_mul(a1, b2)), _v_mul(a2, b1)), _v_mul(a3, b0))
+    # c0 = a0*b0 + W*(a1*b3 + a2*b2 + a3*b1)
+    cross_0 = _v_add(_v_add(_v_mul(a1, b3), _v_mul(a2, b2)), _v_mul(a3, b1))
+    c0 = _v_add(_v_mul(a0, b0), _v_mul(Wc, cross_0))
+    # c1 = a0*b1 + a1*b0 + W*(a2*b3 + a3*b2)
+    cross_1 = _v_add(_v_mul(a2, b3), _v_mul(a3, b2))
+    c1 = _v_add(_v_add(_v_mul(a0, b1), _v_mul(a1, b0)), _v_mul(Wc, cross_1))
+    # c2 = a0*b2 + a1*b1 + a2*b0 + W*a3*b3
+    c2 = _v_add(_v_add(_v_add(_v_mul(a0, b2), _v_mul(a1, b1)), _v_mul(a2, b0)),
+                _v_mul(Wc, _v_mul(a3, b3)))
+    # c3 = a0*b3 + a1*b2 + a2*b1 + a3*b0
+    c3 = _v_add(_v_add(_v_add(_v_mul(a0, b3), _v_mul(a1, b2)), _v_mul(a2, b1)),
+                _v_mul(a3, b0))
     return (c0, c1, c2, c3)
 
 
 def ef4v_mul_base(a: EF4Vec, b: np.ndarray) -> EF4Vec:
+    """Multiply vectorized EF4 by a base-field array."""
     return (_v_mul(a[0], b), _v_mul(a[1], b), _v_mul(a[2], b), _v_mul(a[3], b))
 
 
 def ef4v_from_base(b: np.ndarray) -> EF4Vec:
+    """Lift a base-field array to EF4Vec: [val, 0, 0, 0]."""
     z = np.zeros_like(b)
     return (b % _P, z, z, z)
 
 
 def ef4v_from_scalar(coeffs: EF4Coeffs, n: int) -> EF4Vec:
+    """Broadcast a scalar EF4 element to an EF4Vec of length n."""
     return (
         np.full(n, coeffs[0] % _P, dtype=np.int64),
         np.full(n, coeffs[1] % _P, dtype=np.int64),
@@ -557,6 +575,14 @@ def ef4v_from_scalar(coeffs: EF4Coeffs, n: int) -> EF4Vec:
 
 
 def ef4v_inv(a: EF4Vec) -> EF4Vec:
+    """Invert a vectorized EF4 element via tower decomposition.
+
+    GF(p^4) = GF(p^2)[y] / (y^2 - W_EXT) where GF(p^2) = GF(p)[x] / (x^2 - W_EXT).
+    Write element as (a_lo + a_hi*y) where a_lo = a0 + a2*x, a_hi = a1 + a3*x.
+    Compute norm = a_lo^2 - W * a_hi^2 in GF(p^2), invert norm, multiply back.
+
+    Reference: p3-field BinomialExtensionField::inverse (tower method)
+    """
     a0, a1, a2, a3 = a
     Wc = np.int64(_W_EXT)
     a2_0 = _v_add(_v_mul(a0, a0), _v_mul(Wc, _v_mul(a2, a2)))
@@ -579,13 +605,22 @@ def ef4v_inv(a: EF4Vec) -> EF4Vec:
 
 
 def ef4v_mul_scalar(a: EF4Vec, s: EF4Coeffs) -> EF4Vec:
+    """Multiply vectorized EF4 by a scalar EF4 element."""
     s0, s1, s2, s3 = np.int64(s[0] % _P), np.int64(s[1] % _P), np.int64(s[2] % _P), np.int64(s[3] % _P)
     a0, a1, a2, a3 = a
     Wc = np.int64(_W_EXT)
-    c0 = _v_add(_v_mul(a0, s0), _v_mul(Wc, _v_add(_v_add(_v_mul(a1, s3), _v_mul(a2, s2)), _v_mul(a3, s1))))
-    c1 = _v_add(_v_add(_v_mul(a0, s1), _v_mul(a1, s0)), _v_mul(Wc, _v_add(_v_mul(a2, s3), _v_mul(a3, s2))))
-    c2 = _v_add(_v_add(_v_add(_v_mul(a0, s2), _v_mul(a1, s1)), _v_mul(a2, s0)), _v_mul(Wc, _v_mul(a3, s3)))
-    c3 = _v_add(_v_add(_v_add(_v_mul(a0, s3), _v_mul(a1, s2)), _v_mul(a2, s1)), _v_mul(a3, s0))
+    # c0 = a0*s0 + W*(a1*s3 + a2*s2 + a3*s1)
+    cross_0 = _v_add(_v_add(_v_mul(a1, s3), _v_mul(a2, s2)), _v_mul(a3, s1))
+    c0 = _v_add(_v_mul(a0, s0), _v_mul(Wc, cross_0))
+    # c1 = a0*s1 + a1*s0 + W*(a2*s3 + a3*s2)
+    cross_1 = _v_add(_v_mul(a2, s3), _v_mul(a3, s2))
+    c1 = _v_add(_v_add(_v_mul(a0, s1), _v_mul(a1, s0)), _v_mul(Wc, cross_1))
+    # c2 = a0*s2 + a1*s1 + a2*s0 + W*a3*s3
+    c2 = _v_add(_v_add(_v_add(_v_mul(a0, s2), _v_mul(a1, s1)), _v_mul(a2, s0)),
+                _v_mul(Wc, _v_mul(a3, s3)))
+    # c3 = a0*s3 + a1*s2 + a2*s1 + a3*s0
+    c3 = _v_add(_v_add(_v_add(_v_mul(a0, s3), _v_mul(a1, s2)), _v_mul(a2, s1)),
+                _v_mul(a3, s0))
     return (c0, c1, c2, c3)
 
 
@@ -593,9 +628,9 @@ def ef4v_mul_scalar(a: EF4Vec, s: EF4Coeffs) -> EF4Vec:
 
 
 def _ef4_mul_raw(
-    a: tuple[int, int, int, int],
-    b: tuple[int, int, int, int],
-) -> tuple[int, int, int, int]:
+    a: EF4Coeffs,
+    b: EF4Coeffs,
+) -> EF4Coeffs:
     a0, a1, a2, a3 = a
     b0, b1, b2, b3 = b
     c0 = (a0 * b0 + _W_EXT * (a1 * b3 + a2 * b2 + a3 * b1)) % _P
@@ -606,9 +641,9 @@ def _ef4_mul_raw(
 
 
 def _precompute_z_powers_bsgs(
-    z: tuple[int, int, int, int],
+    z: EF4Coeffs,
     degree: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> EF4Vec:
     if degree <= 0:
         return tuple(np.empty(0, dtype=np.int64) for _ in range(4))
 
@@ -662,6 +697,20 @@ def eval_poly_ef4_batch(
     coeffs_per_col: list[list[Fe]],
     eval_point: EF4Coeffs,
 ) -> list[EF4Coeffs]:
+    """Evaluate multiple polynomials at a single EF4 point using baby-step giant-step.
+
+    For each polynomial f, computes f(eval_point) where f(z) = sum_i coeffs[i] * z^i.
+    BSGS precomputes z^0..z^{B-1} and z^B, z^{2B}, ... once, then evaluates each
+    polynomial via a single accumulation. Faster than per-polynomial Horner when many
+    polynomials share the same evaluation point.
+
+    Args:
+        coeffs_per_col: Polynomial coefficient vectors, all same degree.
+        eval_point: EF4 point at which to evaluate.
+
+    Returns:
+        List of EF4Coeffs, one per polynomial.
+    """
     num_cols = len(coeffs_per_col)
     if num_cols == 0:
         return []

@@ -24,17 +24,12 @@ from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
     Fe,
-    ef4_add,
-    ef4_batch_inverse,
-    ef4_from_base,
     ef4_mul,
-    ef4_mul_base,
     ef4v_add,
     ef4v_from_base,
     ef4v_from_scalar,
     ef4v_inv,
     ef4v_mul_base,
-    ef4v_mul_scalar,
 )
 from protocol.constraints import eval_dag_all_rows
 from protocol.proof import (
@@ -326,7 +321,6 @@ def compute_after_challenge_trace(
         stark-backend/src/interaction/fri_log_up.rs
         generate_after_challenge_trace (lines 299-437)
     """
-    perm_width = len(interaction_partitions) + 1
     betas = generate_betas(beta, interactions)
 
     # Step 1: Evaluate full DAG at all rows (vectorized)

@@ -21,7 +21,6 @@ from primitives.field import (
     W,
     bit_reverse_list,
     ef4v_add,
-    ef4v_from_base,
     ef4v_mul_base,
     ef4v_mul_scalar,
     ef4v_sub,
@@ -39,7 +38,7 @@ from primitives.merkle import (
 )
 from primitives.ntt import intt
 from primitives.poseidon2 import hash_to_digest
-from primitives.transcript import Challenger
+from primitives.transcript import Challenger, grind
 
 p = BABYBEAR_PRIME
 
@@ -412,7 +411,6 @@ def commit_phase(
         trees.append(tree)
 
         # Per-round PoW
-        from primitives.transcript import grind
         pow_witness = grind(challenger, commit_pow_bits)
         commit_pow_witnesses.append(pow_witness)
 
