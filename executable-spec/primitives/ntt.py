@@ -8,7 +8,13 @@ Reference:
 """
 
 try:
-    from poseidon2_ffi import ntt as _rust_ntt, intt as _rust_intt
+    from poseidon2_ffi import (
+        ntt as _rust_ntt,
+        intt as _rust_intt,
+        coset_lde_batch as _rust_coset_lde_batch,
+        ntt_batch as _rust_ntt_batch,
+        intt_batch as _rust_intt_batch,
+    )
 
     def ntt(coeffs: list[int]) -> list[int]:
         """Forward NTT: coefficient form -> evaluation form.
@@ -38,6 +44,18 @@ try:
         """
         return list(_rust_intt(evals))
 
+    def coset_lde_batch(columns, shift, log_blowup):
+        """Batch coset LDE via Rust FFI."""
+        return _rust_coset_lde_batch(columns, shift, log_blowup)
+
+    def ntt_batch(columns):
+        """Batch forward NTT via Rust FFI."""
+        return _rust_ntt_batch(columns)
+
+    def intt_batch(columns):
+        """Batch inverse NTT via Rust FFI."""
+        return _rust_intt_batch(columns)
+
 except ImportError:
     # Fallback to galois library
     import galois
@@ -52,3 +70,12 @@ except ImportError:
         ff_evals = FF(evals)
         result = galois.intt(ff_evals, modulus=BABYBEAR_PRIME)
         return [int(x) for x in result]
+
+    def coset_lde_batch(columns, shift, log_blowup):
+        raise ImportError("coset_lde_batch requires poseidon2_ffi")
+
+    def ntt_batch(columns):
+        raise ImportError("ntt_batch requires poseidon2_ffi")
+
+    def intt_batch(columns):
+        raise ImportError("intt_batch requires poseidon2_ffi")

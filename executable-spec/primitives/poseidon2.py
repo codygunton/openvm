@@ -14,7 +14,7 @@ from poseidon2_ffi import (
 )
 
 # Initialize rayon thread pool (default: 48 threads, override with RAYON_NUM_THREADS)
-_NUM_THREADS = int(os.environ.get("RAYON_NUM_THREADS", "48"))
+_NUM_THREADS = int(os.environ.get("RAYON_NUM_THREADS", str(os.cpu_count() or 1)))
 try:
     set_num_threads(_NUM_THREADS)
 except RuntimeError:

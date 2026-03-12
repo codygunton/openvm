@@ -25,6 +25,7 @@ import pickle
 from pathlib import Path
 
 import galois
+import numpy as np
 
 # --- Field Construction ---
 
@@ -424,7 +425,6 @@ def batch_inverse(values):
         results[i] = z * cumprods[i - 1]
         z = z * values[i]
     results[0] = z
-
     return results
 
 
@@ -466,3 +466,219 @@ def ef4_batch_inverse(values: list[EF4Coeffs]) -> list[EF4Coeffs]:
     results[0] = z
 
     return results
+
+
+# --- Vectorized EF4 Arithmetic (numpy int64) ---
+# EF4 element = (c0, c1, c2, c3) where element = c0 + c1*x + c2*x^2 + c3*x^3
+# and x^4 = _W_EXT = 11.
+# Each coefficient is a numpy int64 array of shape (n,).
+
+_W_EXT = 11  # Extension polynomial constant: x^4 - 11
+
+EF4Vec = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+
+
+def _v_mod(a: np.ndarray) -> np.ndarray:
+    return a % _P
+
+
+def _v_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return (a * b) % _P
+
+
+def _v_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return (a + b) % _P
+
+
+def _v_sub(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return (a - b) % _P
+
+
+def _v_neg(a: np.ndarray) -> np.ndarray:
+    return (_P - a) % _P
+
+
+def _v_modpow(base: np.ndarray, exp: int) -> np.ndarray:
+    result = np.ones_like(base)
+    base = base % _P
+    while exp > 0:
+        if exp & 1:
+            result = (result * base) % _P
+        base = (base * base) % _P
+        exp >>= 1
+    return result
+
+
+def _v_inv(a: np.ndarray) -> np.ndarray:
+    return _v_modpow(a, _P - 2)
+
+
+def ef4v_add(a: EF4Vec, b: EF4Vec) -> EF4Vec:
+    return (_v_add(a[0], b[0]), _v_add(a[1], b[1]),
+            _v_add(a[2], b[2]), _v_add(a[3], b[3]))
+
+
+def ef4v_sub(a: EF4Vec, b: EF4Vec) -> EF4Vec:
+    return (_v_sub(a[0], b[0]), _v_sub(a[1], b[1]),
+            _v_sub(a[2], b[2]), _v_sub(a[3], b[3]))
+
+
+def ef4v_neg(a: EF4Vec) -> EF4Vec:
+    return (_v_neg(a[0]), _v_neg(a[1]), _v_neg(a[2]), _v_neg(a[3]))
+
+
+def ef4v_mul(a: EF4Vec, b: EF4Vec) -> EF4Vec:
+    a0, a1, a2, a3 = a
+    b0, b1, b2, b3 = b
+    Wc = np.int64(_W_EXT)
+    c0 = _v_add(_v_mul(a0, b0), _v_mul(Wc, _v_add(_v_add(_v_mul(a1, b3), _v_mul(a2, b2)), _v_mul(a3, b1))))
+    c1 = _v_add(_v_add(_v_mul(a0, b1), _v_mul(a1, b0)), _v_mul(Wc, _v_add(_v_mul(a2, b3), _v_mul(a3, b2))))
+    c2 = _v_add(_v_add(_v_add(_v_mul(a0, b2), _v_mul(a1, b1)), _v_mul(a2, b0)), _v_mul(Wc, _v_mul(a3, b3)))
+    c3 = _v_add(_v_add(_v_add(_v_mul(a0, b3), _v_mul(a1, b2)), _v_mul(a2, b1)), _v_mul(a3, b0))
+    return (c0, c1, c2, c3)
+
+
+def ef4v_mul_base(a: EF4Vec, b: np.ndarray) -> EF4Vec:
+    return (_v_mul(a[0], b), _v_mul(a[1], b), _v_mul(a[2], b), _v_mul(a[3], b))
+
+
+def ef4v_from_base(b: np.ndarray) -> EF4Vec:
+    z = np.zeros_like(b)
+    return (b % _P, z, z, z)
+
+
+def ef4v_from_scalar(coeffs: EF4Coeffs, n: int) -> EF4Vec:
+    return (
+        np.full(n, coeffs[0] % _P, dtype=np.int64),
+        np.full(n, coeffs[1] % _P, dtype=np.int64),
+        np.full(n, coeffs[2] % _P, dtype=np.int64),
+        np.full(n, coeffs[3] % _P, dtype=np.int64),
+    )
+
+
+def ef4v_inv(a: EF4Vec) -> EF4Vec:
+    a0, a1, a2, a3 = a
+    Wc = np.int64(_W_EXT)
+    a2_0 = _v_add(_v_mul(a0, a0), _v_mul(Wc, _v_mul(a2, a2)))
+    a2_1 = _v_mul(np.int64(2), _v_mul(a0, a2))
+    b2_0 = _v_add(_v_mul(a1, a1), _v_mul(Wc, _v_mul(a3, a3)))
+    b2_1 = _v_mul(np.int64(2), _v_mul(a1, a3))
+    b2u_0 = _v_mul(Wc, b2_1)
+    b2u_1 = b2_0
+    d0 = _v_sub(a2_0, b2u_0)
+    d1 = _v_sub(a2_1, b2u_1)
+    norm = _v_sub(_v_mul(d0, d0), _v_mul(Wc, _v_mul(d1, d1)))
+    ni = _v_inv(norm)
+    e0 = _v_mul(d0, ni)
+    e1 = _v_neg(_v_mul(d1, ni))
+    ae_0 = _v_add(_v_mul(a0, e0), _v_mul(Wc, _v_mul(a2, e1)))
+    ae_1 = _v_add(_v_mul(a0, e1), _v_mul(a2, e0))
+    be_0 = _v_add(_v_mul(a1, e0), _v_mul(Wc, _v_mul(a3, e1)))
+    be_1 = _v_add(_v_mul(a1, e1), _v_mul(a3, e0))
+    return (ae_0, _v_neg(be_0), ae_1, _v_neg(be_1))
+
+
+def ef4v_mul_scalar(a: EF4Vec, s: EF4Coeffs) -> EF4Vec:
+    s0, s1, s2, s3 = np.int64(s[0] % _P), np.int64(s[1] % _P), np.int64(s[2] % _P), np.int64(s[3] % _P)
+    a0, a1, a2, a3 = a
+    Wc = np.int64(_W_EXT)
+    c0 = _v_add(_v_mul(a0, s0), _v_mul(Wc, _v_add(_v_add(_v_mul(a1, s3), _v_mul(a2, s2)), _v_mul(a3, s1))))
+    c1 = _v_add(_v_add(_v_mul(a0, s1), _v_mul(a1, s0)), _v_mul(Wc, _v_add(_v_mul(a2, s3), _v_mul(a3, s2))))
+    c2 = _v_add(_v_add(_v_add(_v_mul(a0, s2), _v_mul(a1, s1)), _v_mul(a2, s0)), _v_mul(Wc, _v_mul(a3, s3)))
+    c3 = _v_add(_v_add(_v_add(_v_mul(a0, s3), _v_mul(a1, s2)), _v_mul(a2, s1)), _v_mul(a3, s0))
+    return (c0, c1, c2, c3)
+
+
+# --- Batch polynomial evaluation at a single EF4 point ---
+
+
+def _ef4_mul_raw(
+    a: tuple[int, int, int, int],
+    b: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    a0, a1, a2, a3 = a
+    b0, b1, b2, b3 = b
+    c0 = (a0 * b0 + _W_EXT * (a1 * b3 + a2 * b2 + a3 * b1)) % _P
+    c1 = (a0 * b1 + a1 * b0 + _W_EXT * (a2 * b3 + a3 * b2)) % _P
+    c2 = (a0 * b2 + a1 * b1 + a2 * b0 + _W_EXT * a3 * b3) % _P
+    c3 = (a0 * b3 + a1 * b2 + a2 * b1 + a3 * b0) % _P
+    return (c0, c1, c2, c3)
+
+
+def _precompute_z_powers_bsgs(
+    z: tuple[int, int, int, int],
+    degree: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    if degree <= 0:
+        return tuple(np.empty(0, dtype=np.int64) for _ in range(4))
+
+    B = max(1, int(degree ** 0.5))
+    num_blocks = (degree + B - 1) // B
+
+    small = [(1, 0, 0, 0)]
+    cur = (1, 0, 0, 0)
+    for _ in range(B - 1):
+        cur = _ef4_mul_raw(cur, z)
+        small.append(cur)
+
+    z_B = _ef4_mul_raw(cur, z)
+
+    big = [(1, 0, 0, 0)]
+    cur = (1, 0, 0, 0)
+    for _ in range(num_blocks - 1):
+        cur = _ef4_mul_raw(cur, z_B)
+        big.append(cur)
+
+    small_np = [np.array([s[c] for s in small], dtype=np.int64) for c in range(4)]
+    big_np = [np.array([b[c] for b in big], dtype=np.int64) for c in range(4)]
+
+    def _outer_flat(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        return np.outer(a, b).ravel()[:degree]
+
+    def _outer_mod(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        return _outer_flat(a, b) % _P
+
+    c0 = _outer_mod(big_np[0], small_np[0])
+    w_sum = (_outer_flat(big_np[1], small_np[3]) + _outer_flat(big_np[2], small_np[2])) % _P
+    w_sum = (w_sum + _outer_mod(big_np[3], small_np[1])) % _P
+    c0 = (c0 + _W_EXT * w_sum) % _P
+
+    t1 = (_outer_flat(big_np[0], small_np[1]) + _outer_flat(big_np[1], small_np[0])) % _P
+    w_sum1 = (_outer_flat(big_np[2], small_np[3]) + _outer_flat(big_np[3], small_np[2])) % _P
+    c1 = (t1 + _W_EXT * w_sum1) % _P
+
+    t2 = (_outer_flat(big_np[0], small_np[2]) + _outer_flat(big_np[1], small_np[1])) % _P
+    t2 = (t2 + _outer_mod(big_np[2], small_np[0])) % _P
+    c2 = (t2 + _W_EXT * _outer_mod(big_np[3], small_np[3])) % _P
+
+    t3 = (_outer_flat(big_np[0], small_np[3]) + _outer_flat(big_np[1], small_np[2])) % _P
+    t3_2 = (_outer_flat(big_np[2], small_np[1]) + _outer_flat(big_np[3], small_np[0])) % _P
+    c3 = (t3 + t3_2) % _P
+
+    return (c0, c1, c2, c3)
+
+
+def eval_poly_ef4_batch(
+    coeffs_per_col: list[list[Fe]],
+    eval_point: EF4Coeffs,
+) -> list[EF4Coeffs]:
+    num_cols = len(coeffs_per_col)
+    if num_cols == 0:
+        return []
+    degree = len(coeffs_per_col[0])
+    if degree == 0:
+        return [[0, 0, 0, 0]] * num_cols
+
+    z = tuple(int(c) for c in eval_point)
+    z_powers = _precompute_z_powers_bsgs(z, degree)
+
+    coeff_mat = np.array(coeffs_per_col, dtype=np.int64)
+
+    results = []
+    for zp in z_powers:
+        products = (coeff_mat * zp) % _P
+        result_j = products.sum(axis=1) % _P
+        results.append(result_j)
+
+    out = np.stack(results, axis=1)
+    return out.tolist()
