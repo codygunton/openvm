@@ -14,7 +14,10 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
+
 from primitives.field import (
+    BABYBEAR_PRIME,
     EF4Coeffs,
     Fe,
     ef4_add,
@@ -321,6 +324,99 @@ def reconstruct_quotient(
         result = ef4_add(result, term)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Vectorized DAG evaluation (all rows at once, base field)
+# ---------------------------------------------------------------------------
+
+_p = BABYBEAR_PRIME
+
+
+def eval_dag_all_rows(dag, partitioned_main, preprocessed, public_values, height):
+    """Evaluate full DAG at ALL rows simultaneously using numpy arrays.
+
+    Each DAG node evaluates to a numpy int64 array of shape (height,).
+
+    Args:
+        dag: SymbolicExpressionDag
+        partitioned_main: [part_index][rows][cols] — list of trace matrices
+        preprocessed: [rows][cols] or None
+        public_values: list of Fe
+        height: trace height
+
+    Returns:
+        List of numpy int64 arrays, one per DAG node.
+    """
+    # Pre-convert trace matrices to numpy column arrays for fast lookup
+    np_parts = []
+    for part in partitioned_main:
+        cols = len(part[0]) if part else 0
+        np_cols = [
+            np.array([part[r][c] for r in range(height)], dtype=np.int64)
+            for c in range(cols)
+        ]
+        np_parts.append(np_cols)
+
+    np_prep = None
+    if preprocessed is not None:
+        prep_cols = len(preprocessed[0]) if preprocessed else 0
+        np_prep = [
+            np.array([preprocessed[r][c] for r in range(height)], dtype=np.int64)
+            for c in range(prep_cols)
+        ]
+
+    nodes = dag.nodes
+    node_values = [None] * len(nodes)
+    zero = np.zeros(height, dtype=np.int64)
+
+    for i, node in enumerate(nodes):
+        kind = node.kind
+
+        if kind == SymbolicNodeKind.VARIABLE:
+            var = node.variable
+            entry = var.entry
+            if entry.kind == EntryType.MAIN:
+                if entry.offset == 0:
+                    node_values[i] = np_parts[entry.part_index][var.index] % _p
+                else:
+                    col = np_parts[entry.part_index][var.index]
+                    node_values[i] = np.roll(col, -entry.offset) % _p
+            elif entry.kind == EntryType.PREPROCESSED:
+                if entry.offset == 0:
+                    node_values[i] = np_prep[var.index] % _p
+                else:
+                    col = np_prep[var.index]
+                    node_values[i] = np.roll(col, -entry.offset) % _p
+            elif entry.kind == EntryType.PUBLIC:
+                node_values[i] = np.full(height, public_values[var.index] % _p, dtype=np.int64)
+            else:
+                node_values[i] = zero.copy()
+
+        elif kind == SymbolicNodeKind.CONSTANT:
+            node_values[i] = np.full(height, node.constant_value % _p, dtype=np.int64)
+
+        elif kind in (SymbolicNodeKind.IS_FIRST_ROW,
+                      SymbolicNodeKind.IS_LAST_ROW,
+                      SymbolicNodeKind.IS_TRANSITION):
+            node_values[i] = zero.copy()
+
+        elif kind == SymbolicNodeKind.ADD:
+            node_values[i] = (node_values[node.left_idx] + node_values[node.right_idx]) % _p
+
+        elif kind == SymbolicNodeKind.SUB:
+            node_values[i] = (node_values[node.left_idx] - node_values[node.right_idx]) % _p
+
+        elif kind == SymbolicNodeKind.MUL:
+            node_values[i] = (node_values[node.left_idx] * node_values[node.right_idx]) % _p
+
+        elif kind == SymbolicNodeKind.NEG:
+            node_values[i] = (-node_values[node.idx]) % _p
+
+        else:
+            raise ValueError(f"Unknown node kind: {kind}")
+
+    return node_values
 
 
 # ---------------------------------------------------------------------------

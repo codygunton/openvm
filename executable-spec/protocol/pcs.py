@@ -16,6 +16,8 @@ Reference:
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from primitives.field import (
     BABYBEAR_PRIME,
     Digest,
@@ -25,6 +27,15 @@ from primitives.field import (
     GENERATOR,
     W,
     bit_reverse_list,
+    ef4_mul as _ef4_mul,
+    ef4v_add,
+    ef4v_from_base,
+    ef4v_from_scalar,
+    ef4v_inv,
+    ef4v_mul,
+    ef4v_mul_scalar,
+    ef4v_sub,
+    eval_poly_ef4_batch,
     ff4,
     ff4_coeffs,
     ff4_from_base,
@@ -33,8 +44,7 @@ from primitives.field import (
     reverse_bits_len,
 )
 from primitives.merkle import build_merkle_tree, get_opening_proof, verify_opening_prehashed
-from primitives.ntt import intt, ntt
-from poseidon2_ffi import coset_lde_batch as _coset_lde_batch_ffi, ntt_batch as _ntt_batch_ffi, intt_batch as _intt_batch_ffi
+from primitives.ntt import intt, ntt, coset_lde_batch as _coset_lde_batch_ffi, intt_batch as _intt_batch_ffi
 from primitives.poseidon2 import compress, hash_to_digest, compress_batch, hash_batch
 from primitives.transcript import Challenger, check_witness, grind
 from protocol.domain import TwoAdicMultiplicativeCoset
@@ -857,12 +867,6 @@ def pcs_open(
         p3-fri-0.4.1/src/two_adic_pcs.rs TwoAdicFriPcs::open lines 286-440
     """
     # --- Step A: Evaluate polynomials at opening points ---
-    import time as _t
-    _t_pcs = _t.time()
-    def _pcs_log(msg: str) -> None:
-        print(f"    [pcs_open {_t.time() - _t_pcs:6.1f}s] {msg}", flush=True)
-
-    from protocol.vectorized import eval_poly_ef4_batch
 
     all_opened_values: list[list[list[list[EF4Coeffs]]]] = []
 
@@ -896,7 +900,6 @@ def pcs_open(
                 mat_values.append(col_values)
             round_values.append(mat_values)
         all_opened_values.append(round_values)
-        _pcs_log(f"Step A round {rnd_idx}: {len(rnd.committed.domains)} mats evaluated")
 
     # --- Step B: Observe all opened values ---
     for round_values in all_opened_values:
@@ -905,20 +908,11 @@ def pcs_open(
                 for val in point_values:
                     challenger.observe_many(val)
 
-    _pcs_log("Step B: observed opened values")
-
     # --- Step C: Sample FRI alpha ---
     alpha = ff4(challenger.sample_ext())
 
     # --- Step D: Compute reduced polynomials per height ---
     # Group by LDE height, accumulate alpha-weighted quotients.
-    # Vectorized with numpy for large heights.
-    import numpy as np
-    from protocol.vectorized import (
-        ef4v_add, ef4v_from_base, ef4v_from_scalar, ef4v_inv,
-        ef4v_mul, ef4v_mul_scalar, ef4v_sub,
-    )
-
     reduced_evals_np: dict[int, tuple] = {}  # log_height → EF4Vec
     # Cache (z - x_i)^{-1} per (log_height, z_tuple) to avoid recomputation
     inv_diff_cache: dict[tuple, tuple] = {}
@@ -950,14 +944,10 @@ def pcs_open(
     # Per-height alpha_pow accumulators (matching Rust's num_reduced[log_height]).
     # Each height independently tracks alpha^k for its k-th column.
     # Reference: p3-fri two_adic_pcs.rs lines 226,253,271
-    from primitives.field import ef4_mul as _ef4_mul
     alpha_coeffs = ff4_coeffs(alpha)
-    alpha_pow_per_height: dict[int, list[int]] = {}  # log_height -> EF4 coeffs
-    import time as _td
-    _td_start = _td.time()
+    alpha_pow_per_height: dict[int, EF4Coeffs] = {}
 
     for rnd_idx, rnd in enumerate(rounds):
-        _td_rnd = _td.time()
         for mat_idx in range(len(rnd.committed.domains)):
             domain = rnd.committed.domains[mat_idx]
             lde_rows = rnd.committed.lde_rows[mat_idx]
@@ -1004,17 +994,12 @@ def pcs_open(
                     alpha_pow_per_height[log_height] = _ef4_mul(
                         alpha_pow_per_height[log_height], alpha_coeffs
                     )
-        _pcs_log(f"Step D round {rnd_idx}: {len(rnd.committed.domains)} mats, "
-                 f"{_td.time()-_td_rnd:.2f}s")
-
     # Convert numpy EF4Vec back to list-of-EF4Coeffs for FRI
     reduced_evals: dict[int, list[EF4Coeffs]] = {}
     for log_h, ev in reduced_evals_np.items():
         height = 1 << log_h
         arr = np.stack(ev, axis=1)  # (height, 4)
         reduced_evals[log_h] = arr.tolist()
-
-    _pcs_log(f"Step D: reduced polys computed ({len(reduced_evals)} heights)")
 
     # --- Step E: FRI prove ---
     # Collect reduced evaluations in descending height order
@@ -1042,8 +1027,6 @@ def pcs_open(
         reduced_openings_by_height=reduced_openings_by_height,
     )
 
-    _pcs_log(f"Step E: FRI commit done ({len(fri_result.commits)} rounds)")
-
     # Query PoW
     query_pow_witness = grind(challenger, fri_params.query_proof_of_work_bits)
 
@@ -1064,8 +1047,6 @@ def pcs_open(
             num_fri_rounds,
         )
         fri_query_proofs.append((query_index, fri_openings))
-
-    _pcs_log(f"Step F: {fri_params.num_queries} queries answered")
 
     # Package FRI proof data
     fri_proof_data = {

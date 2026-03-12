@@ -22,6 +22,8 @@ from dataclasses import dataclass
 
 from typing import Optional
 
+import numpy as np
+
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
@@ -32,6 +34,14 @@ from primitives.field import (
     ef4_mul_base,
     ef4_neg,
     ef4_sub,
+    ef4v_add,
+    ef4v_from_base,
+    ef4v_from_scalar,
+    ef4v_mul,
+    ef4v_mul_base,
+    ef4v_mul_scalar,
+    ef4v_neg,
+    ef4v_sub,
     get_omega,
     inv_mod,
 )
@@ -639,11 +649,10 @@ def compute_quotient_values(
     trace_size = trace_domain.size()
     step = quot_size // trace_size  # quotient_degree
 
-    # Use numpy vectorization for large quotient domains with full evaluator
     use_full_evaluator = after_challenge_on_quot is not None
-    if use_full_evaluator and quot_size >= 256:
-        from protocol.vectorized import compute_quotient_values_numpy
-        return compute_quotient_values_numpy(
+    if use_full_evaluator:
+        # Vectorized EF4 evaluator for multi-AIR with interactions
+        return _compute_quotient_values_vectorized(
             trace_on_quotient_domain, constraints_dag, public_values, alpha,
             quotient_domain, trace_domain,
             preprocessed_on_quot, after_challenge_on_quot,
@@ -651,7 +660,7 @@ def compute_quotient_values(
             partitioned_trace_on_quot,
         )
 
-    # Precompute selectors at all quotient domain points (base field)
+    # Base field evaluator for simple AIRs (e.g., fibonacci_stark)
     sels = selectors_on_coset(trace_domain, quotient_domain)
 
     quotient_values: list[EF4Coeffs] = []
@@ -660,56 +669,194 @@ def compute_quotient_values(
         next_idx = (i + step) % quot_size
         next_row = trace_on_quotient_domain[next_idx]
 
-        if use_full_evaluator:
-            # Full EF4 evaluator for multi-AIR with interactions
-            prep_local = preprocessed_on_quot[i] if preprocessed_on_quot else []
-            prep_next = preprocessed_on_quot[next_idx] if preprocessed_on_quot else []
-            ac_local = after_challenge_on_quot[i]
-            ac_next = after_challenge_on_quot[next_idx]
+        node_values = eval_symbolic_expression_dag(
+            constraints_dag,
+            local_row,
+            next_row,
+            public_values,
+            sels.is_first_row[i],
+            sels.is_last_row[i],
+            sels.is_transition[i],
+        )
+        accumulated = accumulate_constraints(constraints_dag, node_values, alpha)
 
-            # Build partitioned main rows
-            if partitioned_trace_on_quot is not None:
-                part_local = [partitioned_trace_on_quot[p][i]
-                              for p in range(len(partitioned_trace_on_quot))]
-                part_next = [partitioned_trace_on_quot[p][next_idx]
-                             for p in range(len(partitioned_trace_on_quot))]
-            else:
-                part_local = [local_row]
-                part_next = [next_row]
-
-            node_values = eval_symbolic_expression_dag_full(
-                constraints_dag,
-                part_local, part_next,
-                public_values,
-                sels.is_first_row[i],
-                sels.is_last_row[i],
-                sels.is_transition[i],
-                prep_local, prep_next,
-                ac_local, ac_next,
-                challenges, exposed_values,
-            )
-            accumulated = accumulate_constraints_ef4(
-                constraints_dag, node_values, alpha,
-            )
-        else:
-            # Base field evaluator for simple AIRs
-            node_values = eval_symbolic_expression_dag(
-                constraints_dag,
-                local_row,
-                next_row,
-                public_values,
-                sels.is_first_row[i],
-                sels.is_last_row[i],
-                sels.is_transition[i],
-            )
-            accumulated = accumulate_constraints(constraints_dag, node_values, alpha)
-
-        # Divide by vanishing polynomial: quotient[i] = accumulated * inv_zeroifier[i]
-        # inv_zeroifier is base field, accumulated is EF4
         quotient_val = ef4_mul_base(accumulated, sels.inv_zeroifier[i])
         quotient_values.append(quotient_val)
 
     return quotient_values
+
+
+def _compute_quotient_values_vectorized(
+    trace_on_quotient_domain, constraints_dag, public_values, alpha,
+    quotient_domain, trace_domain,
+    preprocessed_on_quot, after_challenge_on_quot,
+    challenges, exposed_values,
+    partitioned_trace_on_quot,
+):
+    """Numpy-vectorized quotient computation for multi-AIR with interactions.
+
+    Evaluates the constraint DAG at ALL quotient domain points simultaneously.
+    """
+    from primitives.field import ef4_mul as scalar_ef4_mul
+
+    quot_size = quotient_domain.size()
+    trace_size = trace_domain.size()
+    step = quot_size // trace_size
+
+    # --- Precompute selectors ---
+    sels = selectors_on_coset(trace_domain, quotient_domain)
+    is_first_row_np = np.array(sels.is_first_row, dtype=np.int64)
+    is_last_row_np = np.array(sels.is_last_row, dtype=np.int64)
+    is_transition_np = np.array(sels.is_transition, dtype=np.int64)
+    inv_zeroifier_np = np.array(sels.inv_zeroifier, dtype=np.int64)
+
+    # --- Convert partitioned main traces to numpy column arrays ---
+    np_parts_local = []
+    np_parts_next = []
+
+    if partitioned_trace_on_quot is not None:
+        for part in partitioned_trace_on_quot:
+            cols = len(part[0]) if part else 0
+            local_cols = []
+            next_cols = []
+            for c in range(cols):
+                col_data = np.array([part[r][c] for r in range(quot_size)], dtype=np.int64)
+                local_cols.append(col_data)
+                next_cols.append(np.roll(col_data, -step))
+            np_parts_local.append(local_cols)
+            np_parts_next.append(next_cols)
+    else:
+        cols = len(trace_on_quotient_domain[0]) if trace_on_quotient_domain else 0
+        local_cols = []
+        next_cols = []
+        for c in range(cols):
+            col_data = np.array(
+                [trace_on_quotient_domain[r][c] for r in range(quot_size)], dtype=np.int64
+            )
+            local_cols.append(col_data)
+            next_cols.append(np.roll(col_data, -step))
+        np_parts_local.append(local_cols)
+        np_parts_next.append(next_cols)
+
+    # --- Convert preprocessed trace ---
+    np_prep_local = None
+    np_prep_next = None
+    if preprocessed_on_quot is not None:
+        prep_cols = len(preprocessed_on_quot[0]) if preprocessed_on_quot else 0
+        np_prep_local = []
+        np_prep_next = []
+        for c in range(prep_cols):
+            col_data = np.array(
+                [preprocessed_on_quot[r][c] for r in range(quot_size)], dtype=np.int64
+            )
+            np_prep_local.append(col_data)
+            np_prep_next.append(np.roll(col_data, -step))
+
+    # --- Convert after_challenge trace (EF4 columns) ---
+    np_ac_local = None
+    np_ac_next = None
+    if after_challenge_on_quot is not None:
+        perm_width = len(after_challenge_on_quot[0])
+        np_ac_local = []
+        np_ac_next = []
+        for col in range(perm_width):
+            c0 = np.array([after_challenge_on_quot[r][col][0] for r in range(quot_size)], dtype=np.int64)
+            c1 = np.array([after_challenge_on_quot[r][col][1] for r in range(quot_size)], dtype=np.int64)
+            c2 = np.array([after_challenge_on_quot[r][col][2] for r in range(quot_size)], dtype=np.int64)
+            c3 = np.array([after_challenge_on_quot[r][col][3] for r in range(quot_size)], dtype=np.int64)
+            np_ac_local.append((c0 % p, c1 % p, c2 % p, c3 % p))
+            np_ac_next.append((
+                np.roll(c0, -step) % p,
+                np.roll(c1, -step) % p,
+                np.roll(c2, -step) % p,
+                np.roll(c3, -step) % p,
+            ))
+
+    # --- Evaluate DAG nodes (all in EF4, all quotient points at once) ---
+    nodes = constraints_dag.nodes
+    node_values = [None] * len(nodes)
+
+    zero_np = np.zeros(quot_size, dtype=np.int64)
+
+    for i, node in enumerate(nodes):
+        kind = node.kind
+
+        if kind == SymbolicNodeKind.VARIABLE:
+            var = node.variable
+            entry = var.entry
+            if entry.kind == EntryType.MAIN:
+                if entry.offset == 0:
+                    node_values[i] = ef4v_from_base(np_parts_local[entry.part_index][var.index] % p)
+                else:
+                    node_values[i] = ef4v_from_base(np_parts_next[entry.part_index][var.index] % p)
+            elif entry.kind == EntryType.PREPROCESSED:
+                if entry.offset == 0:
+                    node_values[i] = ef4v_from_base(np_prep_local[var.index] % p)
+                else:
+                    node_values[i] = ef4v_from_base(np_prep_next[var.index] % p)
+            elif entry.kind == EntryType.PUBLIC:
+                node_values[i] = ef4v_from_scalar(
+                    [public_values[var.index] % p, 0, 0, 0], quot_size
+                )
+            elif entry.kind == EntryType.PERMUTATION:
+                if entry.offset == 0:
+                    node_values[i] = np_ac_local[var.index]
+                else:
+                    node_values[i] = np_ac_next[var.index]
+            elif entry.kind == EntryType.CHALLENGE:
+                node_values[i] = ef4v_from_scalar(challenges[0][var.index], quot_size)
+            elif entry.kind == EntryType.EXPOSED:
+                node_values[i] = ef4v_from_scalar(exposed_values[0][var.index], quot_size)
+            else:
+                raise ValueError(f"Unknown entry kind: {entry.kind}")
+
+        elif kind == SymbolicNodeKind.CONSTANT:
+            node_values[i] = ef4v_from_scalar(
+                [node.constant_value % p, 0, 0, 0], quot_size
+            )
+
+        elif kind == SymbolicNodeKind.IS_FIRST_ROW:
+            node_values[i] = ef4v_from_base(is_first_row_np)
+
+        elif kind == SymbolicNodeKind.IS_LAST_ROW:
+            node_values[i] = ef4v_from_base(is_last_row_np)
+
+        elif kind == SymbolicNodeKind.IS_TRANSITION:
+            node_values[i] = ef4v_from_base(is_transition_np)
+
+        elif kind == SymbolicNodeKind.ADD:
+            node_values[i] = ef4v_add(node_values[node.left_idx], node_values[node.right_idx])
+
+        elif kind == SymbolicNodeKind.SUB:
+            node_values[i] = ef4v_sub(node_values[node.left_idx], node_values[node.right_idx])
+
+        elif kind == SymbolicNodeKind.MUL:
+            node_values[i] = ef4v_mul(node_values[node.left_idx], node_values[node.right_idx])
+
+        elif kind == SymbolicNodeKind.NEG:
+            node_values[i] = ef4v_neg(node_values[node.idx])
+
+        else:
+            raise ValueError(f"Unknown node kind: {kind}")
+
+    # --- Accumulate constraints with alpha powers ---
+    num_constraints = len(constraints_dag.constraint_idx)
+    alpha_powers = []
+    current_alpha = [1, 0, 0, 0]
+    for _ in range(num_constraints):
+        alpha_powers.append(current_alpha)
+        current_alpha = scalar_ef4_mul(current_alpha, alpha)
+
+    acc = (zero_np.copy(), zero_np.copy(), zero_np.copy(), zero_np.copy())
+    for alpha_pow, node_idx in zip(alpha_powers, reversed(constraints_dag.constraint_idx)):
+        term = ef4v_mul_scalar(node_values[node_idx], alpha_pow)
+        acc = ef4v_add(acc, term)
+
+    # --- Divide by vanishing polynomial ---
+    result = ef4v_mul_base(acc, inv_zeroifier_np)
+
+    result_arr = np.stack(result, axis=1)  # shape: (quot_size, 4)
+    return result_arr.tolist()
 
 
 # ---------------------------------------------------------------------------

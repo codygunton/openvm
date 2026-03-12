@@ -750,11 +750,6 @@ def prove_stark(
     Reference:
         stark-backend/src/prover/coordinator.rs prove
     """
-    import time as _time
-    _t0 = _time.time()
-    def _log(msg):
-        print(f"  [prove_stark {_time.time()-_t0:6.1f}s] {msg}", flush=True)
-
     from protocol.pcs import (
         CommittedData,
         PcsOpeningRound,
@@ -798,8 +793,6 @@ def prove_stark(
         domain = natural_domain_for_degree(height)
         domains.append(domain)
 
-    _log(f"start: {num_airs} AIRs, air_ids={air_ids}")
-
     # (a) Commit preprocessed traces (each AIR gets its own commitment).
     # Re-commit from raw data so we have Merkle trees for PCS openings.
     # Verify roots match VK to ensure consistency.
@@ -816,8 +809,6 @@ def prove_stark(
                 f"Preprocessed commitment mismatch for AIR {i_air}"
             )
             preprocessed_committed_list.append((i_air, committed))
-
-    _log(f"preprocessed committed ({len(preprocessed_committed_list)} AIRs)")
 
     # (b) Commit cached main traces (each partition gets its own commitment).
     # Order: for each AIR, for each cached main partition -> separate commit.
@@ -838,8 +829,6 @@ def prove_stark(
                 cached_committed_list.append(committed)
                 main_commits.append(committed.root)
 
-    _log(f"cached mains committed ({len(cached_committed_list)})")
-
     # (c) Commit common main trace (all AIRs in one batch).
     common_main_evals = []
     for i_air in range(num_airs):
@@ -847,8 +836,6 @@ def prove_stark(
             common_main_evals.append((domains[i_air], traces[i_air]))
     main_committed = pcs_commit(common_main_evals, fri_params.log_blowup)
     main_commits.append(main_committed.root)
-
-    _log(f"common main committed ({len(common_main_evals)} mats)")
 
     # --- Phase 3: Observe into transcript ---
     # (4) Observe public values
@@ -877,8 +864,6 @@ def prove_stark(
     after_challenge_per_air: list[Optional[list[list[EF4Coeffs]]]] = [None] * num_airs
     exposed_values_per_air: list[list[list[EF4Coeffs]]] = [[] for _ in range(num_airs)]
     ac_committed: Optional[CommittedData] = None
-
-    _log("starting RAP phase")
 
     if has_any_interaction:
         from protocol.logup import (
@@ -921,7 +906,6 @@ def prove_stark(
                 prep = preprocessed_traces[i_air]
 
             height = domains[i_air].size()
-            _log(f"  logup AIR {air_ids[i_air]}: h={height}, inters={len(interactions)}")
             perm_trace, cum_sum = compute_after_challenge_trace(
                 interactions, partitions, dag,
                 partitioned_main, prep,
@@ -955,7 +939,6 @@ def prove_stark(
                     base_field_rows.append(row)
                 ac_evals.append((domain, base_field_rows))
 
-        _log(f"committing after_challenge ({len(ac_evals)} mats)")
         ac_committed = pcs_commit(ac_evals, fri_params.log_blowup)
 
         # (f) Observe after_challenge commitment
@@ -966,8 +949,6 @@ def prove_stark(
         )
         challenges_per_phase = [interaction_challenges]
         after_challenge_commits = [ac_committed.root]
-
-    _log("starting quotient phase")
 
     # --- Phase 5: Sample alpha and compute quotient ---
     alpha: EF4Coeffs = challenger.sample_ext()
@@ -1005,7 +986,6 @@ def prove_stark(
         if preprocessed_traces and preprocessed_traces[i_air] is not None:
             prep = preprocessed_traces[i_air]
 
-        _log(f"  quotient AIR {air_ids[i_air]}: h={domain.size()}, qd={svk.quotient_degree}")
         chunks, qc_doms = compute_quotient_chunks(
             trace=traces[i_air],
             constraints_dag=svk.symbolic_constraints.constraints,
@@ -1029,7 +1009,6 @@ def prove_stark(
             qc_domain = quotient_chunk_domains[i_air][chunk_idx]
             quotient_evals.append((qc_domain, chunk_matrix))
 
-    _log(f"committing quotient ({len(quotient_evals)} mats)")
     quotient_committed = pcs_commit(quotient_evals, fri_params.log_blowup)
 
     # (8) Observe quotient commitment
@@ -1040,8 +1019,6 @@ def prove_stark(
 
     # --- Phase 8: Sample zeta ---
     zeta: EF4Coeffs = challenger.sample_ext()
-
-    _log("starting PCS open phase")
 
     # --- Phase 9: Build PCS opening rounds ---
     # Round order must match the verifier exactly:
@@ -1104,8 +1081,6 @@ def prove_stark(
     all_opened_values, fri_proof_data, query_indices = pcs_open(
         opening_rounds, challenger, fri_params
     )
-
-    _log("PCS open complete, building proof structure")
 
     # --- Phase 11: Build proof structure ---
     # Extract opened values from all_opened_values[round_idx][mat_idx][point_idx]
@@ -1236,8 +1211,6 @@ def prove_stark(
         after_challenge=after_challenge_commits,
         quotient=quotient_committed.root,
     )
-
-    _log("proof complete")
 
     return Proof(
         commitments=commitments,

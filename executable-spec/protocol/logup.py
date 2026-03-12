@@ -18,6 +18,8 @@ Reference:
 
 from __future__ import annotations
 
+import numpy as np
+
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
@@ -27,7 +29,14 @@ from primitives.field import (
     ef4_from_base,
     ef4_mul,
     ef4_mul_base,
+    ef4v_add,
+    ef4v_from_base,
+    ef4v_from_scalar,
+    ef4v_inv,
+    ef4v_mul_base,
+    ef4v_mul_scalar,
 )
+from protocol.constraints import eval_dag_all_rows
 from protocol.proof import (
     EntryType,
     Interaction,
@@ -281,9 +290,6 @@ def compute_max_constraint_degree(per_air_vks: list[StarkVerifyingKey]) -> int:
 # ---------------------------------------------------------------------------
 
 
-_NUMPY_THRESHOLD = 256  # Use numpy vectorization for traces larger than this
-
-
 def compute_after_challenge_trace(
     interactions: list[Interaction],
     interaction_partitions: list[list[int]],
@@ -297,14 +303,7 @@ def compute_after_challenge_trace(
 ) -> tuple[list[list[EF4Coeffs]], EF4Coeffs]:
     """Compute FriLogUp after-challenge trace and cumulative sum.
 
-    For each row:
-    1. Evaluate full DAG at the row (base field)
-    2. Compute denominator per interaction:
-       denom_i = alpha + msg[0] + beta*msg[1] + ... + beta^{|msg|}*(bus_index+1)
-    3. Batch-invert all denominators
-    4. For each chunk: perm[chunk] = sum(reciprocal_i * count_i)
-    5. phi = sum of all chunk values (row sum)
-    Then convert phi column to running sum (prefix sum).
+    Processes ALL rows simultaneously using numpy arrays.
 
     Args:
         interactions: List of Interaction (message/count are DAG node indices).
@@ -327,63 +326,65 @@ def compute_after_challenge_trace(
         stark-backend/src/interaction/fri_log_up.rs
         generate_after_challenge_trace (lines 299-437)
     """
-    if height >= _NUMPY_THRESHOLD:
-        from protocol.vectorized import compute_after_challenge_trace_numpy
-        return compute_after_challenge_trace_numpy(
-            interactions, interaction_partitions, dag,
-            partitioned_main, preprocessed, public_values,
-            alpha, beta, height,
-        )
-
-    perm_width = len(interaction_partitions) + 1  # +1 for phi column
+    perm_width = len(interaction_partitions) + 1
     betas = generate_betas(beta, interactions)
 
-    zero_ef4: EF4Coeffs = [0, 0, 0, 0]
-    perm_trace: list[list[EF4Coeffs]] = [
-        [list(zero_ef4) for _ in range(perm_width)] for _ in range(height)
-    ]
+    # Step 1: Evaluate full DAG at all rows (vectorized)
+    node_values = eval_dag_all_rows(
+        dag, partitioned_main, preprocessed, public_values, height
+    )
 
-    for n in range(height):
-        # Step 1: Evaluate full DAG at this row
-        dag_vals = eval_dag_at_row(
-            dag, partitioned_main, preprocessed, public_values, height, n
-        )
+    # Step 2: Compute EF4 denominators for all interactions, all rows
+    alpha_v = ef4v_from_scalar(alpha, height)
 
-        # Step 2: Compute denominators for all interactions
-        denoms: list[EF4Coeffs] = []
-        for interaction in interactions:
-            msg = interaction.message
-            # denom = alpha + eval(msg[0]) + betas[1]*eval(msg[1]) + ...
-            #       + betas[msg_len] * (bus_index + 1)
-            denom = ef4_add(alpha, ef4_from_base(dag_vals[msg[0]]))
-            for j in range(1, len(msg)):
-                denom = ef4_add(denom, ef4_mul_base(betas[j], dag_vals[msg[j]]))
-            denom = ef4_add(denom, ef4_mul_base(betas[len(msg)], interaction.bus_index + 1))
-            denoms.append(denom)
+    all_denoms = []
+    for interaction in interactions:
+        msg = interaction.message
+        denom = ef4v_add(alpha_v, ef4v_from_base(node_values[msg[0]]))
+        for j in range(1, len(msg)):
+            beta_j = ef4v_from_scalar(betas[j], height)
+            denom = ef4v_add(denom, ef4v_mul_base(beta_j, node_values[msg[j]]))
+        beta_last = ef4v_from_scalar(betas[len(msg)], height)
+        bus_val = np.full(height, (interaction.bus_index + 1) % p, dtype=np.int64)
+        denom = ef4v_add(denom, ef4v_mul_base(beta_last, bus_val))
+        all_denoms.append(denom)
 
-        # Step 3: Batch invert
-        reciprocals = ef4_batch_inverse(denoms)
+    # Step 3: Batch invert all denominators (vectorized)
+    all_reciprocals = [ef4v_inv(d) for d in all_denoms]
 
-        # Step 4: Compute chunk values and row sum
-        row_sum: EF4Coeffs = list(zero_ef4)
-        for chunk_idx, partition in enumerate(interaction_partitions):
-            perm_val: EF4Coeffs = list(zero_ef4)
-            for interaction_idx in partition:
-                count_val = dag_vals[interactions[interaction_idx].count]
-                interaction_val = ef4_mul_base(reciprocals[interaction_idx], count_val)
-                perm_val = ef4_add(perm_val, interaction_val)
-            perm_trace[n][chunk_idx] = perm_val
-            row_sum = ef4_add(row_sum, perm_val)
+    # Step 4: Compute chunk values for all rows
+    perm_chunks = []
+    for partition in interaction_partitions:
+        chunk_sum = ef4v_from_scalar([0, 0, 0, 0], height)
+        for interaction_idx in partition:
+            count_vals = node_values[interactions[interaction_idx].count]
+            term = ef4v_mul_base(all_reciprocals[interaction_idx], count_vals)
+            chunk_sum = ef4v_add(chunk_sum, term)
+        perm_chunks.append(chunk_sum)
 
-        # phi column = row sum (will become running sum below)
-        perm_trace[n][perm_width - 1] = row_sum
+    # Compute phi (row sum of all chunks)
+    phi = ef4v_from_scalar([0, 0, 0, 0], height)
+    for chunk in perm_chunks:
+        phi = ef4v_add(phi, chunk)
 
-    # Step 5: Convert phi column to running sum (prefix sum)
-    phi: EF4Coeffs = list(zero_ef4)
-    for n in range(height):
-        phi = ef4_add(phi, perm_trace[n][perm_width - 1])
-        perm_trace[n][perm_width - 1] = list(phi)
+    # Step 5: Convert phi to running sum (prefix sum — sequential)
+    phi_0 = np.cumsum(phi[0].astype(np.int64)) % p
+    phi_1 = np.cumsum(phi[1].astype(np.int64)) % p
+    phi_2 = np.cumsum(phi[2].astype(np.int64)) % p
+    phi_3 = np.cumsum(phi[3].astype(np.int64)) % p
 
-    cumulative_sum = perm_trace[height - 1][perm_width - 1]
+    # Convert back to list-of-lists format expected by caller
+    perm_trace = []
+    for row in range(height):
+        row_data = []
+        for chunk in perm_chunks:
+            row_data.append([int(chunk[0][row]), int(chunk[1][row]),
+                             int(chunk[2][row]), int(chunk[3][row])])
+        row_data.append([int(phi_0[row]), int(phi_1[row]),
+                         int(phi_2[row]), int(phi_3[row])])
+        perm_trace.append(row_data)
+
+    cumulative_sum = [int(phi_0[height - 1]), int(phi_1[height - 1]),
+                      int(phi_2[height - 1]), int(phi_3[height - 1])]
 
     return perm_trace, cumulative_sum

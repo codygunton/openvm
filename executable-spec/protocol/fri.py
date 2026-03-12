@@ -8,6 +8,8 @@ Reference:
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
@@ -18,6 +20,11 @@ from primitives.field import (
     TWO_INV,
     W,
     bit_reverse_list,
+    ef4v_add,
+    ef4v_from_base,
+    ef4v_mul_base,
+    ef4v_mul_scalar,
+    ef4v_sub,
     ff4,
     ff4_coeffs,
     ff4_from_base,
@@ -323,7 +330,6 @@ def fold_matrix(
     Reference:
         p3-fri two_adic_pcs.rs (TwoAdicFriFolding::fold_matrix)
     """
-    beta_ef = ff4(beta)
     height = len(evals_bit_reversed) // 2
 
     # g_inv = two_adic_generator(log_height + 1)^(-1)
@@ -339,20 +345,22 @@ def fold_matrix(
     # Bit-reverse the powers
     halve_inv_powers = bit_reverse_list(halve_inv_powers)
 
-    if height >= 256:
-        from protocol.vectorized import fold_matrix_numpy
-        return fold_matrix_numpy(evals_bit_reversed, beta, log_height, halve_inv_powers)
+    # Vectorized fold using numpy
+    arr = np.array(evals_bit_reversed, dtype=np.int64)  # shape (2*height, 4)
+    lo = (arr[0::2, 0], arr[0::2, 1], arr[0::2, 2], arr[0::2, 3])
+    hi = (arr[1::2, 0], arr[1::2, 1], arr[1::2, 2], arr[1::2, 3])
 
-    folded = []
-    for i in range(height):
-        lo = ff4(evals_bit_reversed[2 * i])
-        hi = ff4(evals_bit_reversed[2 * i + 1])
-        # result = (lo + hi)/2 + (lo - hi) * beta * halve_inv_power
-        result = (lo + hi) * ff4_from_base(TWO_INV) + \
-                 (lo - hi) * beta_ef * ff4_from_base(halve_inv_powers[i])
-        folded.append(ff4_coeffs(result))
+    hip = np.array(halve_inv_powers, dtype=np.int64)
+    two_inv = np.int64(p + 1) // np.int64(2) % p
 
-    return folded
+    # result = (lo + hi) * TWO_INV + (lo - hi) * beta * halve_inv_power
+    sum_half = ef4v_mul_base(ef4v_add(lo, hi), np.full(height, two_inv, dtype=np.int64))
+    diff_beta = ef4v_mul_scalar(ef4v_sub(lo, hi), beta)
+    diff_beta_hip = ef4v_mul_base(diff_beta, hip)
+    result = ef4v_add(sum_half, diff_beta_hip)
+
+    out = np.stack(result, axis=1)  # (height, 4)
+    return out.tolist()
 
 
 # --- Prover: Commit Phase ---
@@ -376,11 +384,6 @@ def commit_phase(
     Reference:
         p3-fri prover.rs (commit_phase)
     """
-    import time as _t
-    _t_fri = _t.time()
-    def _fri_log(msg: str) -> None:
-        print(f"      [fri {_t.time()-_t_fri:6.1f}s] {msg}", flush=True)
-
     folded = list(evals_bit_reversed)
     commits: list[Digest] = []
     betas: list[EF4Coeffs] = []
@@ -390,8 +393,6 @@ def commit_phase(
     commit_pow_witnesses: list[int] = []
     blowup = 1 << log_blowup
     final_poly_len = 1 << log_final_poly_len
-    _fri_log(f"start: {len(folded)} evals, target {blowup*final_poly_len}")
-
     while len(folded) > blowup * final_poly_len:
         height = len(folded) // 2
         log_height = height.bit_length() - 1
@@ -401,18 +402,9 @@ def commit_phase(
 
         # Build Merkle tree from pairs of evaluations.
         # Each leaf = hash of [lo_c0..lo_c3, hi_c0..hi_c3] (8 base field elements).
-        _t_step = _t.time()
-        if len(folded) >= 512:
-            from protocol.vectorized import leaves_from_folded_numpy
-            leaves = leaves_from_folded_numpy(folded)
-        else:
-            leaves = []
-            for i in range(0, len(folded), 2):
-                leaves.append(folded[i] + folded[i + 1])
-        _fri_log(f"  leaves: {len(folded)}→{len(leaves)} → {_t.time()-_t_step:.2f}s")
-        _t_step = _t.time()
+        arr = np.array(folded, dtype=np.int64)  # shape (2*N, 4)
+        leaves = arr.reshape(-1, 8).tolist()
         root, tree = build_merkle_tree(leaves)
-        _fri_log(f"  merkle: {len(leaves)} leaves → {_t.time()-_t_step:.2f}s")
 
         # Observe commitment
         challenger.observe_many(root)
@@ -429,27 +421,24 @@ def commit_phase(
         betas.append(beta)
 
         # Fold
-        _t_step = _t.time()
         folded = fold_matrix(folded, beta, log_height)
-        _fri_log(f"  fold: {len(folded)*2}→{len(folded)} → {_t.time()-_t_step:.2f}s")
 
         # Roll in reduced openings at this folded height, if any.
         # This mirrors the verifier's: folded += beta^2 * reduced_opening
         # Reference: p3-fri verifier.rs verify_query (line ~310)
         if reduced_openings_by_height and log_height in reduced_openings_by_height:
-            roll_in = reduced_openings_by_height[log_height]
-            assert len(roll_in) == len(folded), (
+            roll_in_data = reduced_openings_by_height[log_height]
+            assert len(roll_in_data) == len(folded), (
                 f"Roll-in size mismatch at log_height {log_height}: "
-                f"{len(roll_in)} vs {len(folded)}"
+                f"{len(roll_in_data)} vs {len(folded)}"
             )
             beta_sq_coeffs = ff4_coeffs(ff4(beta) * ff4(beta))
-            if len(folded) >= 256:
-                from protocol.vectorized import roll_in_numpy
-                folded = roll_in_numpy(folded, roll_in, beta_sq_coeffs)
-            else:
-                beta_sq = ff4(beta_sq_coeffs)
-                for j in range(len(folded)):
-                    folded[j] = ff4_coeffs(ff4(folded[j]) + beta_sq * ff4(roll_in[j]))
+            f = np.array(folded, dtype=np.int64)
+            r = np.array(roll_in_data, dtype=np.int64)
+            fv = (f[:, 0], f[:, 1], f[:, 2], f[:, 3])
+            rv = (r[:, 0], r[:, 1], r[:, 2], r[:, 3])
+            result = ef4v_add(fv, ef4v_mul_scalar(rv, beta_sq_coeffs))
+            folded = np.stack(result, axis=1).tolist()
 
         folded_per_round.append(folded)
 
