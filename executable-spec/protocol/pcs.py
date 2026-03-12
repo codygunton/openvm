@@ -20,12 +20,14 @@ from primitives.field import (
     BABYBEAR_PRIME,
     Digest,
     EF4Coeffs,
+    EF4Vec,
     Fe,
+    FF,
     FF4,
     GENERATOR,
     W,
     bit_reverse_list,
-    ef4_mul as _ef4_mul,
+    ef4_mul,
     ef4v_add,
     ef4v_from_base,
     ef4v_from_scalar,
@@ -76,11 +78,7 @@ class PcsRound:
         p3-fri/src/two_adic_pcs.rs (CommitmentWithOpeningPoints type alias)
     """
     commitment: Digest
-    # List of (domain, openings) where openings is list of (point, values)
-    # domain: TwoAdicMultiplicativeCoset
-    # point: EF4Coeffs (extension field evaluation point)
-    # values: list[EF4Coeffs] (claimed evaluations at that point)
-    domains_and_openings: list[tuple]  # list of (TwoAdicMultiplicativeCoset, list[(EF4Coeffs, list[EF4Coeffs])])
+    domains_and_openings: list[tuple[TwoAdicMultiplicativeCoset, list[tuple[EF4Coeffs, list[EF4Coeffs]]]]]
 
 
 # ---------------------------------------------------------------------------
@@ -150,15 +148,15 @@ def _verify_batch_opening(
 
     root = _hash_matrix_rows(initial_group, opened_values)
 
-    mut_index = index
+    current_index = index
 
     for sibling in opening_proof:
         # Combine current root with sibling based on index parity
-        if mut_index & 1 == 0:
+        if current_index & 1 == 0:
             root = compress(root, sibling)
         else:
             root = compress(sibling, root)
-        mut_index >>= 1
+        current_index >>= 1
         curr_height_padded >>= 1
 
         # Check if there are new matrix rows to inject at the current level.
@@ -599,7 +597,7 @@ class CommittedData:
         p3-merkle-tree MerkleTreeMmcs::commit
     """
     root: Digest
-    tree: list[list[list[int]]]  # Merkle tree levels
+    tree: list[list[Digest]]  # Merkle tree levels
     # Per-matrix LDE rows (bit-reversed): [mat][row][col]
     lde_rows: list[list[list[Fe]]]
     # Per-matrix coefficient form: [mat][col][coeff]
@@ -825,6 +823,54 @@ def _eval_poly_ef4(
     return ff4_coeffs(result)
 
 
+def _compute_x_array(log_height: int, x_arrays: dict[int, FF]) -> FF:
+    """Compute and cache bit-reversed domain points x_i for a given log_height.
+
+    Args:
+        log_height: Log2 of the LDE height.
+        x_arrays: Mutable cache mapping log_height to precomputed x arrays.
+
+    Returns:
+        Array of x_i = GENERATOR * omega^{bit_reverse(i)} for i in [0, 2^log_height).
+    """
+    if log_height not in x_arrays:
+        height = 1 << log_height
+        omega = get_omega(log_height)
+        x_arr = ff_column([
+            (GENERATOR * pow(omega, reverse_bits_len(i, log_height), p)) % p
+            for i in range(height)
+        ])
+        x_arrays[log_height] = x_arr
+    return x_arrays[log_height]
+
+
+def _compute_inv_diff(
+    log_height: int,
+    point: EF4Coeffs,
+    x_arrays: dict[int, FF],
+    inv_diff_cache: dict[tuple, EF4Vec],
+) -> EF4Vec:
+    """Compute and cache (z - x_i)^{-1} for all domain points x_i.
+
+    Args:
+        log_height: Log2 of the LDE height.
+        point: Extension field evaluation point z.
+        x_arrays: Mutable cache for precomputed x arrays (passed to _compute_x_array).
+        inv_diff_cache: Mutable cache mapping (log_height, point) to inverse differences.
+
+    Returns:
+        EF4Vec of (z - x_i)^{-1} for each domain point x_i.
+    """
+    key = (log_height, tuple(point))
+    if key not in inv_diff_cache:
+        height = 1 << log_height
+        x_arr = _compute_x_array(log_height, x_arrays)
+        z_v = ef4v_from_scalar(point, height)
+        diff = ef4v_sub(z_v, ef4v_from_base(x_arr))
+        inv_diff_cache[key] = ef4v_inv(diff)
+    return inv_diff_cache[key]
+
+
 # ---------------------------------------------------------------------------
 # PCS open (prover side)
 # ---------------------------------------------------------------------------
@@ -846,7 +892,7 @@ def pcs_open(
     rounds: list[PcsOpeningRound],
     challenger: Challenger,
     fri_params: FriParameters,
-) -> tuple[list[list[list[list[EF4Coeffs]]]], FriProof, list[int]]:
+) -> tuple[list[list[list[list[EF4Coeffs]]]], dict, list[int]]:
     """Open committed polynomials at specified points.
 
     Prover-side PCS open: evaluates polynomials, computes reduced
@@ -913,33 +959,12 @@ def pcs_open(
 
     # --- Step D: Compute reduced polynomials per height ---
     # Group by LDE height, accumulate alpha-weighted quotients.
-    reduced_evals_np: dict[int, tuple] = {}  # log_height → EF4Vec
+    reduced_evals_np: dict[int, EF4Vec] = {}  # log_height → EF4Vec
     # Cache (z - x_i)^{-1} per (log_height, z_tuple) to avoid recomputation
-    inv_diff_cache: dict[tuple, tuple] = {}
+    inv_diff_cache: dict[tuple, EF4Vec] = {}
 
     # Pre-compute bit-reversed domain points x_i per log_height
-    x_arrays: dict = {}
-
-    def _get_x_array(log_height: int):
-        if log_height not in x_arrays:
-            height = 1 << log_height
-            omega = get_omega(log_height)
-            x_arr = ff_column([
-                (GENERATOR * pow(omega, reverse_bits_len(i, log_height), p)) % p
-                for i in range(height)
-            ])
-            x_arrays[log_height] = x_arr
-        return x_arrays[log_height]
-
-    def _get_inv_diff(log_height: int, point: EF4Coeffs) -> tuple:
-        key = (log_height, tuple(point))
-        if key not in inv_diff_cache:
-            height = 1 << log_height
-            x_arr = _get_x_array(log_height)
-            z_v = ef4v_from_scalar(point, height)
-            diff = ef4v_sub(z_v, ef4v_from_base(x_arr))
-            inv_diff_cache[key] = ef4v_inv(diff)
-        return inv_diff_cache[key]
+    x_arrays: dict[int, FF] = {}
 
     # Per-height alpha_pow accumulators (matching Rust's num_reduced[log_height]).
     # Each height independently tracks alpha^k for its k-th column.
@@ -971,7 +996,7 @@ def pcs_open(
             ]
 
             for pt_idx, point in enumerate(points):
-                inv_diff = _get_inv_diff(log_height, point)
+                inv_diff = _compute_inv_diff(log_height, point, x_arrays, inv_diff_cache)
                 point_values = mat_opened_values[pt_idx]
 
                 for col_idx in range(num_cols):
@@ -990,7 +1015,7 @@ def pcs_open(
                     reduced_evals_np[log_height] = ef4v_add(re, scaled)
 
                     # Advance this height's alpha_pow
-                    alpha_pow_per_height[log_height] = _ef4_mul(
+                    alpha_pow_per_height[log_height] = ef4_mul(
                         alpha_pow_per_height[log_height], alpha_coeffs
                     )
     # Convert EF4Vec back to list-of-EF4Coeffs for FRI
@@ -1028,7 +1053,7 @@ def pcs_open(
     # --- Step F: Query phase ---
     num_fri_rounds = len(fri_result.commits)
     query_indices: list[int] = []
-    fri_query_proofs: list[tuple] = []
+    fri_query_proofs: list[tuple[int, list]] = []
 
     for _ in range(fri_params.num_queries):
         query_index = challenger.sample_bits(log_global_max_height)

@@ -10,15 +10,16 @@ from dataclasses import dataclass
 
 from primitives.field import (
     BABYBEAR_PRIME,
+    DIGEST_WIDTH,
     EF4Coeffs,
     Digest,
+    FIELD_EXTENSION_DEGREE,
     Fe,
     FF4,
     MerklePath,
     TWO_INV,
     W,
     bit_reverse_list,
-    ef4_pairs_to_leaves,
     ef4v_add,
     ef4v_from_rows,
     ef4v_mul_base,
@@ -39,7 +40,7 @@ from primitives.merkle import (
     get_opening_proof,
     verify_opening_prehashed,
 )
-from primitives.ntt import intt
+from primitives.ntt import ef4_idft
 from primitives.poseidon2 import hash_to_digest
 from primitives.transcript import Challenger, grind
 
@@ -55,7 +56,7 @@ class CommitPhaseResult:
     commits: list[Digest]
     betas: list[EF4Coeffs]
     final_poly: list[EF4Coeffs]
-    trees: list
+    trees: list[list[list[Digest]]]
     folded_per_round: list[list[EF4Coeffs]]
     all_round_evals: list[list[EF4Coeffs]]
     commit_pow_witnesses: list[int]
@@ -137,15 +138,15 @@ def fold_row(
     Reference:
         p3-fri two_adic_pcs.rs (TwoAdicFriFolding::fold_row)
     """
-    # xs0 = two_adic_generator(log_height + 1) ^ reverse_bits_len(index, log_height)
+    # x_even = two_adic_generator(log_height + 1) ^ reverse_bits_len(index, log_height)
     subgroup_start = pow(W[log_height + 1],
                          reverse_bits_len(index, log_height),
                          p)
-    xs0 = ff4_from_base(subgroup_start)
+    x_even = ff4_from_base(subgroup_start)
 
-    # Lagrange interpolation: e0 + (beta - xs0) * (e1 - e0) / (xs1 - xs0)
+    # Lagrange interpolation: e0 + (beta - x_even) * (e1 - e0) / (x_odd - x_even)
     inv_diff = ff4_from_base(inv_mod((-2 * subgroup_start) % p))
-    return e0 + (beta - xs0) * (e1 - e0) * inv_diff
+    return e0 + (beta - x_even) * (e1 - e0) * inv_diff
 
 
 def hash_fri_leaf(e0: FF4, e1: FF4) -> Digest:
@@ -155,6 +156,11 @@ def hash_fri_leaf(e0: FF4, e1: FF4) -> Digest:
         p3-merkle-tree mmcs.rs (verify_batch leaf hashing)
     """
     return hash_to_digest(ff4_coeffs(e0) + ff4_coeffs(e1))
+
+
+def ef4_pairs_to_leaves(evals: list[EF4Coeffs]) -> list[list[int]]:
+    """Pair consecutive EF4 elements into 8-element Merkle leaves."""
+    return [evals[i] + evals[i + 1] for i in range(0, len(evals), 2)]
 
 
 def fri_verify_query(
@@ -286,40 +292,23 @@ def verify_fri(
                 f"expected {expected_proof_len} Merkle siblings, got {len(proof)}"
             )
 
-            # Verify sibling value is an extension field element (4 coefficients)
-            assert len(opening["sibling_value"]) == 4, (
+            # Verify sibling value is an extension field element
+            assert len(opening["sibling_value"]) == FIELD_EXTENSION_DEGREE, (
                 f"Query {qi}, round {round_idx}: "
-                f"sibling_value should have 4 components"
+                f"sibling_value should have {FIELD_EXTENSION_DEGREE} components"
             )
 
-            # Verify each Merkle sibling is a valid digest (8 elements)
+            # Verify each Merkle sibling is a valid digest
             for si, sibling in enumerate(proof):
-                assert len(sibling) == 8, (
+                assert len(sibling) == DIGEST_WIDTH, (
                     f"Query {qi}, round {round_idx}, sibling {si}: "
-                    f"digest should have 8 elements, got {len(sibling)}"
+                    f"digest should have {DIGEST_WIDTH} elements, got {len(sibling)}"
                 )
 
     return True
 
 
 # --- Prover: Bit-Reversed Folding ---
-
-
-def ef_idft(evals: list[EF4Coeffs]) -> list[EF4Coeffs]:
-    """Inverse DFT for extension field evaluations (channel-wise INTT).
-
-    Reference:
-        p3-dft traits.rs (idft_algebra)
-    """
-    n = len(evals)
-    if n == 1:
-        return [list(evals[0])]
-    # Transpose: extract each coefficient channel
-    channels = [[evals[j][k] for j in range(n)] for k in range(4)]
-    # INTT each channel independently
-    channels_coeffs = [intt(ch) for ch in channels]
-    # Transpose back
-    return [[channels_coeffs[k][j] for k in range(4)] for j in range(n)]
 
 
 def fold_matrix(
@@ -387,7 +376,7 @@ def commit_phase(
     folded = list(evals_bit_reversed)
     commits: list[Digest] = []
     betas: list[EF4Coeffs] = []
-    trees: list = []
+    trees: list[list[list[Digest]]] = []
     folded_per_round: list[list[EF4Coeffs]] = []
     all_round_evals: list[list[EF4Coeffs]] = []
     commit_pow_witnesses: list[int] = []
@@ -442,7 +431,7 @@ def commit_phase(
     # Truncate to final_poly_len, bit-reverse, IDFT.
     final_evals = folded[:final_poly_len]
     final_evals_natural = bit_reverse_list(final_evals)
-    final_poly = ef_idft(final_evals_natural)
+    final_poly = ef4_idft(final_evals_natural)
 
     # Observe final polynomial
     for coeff in final_poly:
@@ -463,7 +452,7 @@ def commit_phase(
 
 
 def answer_query(
-    trees: list,
+    trees: list[list[list[Digest]]],
     all_round_evals: list[list[EF4Coeffs]],
     start_index: int,
     num_rounds: int,

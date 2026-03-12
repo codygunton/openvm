@@ -23,7 +23,11 @@ from dataclasses import dataclass
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
+    EF4Vec,
+    FF,
     Fe,
+    GENERATOR,
+    batch_inverse_base,
     ef4_add,
     ef4_from_base,
     ef4_mul,
@@ -47,7 +51,7 @@ from primitives.field import (
     get_omega,
     inv_mod,
 )
-from primitives.ntt import ntt, intt
+from primitives.ntt import coset_lde
 from protocol.domain import (
     TwoAdicMultiplicativeCoset,
 )
@@ -70,18 +74,7 @@ def coset_lde_column(
     trace_domain: TwoAdicMultiplicativeCoset,
     quotient_domain: TwoAdicMultiplicativeCoset,
 ) -> list[Fe]:
-    """Compute the low-degree extension of one column from trace domain to quotient domain.
-
-    Algorithm (matches p3-dft coset_lde_batch):
-    1. INTT on the trace subgroup to get polynomial coefficients.
-    2. Zero-pad coefficients to the quotient domain size.
-    3. Multiply coefficient[i] by quotient_domain.shift^i (coset shift).
-    4. NTT on the quotient subgroup.
-
-    Note: The trace domain has shift=1 (it is a subgroup, not a coset), so
-    the INTT operates on the subgroup roots.  The quotient domain has
-    shift = GENERATOR (= 31 for BabyBear), making it a coset disjoint from
-    the trace domain.
+    """Extend polynomial from trace domain to quotient domain via coset LDE.
 
     Reference:
         p3-dft-0.4.1/src/traits.rs coset_lde_batch (lines 226-249)
@@ -95,29 +88,9 @@ def coset_lde_column(
     Returns:
         Column evaluations on the quotient domain (natural order).
     """
-    assert trace_domain.shift == 1, "trace domain must be unshifted subgroup"
-    n_trace = trace_domain.size()
-    n_quot = quotient_domain.size()
-    assert len(evals) == n_trace
-    assert n_quot >= n_trace
-
-    # Step 1: INTT to get coefficients on the trace subgroup
-    coeffs = intt(evals)
-
-    # Step 2: Zero-pad to quotient domain size
-    coeffs.extend([0] * (n_quot - n_trace))
-
-    # Step 3: Coset shift — multiply coeffs[i] by shift^i
-    # This transforms the polynomial p(x) into p(shift * x), so that evaluating
-    # on the subgroup K gives evaluations on the coset shift*K.
-    shift = quotient_domain.shift
-    shift_pow = 1
-    for i in range(n_quot):
-        coeffs[i] = (coeffs[i] * shift_pow) % p
-        shift_pow = (shift_pow * shift) % p
-
-    # Step 4: NTT on the quotient subgroup
-    return ntt(coeffs)
+    log_blowup = quotient_domain.log_n - trace_domain.log_n
+    lde_shift = (GENERATOR * inv_mod(trace_domain.shift)) % p
+    return coset_lde(evals, lde_shift, log_blowup)
 
 
 def extend_trace_to_quotient_domain(
@@ -184,6 +157,30 @@ class CosetSelectors:
     is_last_row: list[Fe]
     is_transition: list[Fe]
     inv_zeroifier: list[Fe]
+
+
+def _single_point_selector(
+    exponent: int,
+    xs: list[Fe],
+    z_h_short: list[Fe],
+    rate: int,
+    quot_size: int,
+    trace_domain: TwoAdicMultiplicativeCoset,
+) -> list[Fe]:
+    """Compute the selector for the trace domain point omega^exponent.
+
+    selector[i] = Z_H(x_i) / (x_i - omega^exponent)
+
+    Reference:
+        p3-commit-0.4.1/src/domain.rs lines 268-278
+    """
+    coset_point = pow(trace_domain.gen(), exponent, p)
+    # Compute denominators: x_i - coset_point
+    denoms = [(x - coset_point) % p for x in xs]
+    # Batch invert
+    inv_denoms = batch_inverse_base(denoms)
+    # Multiply by Z_H (which cycles with period rate)
+    return [(z_h_short[i % rate] * inv_denoms[i]) % p for i in range(quot_size)]
 
 
 def selectors_on_coset(
@@ -253,25 +250,10 @@ def selectors_on_coset(
         xs.append(x)
         x = (x * quot_gen) % p
 
-    # --- Batch single-point selector ---
-    def single_point_selector(exponent: int) -> list[Fe]:
-        """Compute the selector for the trace domain point omega^exponent.
-
-        selector[i] = Z_H(x_i) / (x_i - omega^exponent)
-
-        Reference:
-            p3-commit-0.4.1/src/domain.rs lines 268-278
-        """
-        coset_point = pow(trace_domain.gen(), exponent, p)
-        # Compute denominators: x_i - coset_point
-        denoms = [(x - coset_point) % p for x in xs]
-        # Batch invert
-        inv_denoms = _batch_inverse_base(denoms)
-        # Multiply by Z_H (which cycles with period rate)
-        return [(z_h_short[i % rate] * inv_denoms[i]) % p for i in range(quot_size)]
-
-    is_first_row = single_point_selector(0)
-    is_last_row = single_point_selector(trace_size - 1)
+    is_first_row = _single_point_selector(0, xs, z_h_short, rate, quot_size, trace_domain)
+    is_last_row = _single_point_selector(
+        trace_size - 1, xs, z_h_short, rate, quot_size, trace_domain,
+    )
 
     # --- is_transition ---
     # is_transition[i] = x_i - omega^{-1}
@@ -280,7 +262,7 @@ def selectors_on_coset(
 
     # --- inv_zeroifier ---
     # inv(Z_H) for the short cycle, then extend
-    inv_z_h_short = _batch_inverse_base(z_h_short)
+    inv_z_h_short = batch_inverse_base(z_h_short)
     # Cycle over the full quotient domain
     inv_zeroifier = [inv_z_h_short[i % rate] for i in range(quot_size)]
 
@@ -290,44 +272,6 @@ def selectors_on_coset(
         is_transition=is_transition,
         inv_zeroifier=inv_zeroifier,
     )
-
-
-def _batch_inverse_base(values: list[Fe]) -> list[Fe]:
-    """Montgomery batch inversion in the base field.
-
-    Reference:
-        p3-field batch_multiplicative_inverse
-
-    Args:
-        values: List of base field elements (must all be non-zero).
-
-    Returns:
-        List of inverses, values[i]^{-1} mod p.
-    """
-    n = len(values)
-    if n == 0:
-        return []
-    if n == 1:
-        return [inv_mod(values[0])]
-
-    # Forward pass: prefix products
-    cumprods: list[Fe] = [0] * n
-    cumprods[0] = values[0] % p
-    for i in range(1, n):
-        cumprods[i] = (cumprods[i - 1] * values[i]) % p
-
-    # Single inversion
-    inv_total = inv_mod(cumprods[n - 1])
-
-    # Backward pass
-    results: list[Fe] = [0] * n
-    z = inv_total
-    for i in range(n - 1, 0, -1):
-        results[i] = (z * cumprods[i - 1]) % p
-        z = (z * values[i]) % p
-    results[0] = z
-
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -688,43 +632,37 @@ def compute_quotient_values(
     return quotient_values
 
 
-def _compute_quotient_values_vectorized(
+def _prepare_trace_columns(
+    partitioned_trace_on_quot: list[list[list[Fe]]] | None,
     trace_on_quotient_domain: list[list[Fe]],
-    constraints_dag: SymbolicExpressionDag,
-    public_values: list[Fe],
-    alpha: EF4Coeffs,
-    quotient_domain: TwoAdicMultiplicativeCoset,
-    trace_domain: TwoAdicMultiplicativeCoset,
     preprocessed_on_quot: list[list[Fe]] | None,
     after_challenge_on_quot: list[list[EF4Coeffs]] | None,
-    challenges: list[list[EF4Coeffs]] | None,
-    exposed_values: list[list[EF4Coeffs]] | None,
-    partitioned_trace_on_quot: list[list[list[Fe]]] | None,
-) -> list[EF4Coeffs]:
-    """Vectorized quotient computation for multi-AIR with interactions.
+    quot_size: int,
+    step: int,
+) -> tuple[
+    list[list[FF]],
+    list[list[FF]],
+    list[FF] | None,
+    list[FF] | None,
+    list[EF4Vec] | None,
+    list[EF4Vec] | None,
+]:
+    """Convert row-major traces to column-major FF/EF4Vec arrays with next-row shifts.
 
-    Evaluates the constraint DAG at ALL quotient domain points simultaneously.
+    Returns:
+        (ff_parts_local, ff_parts_next,
+         ff_prep_local, ff_prep_next,
+         ef4_ac_local, ef4_ac_next)
     """
-    quot_size = quotient_domain.size()
-    trace_size = trace_domain.size()
-    step = quot_size // trace_size
-
-    # --- Precompute selectors ---
-    sels = selectors_on_coset(trace_domain, quotient_domain)
-    is_first_row_ff = ff_column(sels.is_first_row)
-    is_last_row_ff = ff_column(sels.is_last_row)
-    is_transition_ff = ff_column(sels.is_transition)
-    inv_zeroifier_ff = ff_column(sels.inv_zeroifier)
-
     # --- Convert partitioned main traces to FF column arrays ---
-    ff_parts_local = []
-    ff_parts_next = []
+    ff_parts_local: list[list[FF]] = []
+    ff_parts_next: list[list[FF]] = []
 
     if partitioned_trace_on_quot is not None:
         for part in partitioned_trace_on_quot:
             cols = len(part[0]) if part else 0
-            local_cols = []
-            next_cols = []
+            local_cols: list[FF] = []
+            next_cols: list[FF] = []
             for c in range(cols):
                 col_data = ff_column([part[r][c] for r in range(quot_size)])
                 local_cols.append(col_data)
@@ -745,8 +683,8 @@ def _compute_quotient_values_vectorized(
         ff_parts_next.append(next_cols)
 
     # --- Convert preprocessed trace ---
-    ff_prep_local = None
-    ff_prep_next = None
+    ff_prep_local: list[FF] | None = None
+    ff_prep_next: list[FF] | None = None
     if preprocessed_on_quot is not None:
         prep_cols = len(preprocessed_on_quot[0]) if preprocessed_on_quot else 0
         ff_prep_local = []
@@ -759,8 +697,8 @@ def _compute_quotient_values_vectorized(
             ff_prep_next.append(ff_roll(col_data, -step))
 
     # --- Convert after_challenge trace (EF4 columns) ---
-    ef4_ac_local = None
-    ef4_ac_next = None
+    ef4_ac_local: list[EF4Vec] | None = None
+    ef4_ac_next: list[EF4Vec] | None = None
     if after_challenge_on_quot is not None:
         perm_width = len(after_challenge_on_quot[0])
         ef4_ac_local = []
@@ -772,9 +710,35 @@ def _compute_quotient_values_vectorized(
             ef4_ac_local.append(ef4_col)
             ef4_ac_next.append(ef4v_roll(ef4_col, -step))
 
-    # --- Evaluate DAG nodes (all in EF4, all quotient points at once) ---
-    nodes = constraints_dag.nodes
-    node_values = [None] * len(nodes)
+    return (
+        ff_parts_local, ff_parts_next,
+        ff_prep_local, ff_prep_next,
+        ef4_ac_local, ef4_ac_next,
+    )
+
+
+def _eval_dag_vectorized(
+    dag: SymbolicExpressionDag,
+    ff_parts_local: list[list[FF]],
+    ff_parts_next: list[list[FF]],
+    ff_prep_local: list[FF] | None,
+    ff_prep_next: list[FF] | None,
+    ef4_ac_local: list[EF4Vec] | None,
+    ef4_ac_next: list[EF4Vec] | None,
+    is_first_row_ff: FF,
+    is_last_row_ff: FF,
+    is_transition_ff: FF,
+    public_values: list[Fe],
+    challenges: list[list[EF4Coeffs]] | None,
+    exposed_values: list[list[EF4Coeffs]] | None,
+    quot_size: int,
+) -> list[EF4Vec | FF | None]:
+    """Evaluate DAG nodes vectorized: all quotient domain points at once.
+
+    Returns per-node column arrays (EF4Vec or FF).
+    """
+    nodes = dag.nodes
+    node_values: list[EF4Vec | FF | None] = [None] * len(nodes)
 
     for i, node in enumerate(nodes):
         kind = node.kind
@@ -837,23 +801,92 @@ def _compute_quotient_values_vectorized(
         else:
             raise ValueError(f"Unknown node kind: {kind}")
 
-    # --- Accumulate constraints with alpha powers ---
-    num_constraints = len(constraints_dag.constraint_idx)
-    alpha_powers = []
-    current_alpha = [1, 0, 0, 0]
+    return node_values
+
+
+def _accumulate_and_divide(
+    dag: SymbolicExpressionDag,
+    node_values: list[EF4Vec | FF | None],
+    alpha: EF4Coeffs,
+    inv_zeroifier_ff: FF,
+    quot_size: int,
+) -> list[EF4Coeffs]:
+    """Alpha-weighted accumulation of constraint values and vanishing poly division.
+
+    Returns quotient values as a list of EF4Coeffs rows.
+    """
+    num_constraints = len(dag.constraint_idx)
+    alpha_powers: list[EF4Coeffs] = []
+    current_alpha: EF4Coeffs = [1, 0, 0, 0]
     for _ in range(num_constraints):
         alpha_powers.append(current_alpha)
         current_alpha = ef4_mul(current_alpha, alpha)
 
     acc = ef4v_zeros(quot_size)
-    for alpha_pow, node_idx in zip(alpha_powers, reversed(constraints_dag.constraint_idx)):
+    for alpha_pow, node_idx in zip(alpha_powers, reversed(dag.constraint_idx)):
         term = ef4v_mul_scalar(node_values[node_idx], alpha_pow)
         acc = ef4v_add(acc, term)
 
-    # --- Divide by vanishing polynomial ---
+    # Divide by vanishing polynomial
     result = ef4v_mul_base(acc, inv_zeroifier_ff)
 
     return ef4v_to_rows(result)
+
+
+def _compute_quotient_values_vectorized(
+    trace_on_quotient_domain: list[list[Fe]],
+    constraints_dag: SymbolicExpressionDag,
+    public_values: list[Fe],
+    alpha: EF4Coeffs,
+    quotient_domain: TwoAdicMultiplicativeCoset,
+    trace_domain: TwoAdicMultiplicativeCoset,
+    preprocessed_on_quot: list[list[Fe]] | None,
+    after_challenge_on_quot: list[list[EF4Coeffs]] | None,
+    challenges: list[list[EF4Coeffs]] | None,
+    exposed_values: list[list[EF4Coeffs]] | None,
+    partitioned_trace_on_quot: list[list[list[Fe]]] | None,
+) -> list[EF4Coeffs]:
+    """Vectorized quotient computation for multi-AIR with interactions.
+
+    Evaluates the constraint DAG at ALL quotient domain points simultaneously.
+    """
+    quot_size = quotient_domain.size()
+    trace_size = trace_domain.size()
+    step = quot_size // trace_size
+
+    # --- Precompute selectors ---
+    sels = selectors_on_coset(trace_domain, quotient_domain)
+    is_first_row_ff = ff_column(sels.is_first_row)
+    is_last_row_ff = ff_column(sels.is_last_row)
+    is_transition_ff = ff_column(sels.is_transition)
+    inv_zeroifier_ff = ff_column(sels.inv_zeroifier)
+
+    # --- Convert traces to column-major arrays ---
+    (
+        ff_parts_local, ff_parts_next,
+        ff_prep_local, ff_prep_next,
+        ef4_ac_local, ef4_ac_next,
+    ) = _prepare_trace_columns(
+        partitioned_trace_on_quot, trace_on_quotient_domain,
+        preprocessed_on_quot, after_challenge_on_quot,
+        quot_size, step,
+    )
+
+    # --- Evaluate DAG nodes ---
+    node_values = _eval_dag_vectorized(
+        constraints_dag,
+        ff_parts_local, ff_parts_next,
+        ff_prep_local, ff_prep_next,
+        ef4_ac_local, ef4_ac_next,
+        is_first_row_ff, is_last_row_ff, is_transition_ff,
+        public_values, challenges, exposed_values,
+        quot_size,
+    )
+
+    # --- Accumulate and divide by vanishing polynomial ---
+    return _accumulate_and_divide(
+        constraints_dag, node_values, alpha, inv_zeroifier_ff, quot_size,
+    )
 
 
 # ---------------------------------------------------------------------------
