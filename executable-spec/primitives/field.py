@@ -555,12 +555,16 @@ def ef4v_mul(a: EF4Vec, b: EF4Vec) -> EF4Vec:
 
 def ef4v_mul_base(a: EF4Vec, b: np.ndarray) -> EF4Vec:
     """Multiply vectorized EF4 by a base-field array."""
+    if not isinstance(b, np.ndarray) or b.dtype != np.int64:
+        b = np.asarray(b, dtype=np.int64)
     return (_v_mul(a[0], b), _v_mul(a[1], b), _v_mul(a[2], b), _v_mul(a[3], b))
 
 
 def ef4v_from_base(b: np.ndarray) -> EF4Vec:
     """Lift a base-field array to EF4Vec: [val, 0, 0, 0]."""
-    z = np.zeros_like(b)
+    if not isinstance(b, np.ndarray) or b.dtype != np.int64:
+        b = np.asarray(b, dtype=np.int64)
+    z = np.zeros(len(b), dtype=np.int64)
     return (b % _P, z, z, z)
 
 
@@ -622,6 +626,78 @@ def ef4v_mul_scalar(a: EF4Vec, s: EF4Coeffs) -> EF4Vec:
     c3 = _v_add(_v_add(_v_add(_v_mul(a0, s3), _v_mul(a1, s2)), _v_mul(a2, s1)),
                 _v_mul(a3, s0))
     return (c0, c1, c2, c3)
+
+
+# --- Base Field Column Helpers (galois FF) ---
+
+
+def ff_column(data: list[Fe]) -> FF:
+    """Create a base-field column vector from a list of field elements."""
+    return FF(data)
+
+
+def ff_zeros(n: int) -> FF:
+    """Create a zero base-field column vector of length n."""
+    return FF.Zeros(n)
+
+
+def ff_constant(val: Fe, n: int) -> FF:
+    """Create a constant base-field column vector: [val, val, ..., val]."""
+    return FF.Ones(n) * FF(val % BABYBEAR_PRIME)
+
+
+def ff_roll(arr, shift: int):
+    """Circular shift a base-field column vector (wraps np.roll)."""
+    return np.roll(arr, shift)
+
+
+# --- EF4Vec Conversion Helpers ---
+
+
+def ef4v_zeros(n: int) -> EF4Vec:
+    """Create a zero EF4Vec of length n."""
+    z = np.zeros(n, dtype=np.int64)
+    return (z.copy(), z.copy(), z.copy(), z.copy())
+
+
+def ef4v_from_rows(rows: list[EF4Coeffs]) -> EF4Vec:
+    """Convert a list of EF4 coefficient lists to an EF4Vec.
+
+    Input: [[c0, c1, c2, c3], ...] of length n
+    Output: EF4Vec with 4 arrays of length n
+    """
+    arr = np.array(rows, dtype=np.int64)
+    return (arr[:, 0].copy(), arr[:, 1].copy(), arr[:, 2].copy(), arr[:, 3].copy())
+
+
+def ef4v_to_rows(v: EF4Vec) -> list[EF4Coeffs]:
+    """Convert an EF4Vec to a list of EF4 coefficient lists.
+
+    Input: EF4Vec with 4 arrays of length n
+    Output: [[c0, c1, c2, c3], ...] of length n
+    """
+    return np.stack(v, axis=1).tolist()
+
+
+def ef4v_roll(v: EF4Vec, shift: int) -> EF4Vec:
+    """Circular shift an EF4Vec (applies np.roll to each component)."""
+    return (np.roll(v[0], shift), np.roll(v[1], shift),
+            np.roll(v[2], shift), np.roll(v[3], shift))
+
+
+def ef4v_cumsum(v: EF4Vec) -> EF4Vec:
+    """Compute prefix sum of an EF4Vec, reducing each component mod p."""
+    return (
+        np.cumsum(v[0].astype(np.int64)) % _P,
+        np.cumsum(v[1].astype(np.int64)) % _P,
+        np.cumsum(v[2].astype(np.int64)) % _P,
+        np.cumsum(v[3].astype(np.int64)) % _P,
+    )
+
+
+def ef4_pairs_to_leaves(evals: list[EF4Coeffs]) -> list[list[int]]:
+    """Pair consecutive EF4 elements into 8-element Merkle leaves."""
+    return [evals[i] + evals[i + 1] for i in range(0, len(evals), 2)]
 
 
 # --- Batch polynomial evaluation at a single EF4 point ---

@@ -16,8 +16,6 @@ Reference:
 
 from dataclasses import dataclass
 
-import numpy as np
-
 from primitives.field import (
     BABYBEAR_PRIME,
     Digest,
@@ -35,10 +33,13 @@ from primitives.field import (
     ef4v_mul,
     ef4v_mul_scalar,
     ef4v_sub,
+    ef4v_to_rows,
+    ef4v_zeros,
     eval_poly_ef4_batch,
     ff4,
     ff4_coeffs,
     ff4_from_base,
+    ff_column,
     get_omega,
     inv_mod,
     reverse_bits_len,
@@ -917,16 +918,16 @@ def pcs_open(
     inv_diff_cache: dict[tuple, tuple] = {}
 
     # Pre-compute bit-reversed domain points x_i per log_height
-    x_arrays: dict[int, np.ndarray] = {}
+    x_arrays: dict = {}
 
-    def _get_x_array(log_height: int) -> np.ndarray:
+    def _get_x_array(log_height: int):
         if log_height not in x_arrays:
             height = 1 << log_height
             omega = get_omega(log_height)
-            x_arr = np.array([
+            x_arr = ff_column([
                 (GENERATOR * pow(omega, reverse_bits_len(i, log_height), p)) % p
                 for i in range(height)
-            ], dtype=np.int64)
+            ])
             x_arrays[log_height] = x_arr
         return x_arrays[log_height]
 
@@ -955,8 +956,7 @@ def pcs_open(
             height = 1 << log_height
 
             if log_height not in reduced_evals_np:
-                z = np.zeros(height, dtype=np.int64)
-                reduced_evals_np[log_height] = (z.copy(), z.copy(), z.copy(), z.copy())
+                reduced_evals_np[log_height] = ef4v_zeros(height)
 
             if log_height not in alpha_pow_per_height:
                 alpha_pow_per_height[log_height] = [1, 0, 0, 0]
@@ -964,9 +964,9 @@ def pcs_open(
             num_cols = len(lde_rows[0]) if lde_rows else 0
             mat_opened_values = all_opened_values[rnd_idx][mat_idx]
 
-            # Pre-extract LDE columns as numpy arrays for this matrix
+            # Pre-extract LDE columns as field arrays for this matrix
             lde_cols_np = [
-                np.array([lde_rows[i][c] for i in range(height)], dtype=np.int64)
+                ff_column([lde_rows[i][c] for i in range(height)])
                 for c in range(num_cols)
             ]
 
@@ -993,12 +993,10 @@ def pcs_open(
                     alpha_pow_per_height[log_height] = _ef4_mul(
                         alpha_pow_per_height[log_height], alpha_coeffs
                     )
-    # Convert numpy EF4Vec back to list-of-EF4Coeffs for FRI
+    # Convert EF4Vec back to list-of-EF4Coeffs for FRI
     reduced_evals: dict[int, list[EF4Coeffs]] = {}
     for log_h, ev in reduced_evals_np.items():
-        height = 1 << log_h
-        arr = np.stack(ev, axis=1)  # (height, 4)
-        reduced_evals[log_h] = arr.tolist()
+        reduced_evals[log_h] = ef4v_to_rows(ev)
 
     # --- Step E: FRI prove ---
     # Collect reduced evaluations in descending height order

@@ -18,18 +18,20 @@ Reference:
 
 from __future__ import annotations
 
-import numpy as np
-
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
     Fe,
     ef4_mul,
     ef4v_add,
+    ef4v_cumsum,
     ef4v_from_base,
     ef4v_from_scalar,
     ef4v_inv,
     ef4v_mul_base,
+    ef4v_to_rows,
+    ef4v_zeros,
+    ff_constant,
 )
 from protocol.constraints import eval_dag_all_rows
 from protocol.proof import (
@@ -298,7 +300,7 @@ def compute_after_challenge_trace(
 ) -> tuple[list[list[EF4Coeffs]], EF4Coeffs]:
     """Compute FriLogUp after-challenge trace and cumulative sum.
 
-    Processes ALL rows simultaneously using numpy arrays.
+    Processes ALL rows simultaneously using vectorized field arrays.
 
     Args:
         interactions: List of Interaction (message/count are DAG node indices).
@@ -339,7 +341,7 @@ def compute_after_challenge_trace(
             beta_j = ef4v_from_scalar(betas[j], height)
             denom = ef4v_add(denom, ef4v_mul_base(beta_j, node_values[msg[j]]))
         beta_last = ef4v_from_scalar(betas[len(msg)], height)
-        bus_val = np.full(height, (interaction.bus_index + 1) % p, dtype=np.int64)
+        bus_val = ff_constant((interaction.bus_index + 1) % p, height)
         denom = ef4v_add(denom, ef4v_mul_base(beta_last, bus_val))
         all_denoms.append(denom)
 
@@ -349,7 +351,7 @@ def compute_after_challenge_trace(
     # Step 4: Compute chunk values for all rows
     perm_chunks = []
     for partition in interaction_partitions:
-        chunk_sum = ef4v_from_scalar([0, 0, 0, 0], height)
+        chunk_sum = ef4v_zeros(height)
         for interaction_idx in partition:
             count_vals = node_values[interactions[interaction_idx].count]
             term = ef4v_mul_base(all_reciprocals[interaction_idx], count_vals)
@@ -357,28 +359,23 @@ def compute_after_challenge_trace(
         perm_chunks.append(chunk_sum)
 
     # Compute phi (row sum of all chunks)
-    phi = ef4v_from_scalar([0, 0, 0, 0], height)
+    phi = ef4v_zeros(height)
     for chunk in perm_chunks:
         phi = ef4v_add(phi, chunk)
 
-    # Step 5: Convert phi to running sum (prefix sum — sequential)
-    phi_0 = np.cumsum(phi[0].astype(np.int64)) % p
-    phi_1 = np.cumsum(phi[1].astype(np.int64)) % p
-    phi_2 = np.cumsum(phi[2].astype(np.int64)) % p
-    phi_3 = np.cumsum(phi[3].astype(np.int64)) % p
+    # Step 5: Convert phi to running sum (prefix sum)
+    running_sum = ef4v_cumsum(phi)
 
     # Convert back to list-of-lists format expected by caller
+    chunk_rows = [ef4v_to_rows(chunk) for chunk in perm_chunks]
+    running_sum_rows = ef4v_to_rows(running_sum)
+
     perm_trace = []
     for row in range(height):
-        row_data = []
-        for chunk in perm_chunks:
-            row_data.append([int(chunk[0][row]), int(chunk[1][row]),
-                             int(chunk[2][row]), int(chunk[3][row])])
-        row_data.append([int(phi_0[row]), int(phi_1[row]),
-                         int(phi_2[row]), int(phi_3[row])])
+        row_data = [chunk_rows[c][row] for c in range(len(perm_chunks))]
+        row_data.append(running_sum_rows[row])
         perm_trace.append(row_data)
 
-    cumulative_sum = [int(phi_0[height - 1]), int(phi_1[height - 1]),
-                      int(phi_2[height - 1]), int(phi_3[height - 1])]
+    cumulative_sum = running_sum_rows[height - 1]
 
     return perm_trace, cumulative_sum

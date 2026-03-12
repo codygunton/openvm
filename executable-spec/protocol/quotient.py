@@ -20,8 +20,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
-
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
@@ -34,12 +32,18 @@ from primitives.field import (
     ef4_sub,
     ef4v_add,
     ef4v_from_base,
+    ef4v_from_rows,
     ef4v_from_scalar,
     ef4v_mul,
     ef4v_mul_base,
     ef4v_mul_scalar,
     ef4v_neg,
+    ef4v_roll,
     ef4v_sub,
+    ef4v_to_rows,
+    ef4v_zeros,
+    ff_column,
+    ff_roll,
     get_omega,
     inv_mod,
 )
@@ -697,7 +701,7 @@ def _compute_quotient_values_vectorized(
     exposed_values: list[list[EF4Coeffs]] | None,
     partitioned_trace_on_quot: list[list[list[Fe]]] | None,
 ) -> list[EF4Coeffs]:
-    """Numpy-vectorized quotient computation for multi-AIR with interactions.
+    """Vectorized quotient computation for multi-AIR with interactions.
 
     Evaluates the constraint DAG at ALL quotient domain points simultaneously.
     """
@@ -707,14 +711,14 @@ def _compute_quotient_values_vectorized(
 
     # --- Precompute selectors ---
     sels = selectors_on_coset(trace_domain, quotient_domain)
-    is_first_row_np = np.array(sels.is_first_row, dtype=np.int64)
-    is_last_row_np = np.array(sels.is_last_row, dtype=np.int64)
-    is_transition_np = np.array(sels.is_transition, dtype=np.int64)
-    inv_zeroifier_np = np.array(sels.inv_zeroifier, dtype=np.int64)
+    is_first_row_ff = ff_column(sels.is_first_row)
+    is_last_row_ff = ff_column(sels.is_last_row)
+    is_transition_ff = ff_column(sels.is_transition)
+    inv_zeroifier_ff = ff_column(sels.inv_zeroifier)
 
-    # --- Convert partitioned main traces to numpy column arrays ---
-    np_parts_local = []
-    np_parts_next = []
+    # --- Convert partitioned main traces to FF column arrays ---
+    ff_parts_local = []
+    ff_parts_next = []
 
     if partitioned_trace_on_quot is not None:
         for part in partitioned_trace_on_quot:
@@ -722,63 +726,55 @@ def _compute_quotient_values_vectorized(
             local_cols = []
             next_cols = []
             for c in range(cols):
-                col_data = np.array([part[r][c] for r in range(quot_size)], dtype=np.int64)
+                col_data = ff_column([part[r][c] for r in range(quot_size)])
                 local_cols.append(col_data)
-                next_cols.append(np.roll(col_data, -step))
-            np_parts_local.append(local_cols)
-            np_parts_next.append(next_cols)
+                next_cols.append(ff_roll(col_data, -step))
+            ff_parts_local.append(local_cols)
+            ff_parts_next.append(next_cols)
     else:
         cols = len(trace_on_quotient_domain[0]) if trace_on_quotient_domain else 0
         local_cols = []
         next_cols = []
         for c in range(cols):
-            col_data = np.array(
-                [trace_on_quotient_domain[r][c] for r in range(quot_size)], dtype=np.int64
+            col_data = ff_column(
+                [trace_on_quotient_domain[r][c] for r in range(quot_size)]
             )
             local_cols.append(col_data)
-            next_cols.append(np.roll(col_data, -step))
-        np_parts_local.append(local_cols)
-        np_parts_next.append(next_cols)
+            next_cols.append(ff_roll(col_data, -step))
+        ff_parts_local.append(local_cols)
+        ff_parts_next.append(next_cols)
 
     # --- Convert preprocessed trace ---
-    np_prep_local = None
-    np_prep_next = None
+    ff_prep_local = None
+    ff_prep_next = None
     if preprocessed_on_quot is not None:
         prep_cols = len(preprocessed_on_quot[0]) if preprocessed_on_quot else 0
-        np_prep_local = []
-        np_prep_next = []
+        ff_prep_local = []
+        ff_prep_next = []
         for c in range(prep_cols):
-            col_data = np.array(
-                [preprocessed_on_quot[r][c] for r in range(quot_size)], dtype=np.int64
+            col_data = ff_column(
+                [preprocessed_on_quot[r][c] for r in range(quot_size)]
             )
-            np_prep_local.append(col_data)
-            np_prep_next.append(np.roll(col_data, -step))
+            ff_prep_local.append(col_data)
+            ff_prep_next.append(ff_roll(col_data, -step))
 
     # --- Convert after_challenge trace (EF4 columns) ---
-    np_ac_local = None
-    np_ac_next = None
+    ef4_ac_local = None
+    ef4_ac_next = None
     if after_challenge_on_quot is not None:
         perm_width = len(after_challenge_on_quot[0])
-        np_ac_local = []
-        np_ac_next = []
+        ef4_ac_local = []
+        ef4_ac_next = []
         for col in range(perm_width):
-            c0 = np.array([after_challenge_on_quot[r][col][0] for r in range(quot_size)], dtype=np.int64)
-            c1 = np.array([after_challenge_on_quot[r][col][1] for r in range(quot_size)], dtype=np.int64)
-            c2 = np.array([after_challenge_on_quot[r][col][2] for r in range(quot_size)], dtype=np.int64)
-            c3 = np.array([after_challenge_on_quot[r][col][3] for r in range(quot_size)], dtype=np.int64)
-            np_ac_local.append((c0 % p, c1 % p, c2 % p, c3 % p))
-            np_ac_next.append((
-                np.roll(c0, -step) % p,
-                np.roll(c1, -step) % p,
-                np.roll(c2, -step) % p,
-                np.roll(c3, -step) % p,
-            ))
+            ef4_col = ef4v_from_rows(
+                [after_challenge_on_quot[r][col] for r in range(quot_size)]
+            )
+            ef4_ac_local.append(ef4_col)
+            ef4_ac_next.append(ef4v_roll(ef4_col, -step))
 
     # --- Evaluate DAG nodes (all in EF4, all quotient points at once) ---
     nodes = constraints_dag.nodes
     node_values = [None] * len(nodes)
-
-    zero_np = np.zeros(quot_size, dtype=np.int64)
 
     for i, node in enumerate(nodes):
         kind = node.kind
@@ -788,23 +784,23 @@ def _compute_quotient_values_vectorized(
             entry = var.entry
             if entry.kind == EntryType.MAIN:
                 if entry.offset == 0:
-                    node_values[i] = ef4v_from_base(np_parts_local[entry.part_index][var.index] % p)
+                    node_values[i] = ef4v_from_base(ff_parts_local[entry.part_index][var.index])
                 else:
-                    node_values[i] = ef4v_from_base(np_parts_next[entry.part_index][var.index] % p)
+                    node_values[i] = ef4v_from_base(ff_parts_next[entry.part_index][var.index])
             elif entry.kind == EntryType.PREPROCESSED:
                 if entry.offset == 0:
-                    node_values[i] = ef4v_from_base(np_prep_local[var.index] % p)
+                    node_values[i] = ef4v_from_base(ff_prep_local[var.index])
                 else:
-                    node_values[i] = ef4v_from_base(np_prep_next[var.index] % p)
+                    node_values[i] = ef4v_from_base(ff_prep_next[var.index])
             elif entry.kind == EntryType.PUBLIC:
                 node_values[i] = ef4v_from_scalar(
                     [public_values[var.index] % p, 0, 0, 0], quot_size
                 )
             elif entry.kind == EntryType.PERMUTATION:
                 if entry.offset == 0:
-                    node_values[i] = np_ac_local[var.index]
+                    node_values[i] = ef4_ac_local[var.index]
                 else:
-                    node_values[i] = np_ac_next[var.index]
+                    node_values[i] = ef4_ac_next[var.index]
             elif entry.kind == EntryType.CHALLENGE:
                 node_values[i] = ef4v_from_scalar(challenges[0][var.index], quot_size)
             elif entry.kind == EntryType.EXPOSED:
@@ -818,13 +814,13 @@ def _compute_quotient_values_vectorized(
             )
 
         elif kind == SymbolicNodeKind.IS_FIRST_ROW:
-            node_values[i] = ef4v_from_base(is_first_row_np)
+            node_values[i] = ef4v_from_base(is_first_row_ff)
 
         elif kind == SymbolicNodeKind.IS_LAST_ROW:
-            node_values[i] = ef4v_from_base(is_last_row_np)
+            node_values[i] = ef4v_from_base(is_last_row_ff)
 
         elif kind == SymbolicNodeKind.IS_TRANSITION:
-            node_values[i] = ef4v_from_base(is_transition_np)
+            node_values[i] = ef4v_from_base(is_transition_ff)
 
         elif kind == SymbolicNodeKind.ADD:
             node_values[i] = ef4v_add(node_values[node.left_idx], node_values[node.right_idx])
@@ -849,16 +845,15 @@ def _compute_quotient_values_vectorized(
         alpha_powers.append(current_alpha)
         current_alpha = ef4_mul(current_alpha, alpha)
 
-    acc = (zero_np.copy(), zero_np.copy(), zero_np.copy(), zero_np.copy())
+    acc = ef4v_zeros(quot_size)
     for alpha_pow, node_idx in zip(alpha_powers, reversed(constraints_dag.constraint_idx)):
         term = ef4v_mul_scalar(node_values[node_idx], alpha_pow)
         acc = ef4v_add(acc, term)
 
     # --- Divide by vanishing polynomial ---
-    result = ef4v_mul_base(acc, inv_zeroifier_np)
+    result = ef4v_mul_base(acc, inv_zeroifier_ff)
 
-    result_arr = np.stack(result, axis=1)  # shape: (quot_size, 4)
-    return result_arr.tolist()
+    return ef4v_to_rows(result)
 
 
 # ---------------------------------------------------------------------------

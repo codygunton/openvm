@@ -8,8 +8,6 @@ Reference:
 
 from dataclasses import dataclass
 
-import numpy as np
-
 from primitives.field import (
     BABYBEAR_PRIME,
     EF4Coeffs,
@@ -20,13 +18,18 @@ from primitives.field import (
     TWO_INV,
     W,
     bit_reverse_list,
+    ef4_pairs_to_leaves,
     ef4v_add,
+    ef4v_from_rows,
     ef4v_mul_base,
     ef4v_mul_scalar,
     ef4v_sub,
+    ef4v_to_rows,
     ff4,
     ff4_coeffs,
     ff4_from_base,
+    ff_column,
+    ff_constant,
     get_omega,
     inv_mod,
     reverse_bits_len,
@@ -344,22 +347,20 @@ def fold_matrix(
     # Bit-reverse the powers
     halve_inv_powers = bit_reverse_list(halve_inv_powers)
 
-    # Vectorized fold using numpy
-    arr = np.array(evals_bit_reversed, dtype=np.int64)  # shape (2*height, 4)
-    lo = (arr[0::2, 0], arr[0::2, 1], arr[0::2, 2], arr[0::2, 3])
-    hi = (arr[1::2, 0], arr[1::2, 1], arr[1::2, 2], arr[1::2, 3])
+    # Vectorized fold
+    lo = ef4v_from_rows(evals_bit_reversed[0::2])
+    hi = ef4v_from_rows(evals_bit_reversed[1::2])
 
-    hip = np.array(halve_inv_powers, dtype=np.int64)
-    two_inv = np.int64(p + 1) // np.int64(2) % p
+    hip = ff_column(halve_inv_powers)
+    two_inv_col = ff_constant(TWO_INV, height)
 
     # result = (lo + hi) * TWO_INV + (lo - hi) * beta * halve_inv_power
-    sum_half = ef4v_mul_base(ef4v_add(lo, hi), np.full(height, two_inv, dtype=np.int64))
+    sum_half = ef4v_mul_base(ef4v_add(lo, hi), two_inv_col)
     diff_beta = ef4v_mul_scalar(ef4v_sub(lo, hi), beta)
     diff_beta_hip = ef4v_mul_base(diff_beta, hip)
     result = ef4v_add(sum_half, diff_beta_hip)
 
-    out = np.stack(result, axis=1)  # (height, 4)
-    return out.tolist()
+    return ef4v_to_rows(result)
 
 
 # --- Prover: Commit Phase ---
@@ -401,8 +402,7 @@ def commit_phase(
 
         # Build Merkle tree from pairs of evaluations.
         # Each leaf = hash of [lo_c0..lo_c3, hi_c0..hi_c3] (8 base field elements).
-        arr = np.array(folded, dtype=np.int64)  # shape (2*N, 4)
-        leaves = arr.reshape(-1, 8).tolist()
+        leaves = ef4_pairs_to_leaves(folded)
         root, tree = build_merkle_tree(leaves)
 
         # Observe commitment
@@ -431,12 +431,10 @@ def commit_phase(
                 f"{len(roll_in_data)} vs {len(folded)}"
             )
             beta_sq_coeffs = ff4_coeffs(ff4(beta) * ff4(beta))
-            f = np.array(folded, dtype=np.int64)
-            r = np.array(roll_in_data, dtype=np.int64)
-            fv = (f[:, 0], f[:, 1], f[:, 2], f[:, 3])
-            rv = (r[:, 0], r[:, 1], r[:, 2], r[:, 3])
+            fv = ef4v_from_rows(folded)
+            rv = ef4v_from_rows(roll_in_data)
             result = ef4v_add(fv, ef4v_mul_scalar(rv, beta_sq_coeffs))
-            folded = np.stack(result, axis=1).tolist()
+            folded = ef4v_to_rows(result)
 
         folded_per_round.append(folded)
 
