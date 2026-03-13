@@ -1,0 +1,40 @@
+/* Hide the right-hand table-of-contents sidebar */
+.bd-sidebar-secondary {
+    display: none !important;
+    width: 0 !important;
+}
+
+/* Override the CSS variable so the calc() reserving sidebar space becomes 0 */
+:root {
+    --pst-sidebar-secondary: 0px !important;
+}
+
+/* Let the article container fill all available width */
+.bd-main .bd-content .bd-article-container {
+    max-width: 100% !important;
+}
+
+/* Protocol table: full-width, adaptive, wrapping */
+.protocol-table {
+    width: 100%;
+    table-layout: auto;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+}
+
+.protocol-table th,
+.protocol-table td {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    padding: 0.5em 0.75em;
+    vertical-align: top;
+}
+
+/* Arrow column stays narrow */
+.protocol-table th:nth-child(2),
+.protocol-table td:nth-child(2) {
+    width: 3em;
+    text-align: center;
+    white-space: nowrap;
+}
