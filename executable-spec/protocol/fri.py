@@ -8,29 +8,20 @@ Reference:
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from primitives.field import (
     BABYBEAR_PRIME,
     DIGEST_WIDTH,
-    EF4Coeffs,
     Digest,
+    EF4,
     FIELD_EXTENSION_DEGREE,
+    FF,
     Fe,
-    FF4,
     MerklePath,
     TWO_INV,
     W,
     bit_reverse_list,
-    ef4v_add,
-    ef4v_from_rows,
-    ef4v_mul_base,
-    ef4v_mul_scalar,
-    ef4v_sub,
-    ef4v_to_rows,
-    ff4,
-    ff4_coeffs,
-    ff4_from_base,
-    ff_column,
-    ff_constant,
     get_omega,
     inv_mod,
     reverse_bits_len,
@@ -54,18 +45,18 @@ p = BABYBEAR_PRIME
 class CommitPhaseResult:
     """Output of FRI commit phase."""
     commits: list[Digest]
-    betas: list[EF4Coeffs]
-    final_poly: list[EF4Coeffs]
+    betas: list[list[int]]
+    final_poly: list[list[int]]
     trees: list[list[list[Digest]]]
-    folded_per_round: list[list[EF4Coeffs]]
-    all_round_evals: list[list[EF4Coeffs]]
+    folded_per_round: list[list[list[int]]]
+    all_round_evals: list[list[list[int]]]
     commit_pow_witnesses: list[int]
 
 
 @dataclass
 class FriQueryStep:
     """One round of a FRI query opening."""
-    sibling_value: EF4Coeffs
+    sibling_value: list[int]
     opening_proof: MerklePath
 
 
@@ -80,21 +71,21 @@ class FriQueryResult:
 class CommitPhaseOutput:
     """Complete FRI proof."""
     commit_phase_commits: list[Digest]
-    final_poly: list[EF4Coeffs]
+    final_poly: list[list[int]]
     query_proofs: list[FriQueryResult]
-    betas: list[EF4Coeffs]
-    folded_per_round: list[list[EF4Coeffs]]
+    betas: list[list[int]]
+    folded_per_round: list[list[list[int]]]
 
 
 # --- Verifier: Natural-Order Folding ---
 
 
 def fri_fold(
-    evals: list[EF4Coeffs],
-    challenge: EF4Coeffs,
+    evals: list[list[int]],
+    challenge: list[int],
     log_domain_size: int,
     coset_shift: Fe,
-) -> list[EF4Coeffs]:
+) -> list[list[int]]:
     """Fold evaluations on coset: f_even(y) + beta * f_odd(y).
 
     Reference:
@@ -102,23 +93,23 @@ def fri_fold(
     """
     n = len(evals)
     half = n // 2
-    beta = ff4(challenge)
+    beta = EF4(challenge)
 
     omega = get_omega(log_domain_size)
 
     folded = []
     for i in range(half):
-        f_pos = ff4(evals[i])           # f(x)  where x = shift * omega^i
-        f_neg = ff4(evals[i + half])    # f(-x) where -x = shift * omega^(i+N/2)
+        f_pos = EF4(evals[i])           # f(x)  where x = shift * omega^i
+        f_neg = EF4(evals[i + half])    # f(-x) where -x = shift * omega^(i+N/2)
 
         x = (coset_shift * pow(omega, i, p)) % p
         half_inv_x = inv_mod((2 * x) % p)  # 1/(2x) mod p
 
-        even = (f_pos + f_neg) * ff4_from_base(TWO_INV)
-        odd = (f_pos - f_neg) * ff4_from_base(half_inv_x)
+        even = (f_pos + f_neg).mul_base(TWO_INV)
+        odd = (f_pos - f_neg).mul_base(half_inv_x)
         result = even + beta * odd
 
-        folded.append(ff4_coeffs(result))
+        folded.append(result.to_list())
 
     return folded
 
@@ -129,50 +120,52 @@ def fri_fold(
 def fold_row(
     index: int,
     log_height: int,
-    beta: FF4,
-    e0: FF4,
-    e1: FF4,
-) -> FF4:
+    beta: EF4,
+    e0: EF4,
+    e1: EF4,
+) -> EF4:
     """Lagrange interpolation fold at challenge beta.
 
     Reference:
         p3-fri two_adic_pcs.rs (TwoAdicFriFolding::fold_row)
     """
+    beta, e0, e1 = EF4(beta), EF4(e0), EF4(e1)
     # x_even = two_adic_generator(log_height + 1) ^ reverse_bits_len(index, log_height)
     subgroup_start = pow(W[log_height + 1],
                          reverse_bits_len(index, log_height),
                          p)
-    x_even = ff4_from_base(subgroup_start)
+    x_even = EF4(subgroup_start)
 
     # Lagrange interpolation: e0 + (beta - x_even) * (e1 - e0) / (x_odd - x_even)
-    inv_diff = ff4_from_base(inv_mod((-2 * subgroup_start) % p))
+    inv_diff = EF4(inv_mod((-2 * subgroup_start) % p))
     return e0 + (beta - x_even) * (e1 - e0) * inv_diff
 
 
-def hash_fri_leaf(e0: FF4, e1: FF4) -> Digest:
+def hash_fri_leaf(e0: EF4, e1: EF4) -> Digest:
     """Hash pair of extension field evaluations as FRI Merkle leaf.
 
     Reference:
         p3-merkle-tree mmcs.rs (verify_batch leaf hashing)
     """
-    return hash_to_digest(ff4_coeffs(e0) + ff4_coeffs(e1))
+    e0, e1 = EF4(e0), EF4(e1)
+    return hash_to_digest(e0.to_list() + e1.to_list())
 
 
-def ef4_pairs_to_leaves(evals: list[EF4Coeffs]) -> list[list[int]]:
+def ef4_pairs_to_leaves(evals: list[list[int]]) -> list[list[int]]:
     """Pair consecutive EF4 elements into 8-element Merkle leaves."""
     return [evals[i] + evals[i + 1] for i in range(0, len(evals), 2)]
 
 
 def fri_verify_query(
     commit_phase_commits: list[Digest],
-    betas: list[EF4Coeffs],
+    betas: list[list[int]],
     query_index: int,
     query_proof: dict,
-    reduced_opening: EF4Coeffs,
-    final_poly: list[EF4Coeffs],
+    reduced_opening: list[int],
+    final_poly: list[list[int]],
     log_max_height: int,
     log_final_poly_len: int,
-) -> EF4Coeffs:
+) -> list[int]:
     """Verify single FRI query: fold chain + Merkle proofs + final poly check.
 
     Reference:
@@ -180,13 +173,13 @@ def fri_verify_query(
     """
     num_rounds = len(commit_phase_commits)
     start_index = query_index
-    folded_eval = ff4(reduced_opening)
+    folded_eval = EF4(reduced_opening)
 
     for round_idx in range(num_rounds):
         log_folded_height = log_max_height - 1 - round_idx
         opening = query_proof["commit_phase_openings"][round_idx]
-        sibling = ff4(opening["sibling_value"])
-        beta = ff4(betas[round_idx])
+        sibling = EF4(opening["sibling_value"])
+        beta = EF4(betas[round_idx])
 
         # Arrange evals: e0 at even position, e1 at odd position
         index_sibling = start_index ^ 1
@@ -215,25 +208,25 @@ def fri_verify_query(
 
     # Verify final polynomial evaluation
     if log_final_poly_len == 0:
-        expected = ff4(final_poly[0])
+        expected = EF4(final_poly[0])
     else:
         x = pow(W[log_final_poly_len],
                 reverse_bits_len(start_index, log_final_poly_len), p)
-        expected = ff4([0, 0, 0, 0])
+        expected = EF4.zero()
         for i, c in enumerate(final_poly):
-            expected = expected + ff4(c) * ff4_from_base(pow(x, i, p))
+            expected = expected + EF4(c) * EF4(pow(x, i, p))
 
-    assert ff4_coeffs(folded_eval) == ff4_coeffs(expected), (
+    assert folded_eval.to_list() == expected.to_list(), (
         f"Final polynomial check failed: "
-        f"{ff4_coeffs(folded_eval)} != {ff4_coeffs(expected)}"
+        f"{folded_eval.to_list()} != {expected.to_list()}"
     )
 
-    return ff4_coeffs(folded_eval)
+    return folded_eval.to_list()
 
 
 def verify_fri(
     commit_phase_commits: list[Digest],
-    final_poly: list[EF4Coeffs],
+    final_poly: list[list[int]],
     query_proofs: list[dict],
     log_blowup: int,
     log_final_poly_len: int,
@@ -312,10 +305,10 @@ def verify_fri(
 
 
 def fold_matrix(
-    evals_bit_reversed: list[EF4Coeffs],
-    beta: EF4Coeffs,
+    evals_bit_reversed: list[list[int]],
+    beta: EF4,
     log_height: int,
-) -> list[EF4Coeffs]:
+) -> list[list[int]]:
     """Fold bit-reversed evaluations: adjacent pairs are conjugates.
 
     Reference:
@@ -337,31 +330,32 @@ def fold_matrix(
     halve_inv_powers = bit_reverse_list(halve_inv_powers)
 
     # Vectorized fold
-    lo = ef4v_from_rows(evals_bit_reversed[0::2])
-    hi = ef4v_from_rows(evals_bit_reversed[1::2])
+    beta = EF4(beta)
+    lo = EF4.from_rows(evals_bit_reversed[0::2])
+    hi = EF4.from_rows(evals_bit_reversed[1::2])
 
-    hip = ff_column(halve_inv_powers)
-    two_inv_col = ff_constant(TWO_INV, height)
+    hip = FF(halve_inv_powers)
+    two_inv_col = FF(np.full(height, TWO_INV))
 
     # result = (lo + hi) * TWO_INV + (lo - hi) * beta * halve_inv_power
-    sum_half = ef4v_mul_base(ef4v_add(lo, hi), two_inv_col)
-    diff_beta = ef4v_mul_scalar(ef4v_sub(lo, hi), beta)
-    diff_beta_hip = ef4v_mul_base(diff_beta, hip)
-    result = ef4v_add(sum_half, diff_beta_hip)
+    sum_half = (lo + hi).mul_base(two_inv_col)
+    diff_beta = (lo - hi) * beta
+    diff_beta_hip = diff_beta.mul_base(hip)
+    result = sum_half + diff_beta_hip
 
-    return ef4v_to_rows(result)
+    return result.to_rows()
 
 
 # --- Prover: Commit Phase ---
 
 
 def commit_phase(
-    evals_bit_reversed: list[EF4Coeffs],
+    evals_bit_reversed: list[list[int]],
     log_blowup: int,
     log_final_poly_len: int,
     challenger: Challenger,
     commit_pow_bits: int = 0,
-    reduced_openings_by_height: dict[int, list[EF4Coeffs]] | None = None,
+    reduced_openings_by_height: dict[int, list[list[int]]] | None = None,
 ) -> CommitPhaseResult:
     """FRI commit phase: iterative folding with Merkle commitments.
 
@@ -375,10 +369,10 @@ def commit_phase(
     """
     folded = list(evals_bit_reversed)
     commits: list[Digest] = []
-    betas: list[EF4Coeffs] = []
+    betas: list[list[int]] = []
     trees: list[list[list[Digest]]] = []
-    folded_per_round: list[list[EF4Coeffs]] = []
-    all_round_evals: list[list[EF4Coeffs]] = []
+    folded_per_round: list[list[list[int]]] = []
+    all_round_evals: list[list[list[int]]] = []
     commit_pow_witnesses: list[int] = []
     blowup = 1 << log_blowup
     final_poly_len = 1 << log_final_poly_len
@@ -405,7 +399,7 @@ def commit_phase(
 
         # Sample folding challenge
         beta = challenger.sample_ext()
-        betas.append(beta)
+        betas.append(beta.to_list())
 
         # Fold
         folded = fold_matrix(folded, beta, log_height)
@@ -419,11 +413,11 @@ def commit_phase(
                 f"Roll-in size mismatch at log_height {log_height}: "
                 f"{len(roll_in_data)} vs {len(folded)}"
             )
-            beta_sq_coeffs = ff4_coeffs(ff4(beta) * ff4(beta))
-            fv = ef4v_from_rows(folded)
-            rv = ef4v_from_rows(roll_in_data)
-            result = ef4v_add(fv, ef4v_mul_scalar(rv, beta_sq_coeffs))
-            folded = ef4v_to_rows(result)
+            beta_sq = beta * beta
+            fv = EF4.from_rows(folded)
+            rv = EF4.from_rows(roll_in_data)
+            result = fv + rv * beta_sq
+            folded = result.to_rows()
 
         folded_per_round.append(folded)
 
@@ -453,7 +447,7 @@ def commit_phase(
 
 def answer_query(
     trees: list[list[list[Digest]]],
-    all_round_evals: list[list[EF4Coeffs]],
+    all_round_evals: list[list[list[int]]],
     start_index: int,
     num_rounds: int,
 ) -> list[FriQueryStep]:
@@ -482,7 +476,7 @@ def answer_query(
 
 
 def prove_fri(
-    evals_bit_reversed: list[EF4Coeffs],
+    evals_bit_reversed: list[list[int]],
     log_blowup: int,
     log_final_poly_len: int,
     num_queries: int,

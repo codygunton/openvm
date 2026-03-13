@@ -12,20 +12,12 @@ Reference:
 
 from __future__ import annotations
 
+import numpy as np
+
 from primitives.field import (
-    EF4Coeffs,
+    EF4,
     FF,
     Fe,
-    ef4_add,
-    ef4_div,
-    ef4_from_base,
-    ef4_mul,
-    ef4_neg,
-    ef4_sub,
-    ff_column,
-    ff_constant,
-    ff_roll,
-    ff_zeros,
 )
 from protocol.domain import (
     DomainSelectors,
@@ -39,16 +31,13 @@ from protocol.proof import (
     SymbolicVariable,
 )
 
-EF4_ZERO: EF4Coeffs = [0, 0, 0, 0]
-EF4_ONE: EF4Coeffs = [1, 0, 0, 0]
-
 
 # ---------------------------------------------------------------------------
 # Unflatten: reconstitute extension field elements from flattened base field
 # ---------------------------------------------------------------------------
 
 
-def unflatten_ext_values(flattened: list[EF4Coeffs]) -> list[EF4Coeffs]:
+def unflatten_ext_values(flattened: list) -> list[EF4]:
     """Reconstitute extension field elements from flattened challenge values.
 
     In the Rust verifier, after_challenge (permutation) trace values are stored
@@ -82,18 +71,11 @@ def unflatten_ext_values(flattened: list[EF4Coeffs]) -> list[EF4Coeffs]:
     result = []
     for i in range(0, len(flattened), ext_degree):
         chunk = flattened[i : i + ext_degree]
-        # Each chunk[e_i] is an EF4Coeffs.
-        # Multiply chunk[e_i] by monomial(e_i) and sum.
-        # monomial(e_i) = unit vector with 1 at position e_i.
-        # For the verifier, chunk[e_i] * monomial(e_i) means:
-        #   ef4_mul(chunk[e_i], [0,...,1,...0]) with 1 at position e_i.
-        # But monomial(e_i) as EF4 coeffs is just the basis vector.
-        acc = list(EF4_ZERO)
+        acc = EF4.zero()
         for e_i in range(ext_degree):
             monomial = [0, 0, 0, 0]
             monomial[e_i] = 1
-            term = ef4_mul(chunk[e_i], monomial)
-            acc = ef4_add(acc, term)
+            acc = acc + EF4(chunk[e_i]) * EF4(monomial)
         result.append(acc)
     return result
 
@@ -106,14 +88,14 @@ def unflatten_ext_values(flattened: list[EF4Coeffs]) -> list[EF4Coeffs]:
 def eval_symbolic_dag(
     dag: SymbolicExpressionDag,
     selectors: DomainSelectors,
-    preprocessed_local: list[EF4Coeffs],
-    preprocessed_next: list[EF4Coeffs],
+    preprocessed_local: list,
+    preprocessed_next: list,
     partitioned_main_values: list[AdjacentOpenedValues],
     after_challenge_values: list[AdjacentOpenedValues],
-    challenges: list[list[EF4Coeffs]],
+    challenges: list[list],
     public_values: list[Fe],
-    exposed_values_after_challenge: list[list[EF4Coeffs]],
-) -> list[EF4Coeffs]:
+    exposed_values_after_challenge: list[list],
+) -> list[EF4]:
     """Evaluate the symbolic expression DAG and return constraint values.
 
     Walks the DAG nodes in topological order (they are already sorted).
@@ -127,10 +109,10 @@ def eval_symbolic_dag(
         stark-backend/src/verifier/folder.rs
             GenericVerifierConstraintFolder impl of SymbolicEvaluator (lines 74-123)
     """
-    results: list[EF4Coeffs] = []
+    results: list[EF4] = []
 
     for node in dag.nodes:
-        value: EF4Coeffs
+        value: EF4
 
         if node.kind == SymbolicNodeKind.VARIABLE:
             value = _lookup_variable(
@@ -144,41 +126,39 @@ def eval_symbolic_dag(
                 exposed_values_after_challenge,
             )
         elif node.kind == SymbolicNodeKind.CONSTANT:
-            # Embed base field constant into extension field
-            value = ef4_from_base(node.constant_value)
+            value = EF4(node.constant_value)
         elif node.kind == SymbolicNodeKind.IS_FIRST_ROW:
-            value = list(selectors.is_first_row)
+            value = selectors.is_first_row
         elif node.kind == SymbolicNodeKind.IS_LAST_ROW:
-            value = list(selectors.is_last_row)
+            value = selectors.is_last_row
         elif node.kind == SymbolicNodeKind.IS_TRANSITION:
-            value = list(selectors.is_transition)
+            value = selectors.is_transition
         elif node.kind == SymbolicNodeKind.ADD:
-            value = ef4_add(results[node.left_idx], results[node.right_idx])
+            value = results[node.left_idx] + results[node.right_idx]
         elif node.kind == SymbolicNodeKind.SUB:
-            value = ef4_sub(results[node.left_idx], results[node.right_idx])
+            value = results[node.left_idx] - results[node.right_idx]
         elif node.kind == SymbolicNodeKind.MUL:
-            value = ef4_mul(results[node.left_idx], results[node.right_idx])
+            value = results[node.left_idx] * results[node.right_idx]
         elif node.kind == SymbolicNodeKind.NEG:
-            value = ef4_neg(results[node.idx])
+            value = -results[node.idx]
         else:
             raise ValueError(f"Unknown SymbolicNodeKind: {node.kind}")
 
         results.append(value)
 
-    # Extract constraint values at the specified indices
-    return [list(results[idx]) for idx in dag.constraint_idx]
+    return [results[idx] for idx in dag.constraint_idx]
 
 
 def _lookup_variable(
     var: SymbolicVariable,
-    preprocessed_local: list[EF4Coeffs],
-    preprocessed_next: list[EF4Coeffs],
+    preprocessed_local: list,
+    preprocessed_next: list,
     partitioned_main_values: list[AdjacentOpenedValues],
     after_challenge_values: list[AdjacentOpenedValues],
-    challenges: list[list[EF4Coeffs]],
+    challenges: list[list],
     public_values: list[Fe],
-    exposed_values_after_challenge: list[list[EF4Coeffs]],
-) -> EF4Coeffs:
+    exposed_values_after_challenge: list[list],
+) -> EF4:
     """Look up a symbolic variable's value from the opened proof values.
 
     Maps each Entry type to the appropriate opened values slice:
@@ -198,37 +178,32 @@ def _lookup_variable(
 
     if entry.kind == EntryType.PREPROCESSED:
         if entry.offset == 0:
-            return list(preprocessed_local[index])
+            return EF4(preprocessed_local[index])
         else:
-            return list(preprocessed_next[index])
+            return EF4(preprocessed_next[index])
 
     elif entry.kind == EntryType.MAIN:
         part = partitioned_main_values[entry.part_index]
         if entry.offset == 0:
-            return list(part.local[index])
+            return EF4(part.local[index])
         else:
-            return list(part.next[index])
+            return EF4(part.next[index])
 
     elif entry.kind == EntryType.PUBLIC:
-        # Public values are base field elements, embed into extension field
-        return ef4_from_base(public_values[index])
+        return EF4(public_values[index])
 
     elif entry.kind == EntryType.PERMUTATION:
-        # Permutation = after_challenge phase 0 (always .first() in Rust)
-        # NOTE: after_challenge_values here have already been unflattened
         part = after_challenge_values[0]
         if entry.offset == 0:
-            return list(part.local[index])
+            return EF4(part.local[index])
         else:
-            return list(part.next[index])
+            return EF4(part.next[index])
 
     elif entry.kind == EntryType.CHALLENGE:
-        # Challenge phase 0 (always .first() in Rust)
-        return list(challenges[0][index])
+        return EF4(challenges[0][index])
 
     elif entry.kind == EntryType.EXPOSED:
-        # Exposed values after challenge phase 0 (always .first() in Rust)
-        return list(exposed_values_after_challenge[0][index])
+        return EF4(exposed_values_after_challenge[0][index])
 
     else:
         raise ValueError(f"Unknown EntryType: {entry.kind}")
@@ -240,9 +215,9 @@ def _lookup_variable(
 
 
 def fold_constraints(
-    constraint_evals: list[EF4Coeffs],
-    alpha: EF4Coeffs,
-) -> EF4Coeffs:
+    constraint_evals: list[EF4],
+    alpha: EF4,
+) -> EF4:
     """Compute random linear combination of constraint evaluations.
 
     The Rust verifier uses Horner's method: starting with accumulator = 0,
@@ -255,10 +230,9 @@ def fold_constraints(
         stark-backend/src/verifier/folder.rs lines 56-72
         (GenericVerifierConstraintFolder::eval_constraints + assert_zero)
     """
-    accumulator = list(EF4_ZERO)
+    accumulator = EF4.zero()
     for c_eval in constraint_evals:
-        accumulator = ef4_mul(accumulator, alpha)
-        accumulator = ef4_add(accumulator, c_eval)
+        accumulator = accumulator * alpha + c_eval
     return accumulator
 
 
@@ -268,10 +242,10 @@ def fold_constraints(
 
 
 def reconstruct_quotient(
-    quotient_chunks: list[list[EF4Coeffs]],
+    quotient_chunks: list[list],
     qc_domains: list[TwoAdicMultiplicativeCoset],
-    zeta: EF4Coeffs,
-) -> EF4Coeffs:
+    zeta: EF4,
+) -> EF4:
     """Recompute the full quotient polynomial value at zeta from chunks.
 
     For each chunk domain D_i, compute:
@@ -290,35 +264,26 @@ def reconstruct_quotient(
     num_chunks = len(qc_domains)
     assert len(quotient_chunks) == num_chunks
 
-    # Compute zps[i] = prod_{j!=i} Z_{D_j}(zeta) / Z_{D_j}(D_i.first_point())
-    zps: list[EF4Coeffs] = []
+    zps: list[EF4] = []
     for i in range(num_chunks):
-        prod = list(EF4_ONE)
+        prod = EF4.one()
         for j in range(num_chunks):
             if j != i:
                 zp_at_zeta = qc_domains[j].vanishing_poly_at_point(zeta)
-                first_pt = ef4_from_base(qc_domains[i].first_point())
+                first_pt = EF4(qc_domains[i].first_point())
                 zp_at_first = qc_domains[j].vanishing_poly_at_point(first_pt)
-                factor = ef4_div(zp_at_zeta, zp_at_first)
-                prod = ef4_mul(prod, factor)
+                prod = prod * (zp_at_zeta / zp_at_first)
         zps.append(prod)
 
-    # Reconstruct: Q(zeta) = sum_i zps[i] * (sum_e monomial(e) * chunk[i][e])
-    result = list(EF4_ZERO)
+    result = EF4.zero()
     for ch_i in range(num_chunks):
         chunk = quotient_chunks[ch_i]
-        # Combine chunk values using monomial basis:
-        # sum_e monomial(e) * chunk[e]
-        # monomial(e) is the unit vector with 1 at position e
-        chunk_sum = list(EF4_ZERO)
+        chunk_sum = EF4.zero()
         for e_i, c in enumerate(chunk):
             monomial = [0, 0, 0, 0]
             monomial[e_i] = 1
-            term = ef4_mul(c, monomial)
-            chunk_sum = ef4_add(chunk_sum, term)
-        # zps[ch_i] * chunk_sum
-        term = ef4_mul(zps[ch_i], chunk_sum)
-        result = ef4_add(result, term)
+            chunk_sum = chunk_sum + EF4(c) * EF4(monomial)
+        result = result + zps[ch_i] * chunk_sum
 
     return result
 
@@ -353,7 +318,7 @@ def eval_dag_all_rows(
     for part in partitioned_main:
         cols = len(part[0]) if part else 0
         ff_cols = [
-            ff_column([part[r][c] for r in range(height)])
+            FF([part[r][c] for r in range(height)])
             for c in range(cols)
         ]
         ff_parts.append(ff_cols)
@@ -362,7 +327,7 @@ def eval_dag_all_rows(
     if preprocessed is not None:
         prep_cols = len(preprocessed[0]) if preprocessed else 0
         ff_prep = [
-            ff_column([preprocessed[r][c] for r in range(height)])
+            FF([preprocessed[r][c] for r in range(height)])
             for c in range(prep_cols)
         ]
 
@@ -380,25 +345,25 @@ def eval_dag_all_rows(
                 if entry.offset == 0:
                     node_values[i] = col
                 else:
-                    node_values[i] = ff_roll(col, -entry.offset)
+                    node_values[i] = np.roll(col, -entry.offset)
             elif entry.kind == EntryType.PREPROCESSED:
                 col = ff_prep[var.index]
                 if entry.offset == 0:
                     node_values[i] = col
                 else:
-                    node_values[i] = ff_roll(col, -entry.offset)
+                    node_values[i] = np.roll(col, -entry.offset)
             elif entry.kind == EntryType.PUBLIC:
-                node_values[i] = ff_constant(public_values[var.index], height)
+                node_values[i] = FF(np.full(height, int(public_values[var.index])))
             else:
-                node_values[i] = ff_zeros(height)
+                node_values[i] = FF.Zeros(height)
 
         elif kind == SymbolicNodeKind.CONSTANT:
-            node_values[i] = ff_constant(node.constant_value, height)
+            node_values[i] = FF(np.full(height, int(node.constant_value)))
 
         elif kind in (SymbolicNodeKind.IS_FIRST_ROW,
                       SymbolicNodeKind.IS_LAST_ROW,
                       SymbolicNodeKind.IS_TRANSITION):
-            node_values[i] = ff_zeros(height)
+            node_values[i] = FF.Zeros(height)
 
         elif kind == SymbolicNodeKind.ADD:
             node_values[i] = node_values[node.left_idx] + node_values[node.right_idx]
@@ -451,14 +416,14 @@ def verify_single_rap_constraints(
     preprocessed_values: AdjacentOpenedValues | None,
     partitioned_main_values: list[AdjacentOpenedValues],
     after_challenge_values: list[AdjacentOpenedValues],
-    quotient_chunks: list[list[EF4Coeffs]],
+    quotient_chunks: list[list],
     domain: TwoAdicMultiplicativeCoset,
     qc_domains: list[TwoAdicMultiplicativeCoset],
-    zeta: EF4Coeffs,
-    alpha: EF4Coeffs,
-    challenges: list[list[EF4Coeffs]],
+    zeta: EF4,
+    alpha: EF4,
+    challenges: list[list],
     public_values: list[Fe],
-    exposed_values_after_challenge: list[list[EF4Coeffs]],
+    exposed_values_after_challenge: list[list],
 ) -> None:
     """Verify constraints for a single RAP (AIR with interactions).
 
@@ -519,7 +484,7 @@ def verify_single_rap_constraints(
     quotient = reconstruct_quotient(quotient_chunks, qc_domains, zeta)
 
     # Step 7: check folded_constraints * inv_zeroifier == quotient
-    lhs = ef4_mul(folded_constraints, selectors.inv_zeroifier)
+    lhs = folded_constraints * selectors.inv_zeroifier
     if lhs != quotient:
         raise OodEvaluationMismatch(
             f"OOD evaluation mismatch: "

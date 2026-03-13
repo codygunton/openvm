@@ -13,15 +13,9 @@ from dataclasses import dataclass
 
 from primitives.field import (
     BABYBEAR_PRIME,
-    EF4Coeffs,
+    EF4,
     Fe,
     GENERATOR,
-    ef4_div,
-    ef4_exp_power_of_2,
-    ef4_from_base,
-    ef4_inv,
-    ef4_mul_base,
-    ef4_sub,
     get_omega,
     inv_mod,
 )
@@ -42,10 +36,10 @@ class DomainSelectors:
     Reference:
         p3-commit-0.4.1/src/domain.rs (LagrangeSelectors struct, lines 20-30)
     """
-    is_first_row: EF4Coeffs    # Z_H(x) / (unshifted_x - 1)
-    is_last_row: EF4Coeffs     # Z_H(x) / (unshifted_x - gen^{-1})
-    is_transition: EF4Coeffs   # unshifted_x - gen^{-1}
-    inv_zeroifier: EF4Coeffs   # 1 / Z_H(x)
+    is_first_row: EF4    # Z_H(x) / (unshifted_x - 1)
+    is_last_row: EF4     # Z_H(x) / (unshifted_x - gen^{-1})
+    is_transition: EF4   # unshifted_x - gen^{-1}
+    inv_zeroifier: EF4   # 1 / Z_H(x)
 
 
 @dataclass
@@ -93,7 +87,7 @@ class TwoAdicMultiplicativeCoset:
         """
         return self.shift
 
-    def next_point(self, point: EF4Coeffs) -> EF4Coeffs:
+    def next_point(self, point) -> EF4:
         """Map the i-th element to the (i+1)-th: multiply by the generator.
 
         For a coset gH with generator h, next_point(x) = x * h.
@@ -107,9 +101,9 @@ class TwoAdicMultiplicativeCoset:
         Reference:
             p3-commit domain.rs PolynomialSpace::next_point (line 144-146)
         """
-        return ef4_mul_base(point, self.gen())
+        return EF4(point).mul_base(self.gen())
 
-    def vanishing_poly_at_point(self, point: EF4Coeffs) -> EF4Coeffs:
+    def vanishing_poly_at_point(self, point) -> EF4:
         """Evaluate the vanishing polynomial Z_{gH}(X) at the given point.
 
         Z_{gH}(X) = (g^{-1} * X)^|H| - 1
@@ -125,13 +119,10 @@ class TwoAdicMultiplicativeCoset:
         Reference:
             p3-commit domain.rs PolynomialSpace::vanishing_poly_at_point (lines 226-228)
         """
-        # unshifted = point * shift^{-1}
-        unshifted = ef4_mul_base(point, self.shift_inverse())
-        # unshifted^(2^log_n) - 1
-        powered = ef4_exp_power_of_2(unshifted, self.log_n)
-        return ef4_sub(powered, [1, 0, 0, 0])
+        unshifted = EF4(point).mul_base(self.shift_inverse())
+        return unshifted ** (2 ** self.log_n) - EF4.one()
 
-    def selectors_at_point(self, point: EF4Coeffs) -> DomainSelectors:
+    def selectors_at_point(self, point) -> DomainSelectors:
         """Compute Lagrange selectors at an evaluation point.
 
         Given the vanishing polynomial Z_{gH}(X) = (g^{-1}X)^|H| - 1, compute:
@@ -154,35 +145,15 @@ class TwoAdicMultiplicativeCoset:
         Reference:
             p3-commit domain.rs PolynomialSpace::selectors_at_point (lines 237-245)
         """
-        # unshifted_point = point * shift^{-1}
-        unshifted_point = ef4_mul_base(point, self.shift_inverse())
-
-        # z_h = unshifted_point^(2^log_n) - 1
-        z_h = ef4_sub(ef4_exp_power_of_2(unshifted_point, self.log_n), [1, 0, 0, 0])
-
-        # gen_inv = generator^{-1} in base field
+        unshifted_point = EF4(point).mul_base(self.shift_inverse())
         gen_inv = inv_mod(self.gen())
-
-        # is_first_row = z_h / (unshifted_point - 1)
-        is_first_row = ef4_div(z_h, ef4_sub(unshifted_point, [1, 0, 0, 0]))
-
-        # is_last_row = z_h / (unshifted_point - gen_inv)
-        is_last_row = ef4_div(
-            z_h,
-            ef4_sub(unshifted_point, ef4_from_base(gen_inv)),
-        )
-
-        # is_transition = unshifted_point - gen_inv
-        is_transition = ef4_sub(unshifted_point, ef4_from_base(gen_inv))
-
-        # inv_vanishing = 1 / z_h
-        inv_zeroifier = ef4_inv(z_h)
+        z_h = unshifted_point ** (2 ** self.log_n) - EF4.one()
 
         return DomainSelectors(
-            is_first_row=is_first_row,
-            is_last_row=is_last_row,
-            is_transition=is_transition,
-            inv_zeroifier=inv_zeroifier,
+            is_first_row=z_h / (unshifted_point - EF4.one()),
+            is_last_row=z_h / (unshifted_point - EF4(gen_inv)),
+            is_transition=unshifted_point - EF4(gen_inv),
+            inv_zeroifier=z_h ** -1,
         )
 
     def split_domains(self, num_chunks: int) -> list["TwoAdicMultiplicativeCoset"]:

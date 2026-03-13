@@ -18,20 +18,13 @@ Reference:
 
 from __future__ import annotations
 
+import numpy as np
+
 from primitives.field import (
     BABYBEAR_PRIME,
-    EF4Coeffs,
+    EF4,
+    FF,
     Fe,
-    ef4_mul,
-    ef4v_add,
-    ef4v_cumsum,
-    ef4v_from_base,
-    ef4v_from_scalar,
-    ef4v_inv,
-    ef4v_mul_base,
-    ef4v_to_rows,
-    ef4v_zeros,
-    ff_constant,
 )
 from protocol.constraints import eval_dag_all_rows
 from protocol.proof import (
@@ -169,17 +162,17 @@ def eval_dag_at_row(
 # ---------------------------------------------------------------------------
 
 
-def generate_betas(beta: EF4Coeffs, interactions: list[Interaction]) -> list[EF4Coeffs]:
+def generate_betas(beta: EF4, interactions: list[Interaction]) -> list[EF4]:
     """Generate [beta^0, beta^1, ..., beta^{max_msg_len}].
 
     Reference:
         stark-backend/src/interaction/utils.rs generate_betas
     """
     max_msg_len = max((len(inter.message) for inter in interactions), default=0)
-    betas: list[EF4Coeffs] = [[1, 0, 0, 0]]
-    current: EF4Coeffs = [1, 0, 0, 0]
+    betas: list[EF4] = [EF4.one()]
+    current = EF4.one()
     for _ in range(max_msg_len):
-        current = ef4_mul(current, beta)
+        current = current * EF4(beta)
         betas.append(current)
     return betas
 
@@ -308,10 +301,10 @@ def compute_after_challenge_trace(
     partitioned_main: list[list[list[Fe]]],
     preprocessed: list[list[Fe]] | None,
     public_values: list[Fe],
-    alpha: EF4Coeffs,
-    beta: EF4Coeffs,
+    alpha: EF4,
+    beta: EF4,
     height: int,
-) -> tuple[list[list[EF4Coeffs]], EF4Coeffs]:
+) -> tuple[list[list[list[int]]], list[int]]:
     """Compute FriLogUp after-challenge trace and cumulative sum.
 
     Processes ALL rows simultaneously using vectorized field arrays.
@@ -329,9 +322,9 @@ def compute_after_challenge_trace(
 
     Returns:
         (perm_trace, cumulative_sum) where:
-        - perm_trace: [height][perm_width] of EF4 values
+        - perm_trace: [height][perm_width] of EF4 values (as list[int])
         - perm_width = len(interaction_partitions) + 1
-        - cumulative_sum: EF4 value
+        - cumulative_sum: EF4 value (as list[int])
 
     Reference:
         stark-backend/src/interaction/fri_log_up.rs
@@ -345,44 +338,44 @@ def compute_after_challenge_trace(
     )
 
     # Step 2: Compute EF4 denominators for all interactions, all rows
-    alpha_v = ef4v_from_scalar(alpha, height)
+    alpha_v = EF4.broadcast(EF4(alpha), height)
 
     all_denoms = []
     for interaction in interactions:
         msg = interaction.message
-        denom = ef4v_add(alpha_v, ef4v_from_base(node_values[msg[0]]))
+        denom = alpha_v + EF4.from_base(node_values[msg[0]])
         for j in range(1, len(msg)):
-            beta_j = ef4v_from_scalar(betas[j], height)
-            denom = ef4v_add(denom, ef4v_mul_base(beta_j, node_values[msg[j]]))
-        beta_last = ef4v_from_scalar(betas[len(msg)], height)
-        bus_val = ff_constant((interaction.bus_index + 1) % p, height)
-        denom = ef4v_add(denom, ef4v_mul_base(beta_last, bus_val))
+            beta_j = EF4.broadcast(betas[j], height)
+            denom = denom + beta_j.mul_base(node_values[msg[j]])
+        beta_last = EF4.broadcast(betas[len(msg)], height)
+        bus_val = FF(np.full(height, (interaction.bus_index + 1) % p))
+        denom = denom + beta_last.mul_base(bus_val)
         all_denoms.append(denom)
 
     # Step 3: Batch invert all denominators (vectorized)
-    all_reciprocals = [ef4v_inv(d) for d in all_denoms]
+    all_reciprocals = [d.inv() for d in all_denoms]
 
     # Step 4: Compute chunk values for all rows
     perm_chunks = []
     for partition in interaction_partitions:
-        chunk_sum = ef4v_zeros(height)
+        chunk_sum = EF4.zeros(height)
         for interaction_idx in partition:
             count_vals = node_values[interactions[interaction_idx].count]
-            term = ef4v_mul_base(all_reciprocals[interaction_idx], count_vals)
-            chunk_sum = ef4v_add(chunk_sum, term)
+            term = all_reciprocals[interaction_idx].mul_base(count_vals)
+            chunk_sum = chunk_sum + term
         perm_chunks.append(chunk_sum)
 
     # Compute phi (row sum of all chunks)
-    phi = ef4v_zeros(height)
+    phi = EF4.zeros(height)
     for chunk in perm_chunks:
-        phi = ef4v_add(phi, chunk)
+        phi = phi + chunk
 
     # Step 5: Convert phi to running sum (prefix sum)
-    running_sum = ef4v_cumsum(phi)
+    running_sum = phi.cumsum()
 
     # Convert back to list-of-lists format expected by caller
-    chunk_rows = [ef4v_to_rows(chunk) for chunk in perm_chunks]
-    running_sum_rows = ef4v_to_rows(running_sum)
+    chunk_rows = [chunk.to_rows() for chunk in perm_chunks]
+    running_sum_rows = running_sum.to_rows()
 
     perm_trace = []
     for row in range(height):

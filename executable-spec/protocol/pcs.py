@@ -16,32 +16,18 @@ Reference:
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from primitives.field import (
     BABYBEAR_PRIME,
     Digest,
-    EF4Coeffs,
-    EF4Vec,
+    EF4,
     Fe,
     FF,
-    FF4,
     GENERATOR,
     W,
     bit_reverse_list,
-    ef4_mul,
-    ef4v_add,
-    ef4v_from_base,
-    ef4v_from_scalar,
-    ef4v_inv,
-    ef4v_mul,
-    ef4v_mul_scalar,
-    ef4v_sub,
-    ef4v_to_rows,
-    ef4v_zeros,
     eval_poly_ef4_batch,
-    ff4,
-    ff4_coeffs,
-    ff4_from_base,
-    ff_column,
     get_omega,
     inv_mod,
     reverse_bits_len,
@@ -78,7 +64,7 @@ class PcsRound:
         p3-fri/src/two_adic_pcs.rs (CommitmentWithOpeningPoints type alias)
     """
     commitment: Digest
-    domains_and_openings: list[tuple[TwoAdicMultiplicativeCoset, list[tuple[EF4Coeffs, list[EF4Coeffs]]]]]
+    domains_and_openings: list[tuple[TwoAdicMultiplicativeCoset, list[tuple[list[int], list[list[int]]]]]]
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +208,9 @@ def _open_input(
     log_global_max_height: int,
     index: int,
     input_proof: list[BatchOpening],
-    alpha: FF4,
+    alpha: EF4,
     rounds: list[PcsRound],
-) -> list[tuple[int, FF4]]:
+) -> list[tuple[int, EF4]]:
     """Open input polynomials and combine into FRI reduced openings.
 
     For each batch commitment and its opening proof:
@@ -239,10 +225,10 @@ def _open_input(
         p3-fri-0.4.1/src/verifier.rs (open_input, lines 343-455)
     """
     # For each log_height, store (alpha_pow, reduced_opening)
-    reduced_openings: dict[int, tuple] = {}  # log_height -> (FF4_alpha_pow, FF4_reduced)
+    reduced_openings: dict[int, tuple] = {}  # log_height -> (EF4_alpha_pow, EF4_reduced)
 
-    alpha_one = ff4_from_base(1)
-    alpha_zero = ff4_from_base(0)
+    alpha_one = EF4(1)
+    alpha_zero = EF4.zero()
 
     assert len(input_proof) == len(rounds), (
         f"input_proof length {len(input_proof)} != rounds length {len(rounds)}"
@@ -296,14 +282,14 @@ def _open_input(
             # For each (point z, claimed values) pair
             for z, ps_at_z in mat_points_and_values:
                 # quotient = 1 / (z - x) in extension field
-                z_ef = ff4(z)
-                x_ef = ff4_from_base(x)
+                z_ef = EF4(z)
+                x_ef = EF4(x)
                 quotient = (z_ef - x_ef) ** (-1)
 
                 # For each column value
                 for col_idx in range(len(mat_opening)):
-                    p_at_x = ff4_from_base(mat_opening[col_idx])
-                    p_at_z = ff4(ps_at_z[col_idx])
+                    p_at_x = EF4(mat_opening[col_idx])
+                    p_at_z = EF4(ps_at_z[col_idx])
 
                     # ro += alpha_pow * (p_at_z - p_at_x) * quotient
                     ro_ef = ro_ef + alpha_pow_ef * (p_at_z - p_at_x) * quotient
@@ -315,7 +301,7 @@ def _open_input(
         # the polynomial must be constant, so the reduced opening must be zero
         if fri_params.log_blowup in reduced_openings:
             _, ro_check = reduced_openings[fri_params.log_blowup]
-            assert ff4_coeffs(ro_check) == [0, 0, 0, 0], (
+            assert ro_check.to_list() == [0, 0, 0, 0], (
                 "constant polynomial has non-zero reduced opening"
             )
 
@@ -335,13 +321,13 @@ def _open_input(
 def _verify_query(
     fri_params: FriParameters,
     start_index: int,
-    betas: list[FF4],
+    betas: list[EF4],
     commit_phase_commits: list[Digest],
     commit_phase_openings: list[CommitPhaseProofStep],
-    reduced_openings: list[tuple[int, FF4]],
+    reduced_openings: list[tuple[int, EF4]],
     log_global_max_height: int,
     log_final_height: int,
-) -> tuple[FF4, int]:
+) -> tuple[EF4, int]:
     """Verify a single FRI query: fold chain with reduced openings rolled in.
 
     Starting from the initial reduced opening at log_global_max_height,
@@ -380,7 +366,7 @@ def _verify_query(
 
         # Get the sibling value
         index_sibling = domain_index ^ 1
-        sibling = ff4(opening.sibling_value)
+        sibling = EF4(opening.sibling_value)
 
         # Arrange evals: evals[0] is at even position, evals[1] at odd
         if index_sibling % 2 == 0:
@@ -472,7 +458,7 @@ def pcs_verify(
                     challenger.observe_many(val)
 
     # --- Step 1: Sample batch combination challenge (alpha) ---
-    alpha = ff4(challenger.sample_ext())
+    alpha = challenger.sample_ext()
 
     # --- Step 2: Compute log_global_max_height ---
     # log_global_max_height = num_commit_rounds + log_blowup + log_final_poly_len
@@ -502,7 +488,7 @@ def pcs_verify(
         ), f"commit phase PoW failed at round {round_idx}"
 
         # Sample folding challenge beta
-        beta = ff4(challenger.sample_ext())
+        beta = challenger.sample_ext()
         betas.append(beta)
 
     # --- Step 5: Validate final polynomial length ---
@@ -574,13 +560,13 @@ def pcs_verify(
 
         # Evaluate the final polynomial at x using Horner's method
         # final_poly is in coefficient form: f(x) = c0 + c1*x + c2*x^2 + ...
-        eval_result = ff4_from_base(0)
+        eval_result = EF4.zero()
         for coeff in reversed(fri_proof.final_poly):
-            eval_result = eval_result * ff4_from_base(x_base) + ff4(coeff)
+            eval_result = eval_result * EF4(x_base) + EF4(coeff)
 
-        assert ff4_coeffs(folded_eval) == ff4_coeffs(eval_result), (
+        assert folded_eval.to_list() == eval_result.to_list(), (
             f"Query {qi}: final polynomial mismatch: "
-            f"folded={ff4_coeffs(folded_eval)}, expected={ff4_coeffs(eval_result)}"
+            f"folded={folded_eval.to_list()}, expected={eval_result.to_list()}"
         )
 
 
@@ -789,9 +775,9 @@ def _build_mmcs_tree(
 
 def _eval_poly_ef4(
     coeffs: list[Fe],
-    point: EF4Coeffs,
+    point: list[int],
     domain_shift: Fe,
-) -> EF4Coeffs:
+) -> list[int]:
     """Evaluate polynomial at an extension field point.
 
     The coefficients come from INTT on the domain subgroup. The original
@@ -805,22 +791,22 @@ def _eval_poly_ef4(
         domain_shift: Domain's coset shift.
 
     Returns:
-        p(point) as EF4Coeffs.
+        p(point) as list[int].
 
     Reference:
         Horner's method over BinomialExtensionField
     """
     # eval_point = point / domain_shift
     if domain_shift == 1:
-        eval_point = ff4(point)
+        eval_point = EF4(point)
     else:
-        eval_point = ff4(point) * ff4_from_base(inv_mod(domain_shift))
+        eval_point = EF4(point) * EF4(inv_mod(domain_shift))
 
-    result = ff4_from_base(0)
+    result = EF4.zero()
     for i in range(len(coeffs) - 1, -1, -1):
-        result = result * eval_point + ff4_from_base(coeffs[i])
+        result = result * eval_point + EF4(coeffs[i])
 
-    return ff4_coeffs(result)
+    return result.to_list()
 
 
 def _compute_x_array(log_height: int, x_arrays: dict[int, FF]) -> FF:
@@ -836,7 +822,7 @@ def _compute_x_array(log_height: int, x_arrays: dict[int, FF]) -> FF:
     if log_height not in x_arrays:
         height = 1 << log_height
         omega = get_omega(log_height)
-        x_arr = ff_column([
+        x_arr = FF([
             (GENERATOR * pow(omega, reverse_bits_len(i, log_height), p)) % p
             for i in range(height)
         ])
@@ -846,10 +832,10 @@ def _compute_x_array(log_height: int, x_arrays: dict[int, FF]) -> FF:
 
 def _compute_inv_diff(
     log_height: int,
-    point: EF4Coeffs,
+    point: list[int],
     x_arrays: dict[int, FF],
-    inv_diff_cache: dict[tuple, EF4Vec],
-) -> EF4Vec:
+    inv_diff_cache: dict[tuple, EF4],
+) -> EF4:
     """Compute and cache (z - x_i)^{-1} for all domain points x_i.
 
     Args:
@@ -859,15 +845,15 @@ def _compute_inv_diff(
         inv_diff_cache: Mutable cache mapping (log_height, point) to inverse differences.
 
     Returns:
-        EF4Vec of (z - x_i)^{-1} for each domain point x_i.
+        EF4 column of (z - x_i)^{-1} for each domain point x_i.
     """
     key = (log_height, tuple(point))
     if key not in inv_diff_cache:
         height = 1 << log_height
         x_arr = _compute_x_array(log_height, x_arrays)
-        z_v = ef4v_from_scalar(point, height)
-        diff = ef4v_sub(z_v, ef4v_from_base(x_arr))
-        inv_diff_cache[key] = ef4v_inv(diff)
+        z_v = EF4.broadcast(EF4(point), height)
+        diff = z_v - EF4.from_base(x_arr)
+        inv_diff_cache[key] = diff.inv()
     return inv_diff_cache[key]
 
 
@@ -885,14 +871,14 @@ class PcsOpeningRound:
     """
     committed: CommittedData
     # Per-matrix list of opening points
-    points_per_mat: list[list[EF4Coeffs]]
+    points_per_mat: list[list[list[int]]]
 
 
 def pcs_open(
     rounds: list[PcsOpeningRound],
     challenger: Challenger,
     fri_params: FriParameters,
-) -> tuple[list[list[list[list[EF4Coeffs]]]], dict, list[int]]:
+) -> tuple[list[list[list[list[list[int]]]]], dict, list[int]]:
     """Open committed polynomials at specified points.
 
     Prover-side PCS open: evaluates polynomials, computes reduced
@@ -905,7 +891,7 @@ def pcs_open(
 
     Returns:
         (all_opened_values, fri_proof_data, query_indices) where:
-        - all_opened_values[round][mat][point] = list[EF4Coeffs]
+        - all_opened_values[round][mat][point] = list[list[int]]
         - fri_proof_data contains the FRI proof components
         - query_indices for Merkle opening generation
 
@@ -914,25 +900,25 @@ def pcs_open(
     """
     # --- Step A: Evaluate polynomials at opening points ---
 
-    all_opened_values: list[list[list[list[EF4Coeffs]]]] = []
+    all_opened_values: list[list[list[list[list[int]]]]] = []
 
     for rnd_idx, rnd in enumerate(rounds):
-        round_values: list[list[list[EF4Coeffs]]] = []
+        round_values: list[list[list[list[int]]]] = []
         for mat_idx in range(len(rnd.committed.domains)):
             domain = rnd.committed.domains[mat_idx]
             coeffs_per_col = rnd.committed.coeffs[mat_idx]
             points = rnd.points_per_mat[mat_idx]
             degree = len(coeffs_per_col[0]) if coeffs_per_col else 0
 
-            mat_values: list[list[EF4Coeffs]] = []
+            mat_values: list[list[list[int]]] = []
             for point in points:
                 # Compute eval_point = point / domain_shift
                 if domain.shift == 1:
                     eval_pt = list(point)
                 else:
-                    eval_pt = ff4_coeffs(
-                        ff4(point) * ff4_from_base(inv_mod(domain.shift))
-                    )
+                    eval_pt = (
+                        EF4(point) * EF4(inv_mod(domain.shift))
+                    ).to_list()
 
                 if degree >= 256 and len(coeffs_per_col) > 0:
                     col_values = eval_poly_ef4_batch(
@@ -955,13 +941,13 @@ def pcs_open(
                     challenger.observe_many(val)
 
     # --- Step C: Sample FRI alpha ---
-    alpha = ff4(challenger.sample_ext())
+    alpha = challenger.sample_ext()
 
     # --- Step D: Compute reduced polynomials per height ---
     # Group by LDE height, accumulate alpha-weighted quotients.
-    reduced_evals_np: dict[int, EF4Vec] = {}  # log_height → EF4Vec
+    reduced_evals_np: dict[int, EF4] = {}  # log_height → EF4 column
     # Cache (z - x_i)^{-1} per (log_height, z_tuple) to avoid recomputation
-    inv_diff_cache: dict[tuple, EF4Vec] = {}
+    inv_diff_cache: dict[tuple, EF4] = {}
 
     # Pre-compute bit-reversed domain points x_i per log_height
     x_arrays: dict[int, FF] = {}
@@ -969,8 +955,7 @@ def pcs_open(
     # Per-height alpha_pow accumulators (matching Rust's num_reduced[log_height]).
     # Each height independently tracks alpha^k for its k-th column.
     # Reference: p3-fri two_adic_pcs.rs lines 226,253,271
-    alpha_coeffs = ff4_coeffs(alpha)
-    alpha_pow_per_height: dict[int, EF4Coeffs] = {}
+    alpha_pow_per_height: dict[int, EF4] = {}
 
     for rnd_idx, rnd in enumerate(rounds):
         for mat_idx in range(len(rnd.committed.domains)):
@@ -981,17 +966,17 @@ def pcs_open(
             height = 1 << log_height
 
             if log_height not in reduced_evals_np:
-                reduced_evals_np[log_height] = ef4v_zeros(height)
+                reduced_evals_np[log_height] = EF4.zeros(height)
 
             if log_height not in alpha_pow_per_height:
-                alpha_pow_per_height[log_height] = [1, 0, 0, 0]
+                alpha_pow_per_height[log_height] = EF4(1)
 
             num_cols = len(lde_rows[0]) if lde_rows else 0
             mat_opened_values = all_opened_values[rnd_idx][mat_idx]
 
             # Pre-extract LDE columns as field arrays for this matrix
             lde_cols_np = [
-                ff_column([lde_rows[i][c] for i in range(height)])
+                FF([lde_rows[i][c] for i in range(height)])
                 for c in range(num_cols)
             ]
 
@@ -1001,27 +986,26 @@ def pcs_open(
 
                 for col_idx in range(num_cols):
                     # p_at_z is scalar EF4, p_at_x is base field array
-                    p_at_z_v = ef4v_from_scalar(point_values[col_idx], height)
-                    p_at_x_v = ef4v_from_base(lde_cols_np[col_idx])
+                    p_at_z_v = EF4.broadcast(EF4(point_values[col_idx]), height)
+                    p_at_x_v = EF4.from_base(lde_cols_np[col_idx])
 
                     # (p_at_z - p_at_x) * inv_diff
-                    quotient = ef4v_mul(ef4v_sub(p_at_z_v, p_at_x_v), inv_diff)
+                    quotient = (p_at_z_v - p_at_x_v) * inv_diff
 
                     # alpha_pow * quotient (per-height alpha_pow)
-                    scaled = ef4v_mul_scalar(quotient, alpha_pow_per_height[log_height])
+                    scaled = quotient * alpha_pow_per_height[log_height]
 
                     # Accumulate
-                    re = reduced_evals_np[log_height]
-                    reduced_evals_np[log_height] = ef4v_add(re, scaled)
+                    reduced_evals_np[log_height] = reduced_evals_np[log_height] + scaled
 
                     # Advance this height's alpha_pow
-                    alpha_pow_per_height[log_height] = ef4_mul(
-                        alpha_pow_per_height[log_height], alpha_coeffs
+                    alpha_pow_per_height[log_height] = (
+                        alpha_pow_per_height[log_height] * alpha
                     )
-    # Convert EF4Vec back to list-of-EF4Coeffs for FRI
-    reduced_evals: dict[int, list[EF4Coeffs]] = {}
+    # Convert EF4 columns back to list-of-list[int] for FRI
+    reduced_evals: dict[int, list[list[int]]] = {}
     for log_h, ev in reduced_evals_np.items():
-        reduced_evals[log_h] = ef4v_to_rows(ev)
+        reduced_evals[log_h] = ev.to_rows()
 
     # --- Step E: FRI prove ---
     # Collect reduced evaluations in descending height order
