@@ -181,7 +181,7 @@ class TestFRIVerification:
                 folded_eval = fold_row(parent_index, log_folded_height, beta, e0, e1)
 
                 # Byte-for-byte check against golden intermediate
-                # fold_row returns EF4; convert to list[int] for comparison
+                # fold_row returns FF4; convert to list[int] for comparison
                 folded_coeffs = folded_eval.to_list() if hasattr(folded_eval, 'to_list') else ff4_coeffs(folded_eval)
                 assert folded_coeffs == expected_folded, (
                     f"Query {qi}, round {round_idx}: fold mismatch "

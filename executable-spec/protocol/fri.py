@@ -14,7 +14,7 @@ from primitives.field import (
     BABYBEAR_PRIME,
     DIGEST_WIDTH,
     Digest,
-    EF4,
+    FF4,
     FIELD_EXTENSION_DEGREE,
     FF,
     Fe,
@@ -93,14 +93,14 @@ def fri_fold(
     """
     n = len(evals)
     half = n // 2
-    beta = EF4(challenge)
+    beta = FF4(challenge)
 
     omega = get_omega(log_domain_size)
 
     folded = []
     for i in range(half):
-        f_pos = EF4(evals[i])           # f(x)  where x = shift * omega^i
-        f_neg = EF4(evals[i + half])    # f(-x) where -x = shift * omega^(i+N/2)
+        f_pos = FF4(evals[i])           # f(x)  where x = shift * omega^i
+        f_neg = FF4(evals[i + half])    # f(-x) where -x = shift * omega^(i+N/2)
 
         x = (coset_shift * pow(omega, i, p)) % p
         half_inv_x = inv_mod((2 * x) % p)  # 1/(2x) mod p
@@ -120,39 +120,39 @@ def fri_fold(
 def fold_row(
     index: int,
     log_height: int,
-    beta: EF4,
-    e0: EF4,
-    e1: EF4,
-) -> EF4:
+    beta: FF4,
+    e0: FF4,
+    e1: FF4,
+) -> FF4:
     """Lagrange interpolation fold at challenge beta.
 
     Reference:
         p3-fri two_adic_pcs.rs (TwoAdicFriFolding::fold_row)
     """
-    beta, e0, e1 = EF4(beta), EF4(e0), EF4(e1)
+    beta, e0, e1 = FF4(beta), FF4(e0), FF4(e1)
     # x_even = two_adic_generator(log_height + 1) ^ reverse_bits_len(index, log_height)
     subgroup_start = pow(W[log_height + 1],
                          reverse_bits_len(index, log_height),
                          p)
-    x_even = EF4(subgroup_start)
+    x_even = FF4(subgroup_start)
 
     # Lagrange interpolation: e0 + (beta - x_even) * (e1 - e0) / (x_odd - x_even)
-    inv_diff = EF4(inv_mod((-2 * subgroup_start) % p))
+    inv_diff = FF4(inv_mod((-2 * subgroup_start) % p))
     return e0 + (beta - x_even) * (e1 - e0) * inv_diff
 
 
-def hash_fri_leaf(e0: EF4, e1: EF4) -> Digest:
+def hash_fri_leaf(e0: FF4, e1: FF4) -> Digest:
     """Hash pair of extension field evaluations as FRI Merkle leaf.
 
     Reference:
         p3-merkle-tree mmcs.rs (verify_batch leaf hashing)
     """
-    e0, e1 = EF4(e0), EF4(e1)
+    e0, e1 = FF4(e0), FF4(e1)
     return hash_to_digest(e0.to_list() + e1.to_list())
 
 
 def ef4_pairs_to_leaves(evals: list[list[int]]) -> list[list[int]]:
-    """Pair consecutive EF4 elements into 8-element Merkle leaves."""
+    """Pair consecutive FF4 elements into 8-element Merkle leaves."""
     return [evals[i] + evals[i + 1] for i in range(0, len(evals), 2)]
 
 
@@ -173,13 +173,13 @@ def fri_verify_query(
     """
     num_rounds = len(commit_phase_commits)
     start_index = query_index
-    folded_eval = EF4(reduced_opening)
+    folded_eval = FF4(reduced_opening)
 
     for round_idx in range(num_rounds):
         log_folded_height = log_max_height - 1 - round_idx
         opening = query_proof["commit_phase_openings"][round_idx]
-        sibling = EF4(opening["sibling_value"])
-        beta = EF4(betas[round_idx])
+        sibling = FF4(opening["sibling_value"])
+        beta = FF4(betas[round_idx])
 
         # Arrange evals: e0 at even position, e1 at odd position
         index_sibling = start_index ^ 1
@@ -208,13 +208,13 @@ def fri_verify_query(
 
     # Verify final polynomial evaluation
     if log_final_poly_len == 0:
-        expected = EF4(final_poly[0])
+        expected = FF4(final_poly[0])
     else:
         x = pow(W[log_final_poly_len],
                 reverse_bits_len(start_index, log_final_poly_len), p)
-        expected = EF4.zero()
+        expected = FF4.zero()
         for i, c in enumerate(final_poly):
-            expected = expected + EF4(c) * EF4(pow(x, i, p))
+            expected = expected + FF4(c) * FF4(pow(x, i, p))
 
     assert folded_eval.to_list() == expected.to_list(), (
         f"Final polynomial check failed: "
@@ -306,7 +306,7 @@ def verify_fri(
 
 def fold_matrix(
     evals_bit_reversed: list[list[int]],
-    beta: EF4,
+    beta: FF4,
     log_height: int,
 ) -> list[list[int]]:
     """Fold bit-reversed evaluations: adjacent pairs are conjugates.
@@ -330,9 +330,9 @@ def fold_matrix(
     halve_inv_powers = bit_reverse_list(halve_inv_powers)
 
     # Vectorized fold
-    beta = EF4(beta)
-    lo = EF4.from_rows(evals_bit_reversed[0::2])
-    hi = EF4.from_rows(evals_bit_reversed[1::2])
+    beta = FF4(beta)
+    lo = FF4.from_rows(evals_bit_reversed[0::2])
+    hi = FF4.from_rows(evals_bit_reversed[1::2])
 
     hip = FF(halve_inv_powers)
     two_inv_col = FF(np.full(height, TWO_INV))
@@ -414,8 +414,8 @@ def commit_phase(
                 f"{len(roll_in_data)} vs {len(folded)}"
             )
             beta_sq = beta * beta
-            fv = EF4.from_rows(folded)
-            rv = EF4.from_rows(roll_in_data)
+            fv = FF4.from_rows(folded)
+            rv = FF4.from_rows(roll_in_data)
             result = fv + rv * beta_sq
             folded = result.to_rows()
 

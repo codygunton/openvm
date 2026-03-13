@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
-from primitives.field import Digest, EF4Coeffs, Fe, MerklePath, from_monty, to_monty
+from primitives.field import Digest, FF4Coeffs, Fe, MerklePath, from_monty, to_monty
 
 
 # ---------------------------------------------------------------------------
@@ -72,8 +72,8 @@ class AdjacentOpenedValues:
     Reference:
         stark-backend/src/proof.rs (struct AdjacentOpenedValues<Challenge>)
     """
-    local: list[EF4Coeffs]
-    next: list[EF4Coeffs]
+    local: list[FF4Coeffs]
+    next: list[FF4Coeffs]
 
 
 @dataclass
@@ -90,7 +90,7 @@ class OpenedValues:
     # For each phase after challenge, for each matrix in commitment
     after_challenge: list[list[AdjacentOpenedValues]]
     # For each AIR, for each quotient chunk, the opened values
-    quotient: list[list[list[EF4Coeffs]]]
+    quotient: list[list[list[FF4Coeffs]]]
 
 
 @dataclass
@@ -100,7 +100,7 @@ class CommitPhaseProofStep:
     Reference:
         p3-fri/src/proof.rs (struct CommitPhaseProofStep<F, M>)
     """
-    sibling_value: EF4Coeffs
+    sibling_value: FF4Coeffs
     opening_proof: MerklePath
 
 
@@ -136,7 +136,7 @@ class FriProof:
     """
     commit_phase_commits: list[Digest]
     query_proofs: list[QueryProof]
-    final_poly: list[EF4Coeffs]
+    final_poly: list[FF4Coeffs]
     # Per commit-phase round, the PoW witness (u64 in Rust, int here)
     commit_pow_witnesses: list[int]
     # Single PoW witness for query phase
@@ -166,7 +166,7 @@ class AirProofData:
     air_id: int
     degree: int  # height of trace matrix
     # For each challenge phase with trace, the values to expose to the verifier
-    exposed_values_after_challenge: list[list[EF4Coeffs]]
+    exposed_values_after_challenge: list[list[FF4Coeffs]]
     public_values: list[Fe]
 
 
@@ -459,7 +459,7 @@ def _parse_digest(data: dict | list) -> Digest:
     return _monty_list(data["value"])
 
 
-def _parse_ef4(data: dict | list) -> EF4Coeffs:
+def _parse_ef4(data: dict | list) -> FF4Coeffs:
     """Parse an extension field element from serde JSON (Montgomery -> canonical).
 
     Handles both serde formats:
@@ -1011,7 +1011,7 @@ def _ser_digest(d: Digest) -> dict:
     return {"value": [to_monty(v) for v in d], "_marker": None}
 
 
-def _ser_ef4(c: EF4Coeffs) -> dict:
+def _ser_ef4(c: FF4Coeffs) -> dict:
     """Serialize an extension field element to serde JSON format."""
     return {"value": [to_monty(v) for v in c], "_phantom": None}
 

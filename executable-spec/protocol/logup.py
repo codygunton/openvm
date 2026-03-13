@@ -22,7 +22,7 @@ import numpy as np
 
 from primitives.field import (
     BABYBEAR_PRIME,
-    EF4,
+    FF4,
     FF,
     Fe,
 )
@@ -83,7 +83,7 @@ def eval_dag_at_row(
 ) -> list[Fe]:
     """Evaluate all DAG nodes at a specific trace row in the base field.
 
-    Unlike the OOD evaluator (constraints.py) which works in EF4, this evaluator
+    Unlike the OOD evaluator (constraints.py) which works in FF4, this evaluator
     works in the base field since we're evaluating at actual trace domain points.
 
     IsFirstRow/IsLastRow/IsTransition are set to 0 since interaction expressions
@@ -162,17 +162,17 @@ def eval_dag_at_row(
 # ---------------------------------------------------------------------------
 
 
-def generate_betas(beta: EF4, interactions: list[Interaction]) -> list[EF4]:
+def generate_betas(beta: FF4, interactions: list[Interaction]) -> list[FF4]:
     """Generate [beta^0, beta^1, ..., beta^{max_msg_len}].
 
     Reference:
         stark-backend/src/interaction/utils.rs generate_betas
     """
     max_msg_len = max((len(inter.message) for inter in interactions), default=0)
-    betas: list[EF4] = [EF4.one()]
-    current = EF4.one()
+    betas: list[FF4] = [FF4.one()]
+    current = FF4.one()
     for _ in range(max_msg_len):
-        current = current * EF4(beta)
+        current = current * FF4(beta)
         betas.append(current)
     return betas
 
@@ -301,8 +301,8 @@ def compute_after_challenge_trace(
     partitioned_main: list[list[list[Fe]]],
     preprocessed: list[list[Fe]] | None,
     public_values: list[Fe],
-    alpha: EF4,
-    beta: EF4,
+    alpha: FF4,
+    beta: FF4,
     height: int,
 ) -> tuple[list[list[list[int]]], list[int]]:
     """Compute FriLogUp after-challenge trace and cumulative sum.
@@ -316,15 +316,15 @@ def compute_after_challenge_trace(
         partitioned_main: [part_index][rows][cols].
         preprocessed: [rows][cols] or None.
         public_values: Public input values.
-        alpha: First interaction challenge (EF4).
-        beta: Second interaction challenge (EF4).
+        alpha: First interaction challenge (FF4).
+        beta: Second interaction challenge (FF4).
         height: Trace height.
 
     Returns:
         (perm_trace, cumulative_sum) where:
-        - perm_trace: [height][perm_width] of EF4 values (as list[int])
+        - perm_trace: [height][perm_width] of FF4 values (as list[int])
         - perm_width = len(interaction_partitions) + 1
-        - cumulative_sum: EF4 value (as list[int])
+        - cumulative_sum: FF4 value (as list[int])
 
     Reference:
         stark-backend/src/interaction/fri_log_up.rs
@@ -337,17 +337,17 @@ def compute_after_challenge_trace(
         dag, partitioned_main, preprocessed, public_values, height
     )
 
-    # Step 2: Compute EF4 denominators for all interactions, all rows
-    alpha_v = EF4.broadcast(EF4(alpha), height)
+    # Step 2: Compute FF4 denominators for all interactions, all rows
+    alpha_v = FF4.broadcast(FF4(alpha), height)
 
     all_denoms = []
     for interaction in interactions:
         msg = interaction.message
-        denom = alpha_v + EF4.from_base(node_values[msg[0]])
+        denom = alpha_v + FF4.from_base(node_values[msg[0]])
         for j in range(1, len(msg)):
-            beta_j = EF4.broadcast(betas[j], height)
+            beta_j = FF4.broadcast(betas[j], height)
             denom = denom + beta_j.mul_base(node_values[msg[j]])
-        beta_last = EF4.broadcast(betas[len(msg)], height)
+        beta_last = FF4.broadcast(betas[len(msg)], height)
         bus_val = FF(np.full(height, (interaction.bus_index + 1) % p))
         denom = denom + beta_last.mul_base(bus_val)
         all_denoms.append(denom)
@@ -358,7 +358,7 @@ def compute_after_challenge_trace(
     # Step 4: Compute chunk values for all rows
     perm_chunks = []
     for partition in interaction_partitions:
-        chunk_sum = EF4.zeros(height)
+        chunk_sum = FF4.zeros(height)
         for interaction_idx in partition:
             count_vals = node_values[interactions[interaction_idx].count]
             term = all_reciprocals[interaction_idx].mul_base(count_vals)
@@ -366,7 +366,7 @@ def compute_after_challenge_trace(
         perm_chunks.append(chunk_sum)
 
     # Compute phi (row sum of all chunks)
-    phi = EF4.zeros(height)
+    phi = FF4.zeros(height)
     for chunk in perm_chunks:
         phi = phi + chunk
 

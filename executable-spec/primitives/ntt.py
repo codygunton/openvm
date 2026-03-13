@@ -85,7 +85,7 @@ except ImportError:
 # Higher-level NTT-based primitives
 # ---------------------------------------------------------------------------
 
-from primitives.field import BABYBEAR_PRIME, EF4Coeffs, Fe
+from primitives.field import BABYBEAR_PRIME, FF4Coeffs, Fe
 
 _P = BABYBEAR_PRIME
 
@@ -133,11 +133,11 @@ def coset_lde(evals: list[Fe], shift: Fe, log_blowup: int) -> list[Fe]:
     return ntt(coeffs)
 
 
-def ef4_idft(evals: list[EF4Coeffs]) -> list[EF4Coeffs]:
+def ef4_idft(evals: list[FF4Coeffs]) -> list[FF4Coeffs]:
     """Inverse DFT for extension field evaluations (channel-wise INTT).
 
-    Decomposes each EF4 element into 4 base-field channels, applies INTT
-    to each channel independently, then recombines into EF4 coefficients.
+    Decomposes each FF4 element into 4 base-field channels, applies INTT
+    to each channel independently, then recombines into FF4 coefficients.
 
     Reference:
         p3-dft traits.rs (idft_algebra)
@@ -159,5 +159,5 @@ def ef4_idft(evals: list[EF4Coeffs]) -> list[EF4Coeffs]:
     # INTT each channel independently
     channels_coeffs = [intt(ch) for ch in channels]
 
-    # Transpose back to EF4 elements
+    # Transpose back to FF4 elements
     return [[channels_coeffs[k][j] for k in range(4)] for j in range(n)]

@@ -24,7 +24,7 @@ import numpy as np
 
 from primitives.field import (
     BABYBEAR_PRIME,
-    EF4,
+    FF4,
     FF,
     Fe,
     GENERATOR,
@@ -367,11 +367,11 @@ def eval_symbolic_expression_dag_full(
     after_challenge_next: list[list[int]] | None = None,
     challenges: list[list[list[int]]] | None = None,
     exposed_values: list[list[list[int]]] | None = None,
-) -> list[EF4]:
-    """Evaluate all DAG nodes for multi-AIR quotient computation, in EF4.
+) -> list[FF4]:
+    """Evaluate all DAG nodes for multi-AIR quotient computation, in FF4.
 
     Handles all entry types: PREPROCESSED, MAIN, PUBLIC, PERMUTATION,
-    CHALLENGE, EXPOSED.  All arithmetic is in EF4 since PERMUTATION/CHALLENGE/
+    CHALLENGE, EXPOSED.  All arithmetic is in FF4 since PERMUTATION/CHALLENGE/
     EXPOSED variables are inherently extension field.
 
     For MAIN, partitioned_local[part_index][col_index] gives the base field
@@ -379,13 +379,13 @@ def eval_symbolic_expression_dag_full(
     (cached mains first, then common main).
 
     For PERMUTATION, after_challenge_local[index] and after_challenge_next[index]
-    are EF4 values indexed by extension field column number.
+    are FF4 values indexed by extension field column number.
 
     Reference:
         stark-backend/src/prover/cpu/quotient/evaluator.rs
         ProverConstraintEvaluator (eval_var + eval_nodes_mut)
     """
-    node_values: list[EF4] = [EF4.zero()] * len(dag.nodes)
+    node_values: list[FF4] = [FF4.zero()] * len(dag.nodes)
 
     for i, node in enumerate(dag.nodes):
         kind = node.kind
@@ -395,39 +395,39 @@ def eval_symbolic_expression_dag_full(
             entry = var.entry
             if entry.kind == EntryType.MAIN:
                 if entry.offset == 0:
-                    node_values[i] = EF4(partitioned_local[entry.part_index][var.index])
+                    node_values[i] = FF4(partitioned_local[entry.part_index][var.index])
                 else:
-                    node_values[i] = EF4(partitioned_next[entry.part_index][var.index])
+                    node_values[i] = FF4(partitioned_next[entry.part_index][var.index])
             elif entry.kind == EntryType.PREPROCESSED:
                 if entry.offset == 0:
-                    node_values[i] = EF4(preprocessed_local[var.index])
+                    node_values[i] = FF4(preprocessed_local[var.index])
                 else:
-                    node_values[i] = EF4(preprocessed_next[var.index])
+                    node_values[i] = FF4(preprocessed_next[var.index])
             elif entry.kind == EntryType.PUBLIC:
-                node_values[i] = EF4(public_values[var.index])
+                node_values[i] = FF4(public_values[var.index])
             elif entry.kind == EntryType.PERMUTATION:
                 if entry.offset == 0:
-                    node_values[i] = EF4(after_challenge_local[var.index])
+                    node_values[i] = FF4(after_challenge_local[var.index])
                 else:
-                    node_values[i] = EF4(after_challenge_next[var.index])
+                    node_values[i] = FF4(after_challenge_next[var.index])
             elif entry.kind == EntryType.CHALLENGE:
-                node_values[i] = EF4(challenges[0][var.index])
+                node_values[i] = FF4(challenges[0][var.index])
             elif entry.kind == EntryType.EXPOSED:
-                node_values[i] = EF4(exposed_values[0][var.index])
+                node_values[i] = FF4(exposed_values[0][var.index])
             else:
                 raise ValueError(f"Unknown entry kind: {entry.kind}")
 
         elif kind == SymbolicNodeKind.CONSTANT:
-            node_values[i] = EF4(node.constant_value)
+            node_values[i] = FF4(node.constant_value)
 
         elif kind == SymbolicNodeKind.IS_FIRST_ROW:
-            node_values[i] = EF4(is_first_row)
+            node_values[i] = FF4(is_first_row)
 
         elif kind == SymbolicNodeKind.IS_LAST_ROW:
-            node_values[i] = EF4(is_last_row)
+            node_values[i] = FF4(is_last_row)
 
         elif kind == SymbolicNodeKind.IS_TRANSITION:
-            node_values[i] = EF4(is_transition)
+            node_values[i] = FF4(is_transition)
 
         elif kind == SymbolicNodeKind.ADD:
             node_values[i] = node_values[node.left_idx] + node_values[node.right_idx]
@@ -449,24 +449,24 @@ def eval_symbolic_expression_dag_full(
 
 def accumulate_constraints_ef4(
     dag: SymbolicExpressionDag,
-    node_values: list[EF4],
-    alpha: EF4,
-) -> EF4:
-    """Fold constraint values using powers of alpha (EF4 variant).
+    node_values: list[FF4],
+    alpha: FF4,
+) -> FF4:
+    """Fold constraint values using powers of alpha (FF4 variant).
 
-    Same as accumulate_constraints but node_values are already EF4.
+    Same as accumulate_constraints but node_values are already FF4.
 
     Reference:
         stark-backend/src/prover/cpu/quotient/evaluator.rs accumulate (lines 229-247)
     """
     num_constraints = len(dag.constraint_idx)
-    alpha_powers: list[EF4] = []
-    current = EF4(1)
+    alpha_powers: list[FF4] = []
+    current = FF4(1)
     for _ in range(num_constraints):
         alpha_powers.append(current)
         current = current * alpha
 
-    accumulator = EF4.zero()
+    accumulator = FF4.zero()
     for alpha_pow, node_idx in zip(alpha_powers, reversed(dag.constraint_idx)):
         constraint_val = node_values[node_idx]
         accumulator = accumulator + alpha_pow * constraint_val
@@ -477,8 +477,8 @@ def accumulate_constraints_ef4(
 def accumulate_constraints(
     dag: SymbolicExpressionDag,
     node_values: list[Fe],
-    alpha: EF4,
-) -> EF4:
+    alpha: FF4,
+) -> FF4:
     """Fold constraint values using powers of alpha.
 
     Computes sum_{k} alpha^k * constraint_value[k], where the constraints
@@ -500,18 +500,18 @@ def accumulate_constraints(
     num_constraints = len(dag.constraint_idx)
 
     # Precompute alpha powers: alpha^0, alpha^1, ..., alpha^{num_constraints-1}
-    alpha_powers: list[EF4] = []
-    current = EF4(1)
+    alpha_powers: list[FF4] = []
+    current = FF4(1)
     for _ in range(num_constraints):
         alpha_powers.append(current)
         current = current * alpha
 
     # Accumulate: alpha_powers[k] is paired with constraint_idx in reverse order
     # This matches the Rust code: zip(alpha_powers, constraint_idx.iter().rev())
-    accumulator = EF4.zero()
+    accumulator = FF4.zero()
     for alpha_pow, node_idx in zip(alpha_powers, reversed(dag.constraint_idx)):
         constraint_val = node_values[node_idx]
-        # constraint_val is base field; lift to EF4 and multiply by alpha_pow (EF4)
+        # constraint_val is base field; lift to FF4 and multiply by alpha_pow (FF4)
         accumulator = accumulator + alpha_pow.mul_base(constraint_val)
 
     return accumulator
@@ -526,7 +526,7 @@ def compute_quotient_values(
     trace_on_quotient_domain: list[list[Fe]],
     constraints_dag: SymbolicExpressionDag,
     public_values: list[Fe],
-    alpha: EF4,
+    alpha: FF4,
     quotient_domain: TwoAdicMultiplicativeCoset,
     trace_domain: TwoAdicMultiplicativeCoset,
     preprocessed_on_quot: list[list[Fe]] | None = None,
@@ -547,7 +547,7 @@ def compute_quotient_values(
     5. Divide by vanishing polynomial: quotient[x] = accumulator * inv_zeroifier[x].
 
     When preprocessed/after_challenge/challenges/exposed_values are provided,
-    uses the full EF4 evaluator to handle PERMUTATION/CHALLENGE/EXPOSED variables.
+    uses the full FF4 evaluator to handle PERMUTATION/CHALLENGE/EXPOSED variables.
     Otherwise, uses the base field evaluator for simple AIRs.
 
     Reference:
@@ -563,12 +563,12 @@ def compute_quotient_values(
         trace_domain: The trace domain (shift=1 subgroup).
         preprocessed_on_quot: Preprocessed trace on quotient domain (optional).
         after_challenge_on_quot: After-challenge trace on quotient domain as
-            [rows][perm_width] of EF4Coeffs (optional).
+            [rows][perm_width] of FF4Coeffs (optional).
         challenges: Challenges per phase (optional).
         exposed_values: Exposed values per phase (optional).
 
     Returns:
-        List of EF4 values, one per quotient domain point.
+        List of FF4 values, one per quotient domain point.
     """
     quot_size = quotient_domain.size()
     trace_size = trace_domain.size()
@@ -576,7 +576,7 @@ def compute_quotient_values(
 
     use_full_evaluator = after_challenge_on_quot is not None
     if use_full_evaluator:
-        # Vectorized EF4 evaluator for multi-AIR with interactions
+        # Vectorized FF4 evaluator for multi-AIR with interactions
         return _compute_quotient_values_vectorized(
             trace_on_quotient_domain, constraints_dag, public_values, alpha,
             quotient_domain, trace_domain,
@@ -623,10 +623,10 @@ def _prepare_trace_columns(
     list[list[FF]],
     list[FF] | None,
     list[FF] | None,
-    list[EF4] | None,
-    list[EF4] | None,
+    list[FF4] | None,
+    list[FF4] | None,
 ]:
-    """Convert row-major traces to column-major FF/EF4 arrays with next-row shifts.
+    """Convert row-major traces to column-major FF/FF4 arrays with next-row shifts.
 
     Returns:
         (ff_parts_local, ff_parts_next,
@@ -675,15 +675,15 @@ def _prepare_trace_columns(
             ff_prep_local.append(col_data)
             ff_prep_next.append(np.roll(col_data, -step))
 
-    # --- Convert after_challenge trace (EF4 columns) ---
-    ef4_ac_local: list[EF4] | None = None
-    ef4_ac_next: list[EF4] | None = None
+    # --- Convert after_challenge trace (FF4 columns) ---
+    ef4_ac_local: list[FF4] | None = None
+    ef4_ac_next: list[FF4] | None = None
     if after_challenge_on_quot is not None:
         perm_width = len(after_challenge_on_quot[0])
         ef4_ac_local = []
         ef4_ac_next = []
         for col in range(perm_width):
-            ef4_col = EF4.from_rows(
+            ef4_col = FF4.from_rows(
                 [after_challenge_on_quot[r][col] for r in range(quot_size)]
             )
             ef4_ac_local.append(ef4_col)
@@ -702,8 +702,8 @@ def _eval_dag_vectorized(
     ff_parts_next: list[list[FF]],
     ff_prep_local: list[FF] | None,
     ff_prep_next: list[FF] | None,
-    ef4_ac_local: list[EF4] | None,
-    ef4_ac_next: list[EF4] | None,
+    ef4_ac_local: list[FF4] | None,
+    ef4_ac_next: list[FF4] | None,
     is_first_row_ff: FF,
     is_last_row_ff: FF,
     is_transition_ff: FF,
@@ -711,13 +711,13 @@ def _eval_dag_vectorized(
     challenges: list[list[list[int]]] | None,
     exposed_values: list[list[list[int]]] | None,
     quot_size: int,
-) -> list[EF4 | FF | None]:
+) -> list[FF4 | FF | None]:
     """Evaluate DAG nodes vectorized: all quotient domain points at once.
 
-    Returns per-node column arrays (EF4 or FF).
+    Returns per-node column arrays (FF4 or FF).
     """
     nodes = dag.nodes
-    node_values: list[EF4 | FF | None] = [None] * len(nodes)
+    node_values: list[FF4 | FF | None] = [None] * len(nodes)
 
     for i, node in enumerate(nodes):
         kind = node.kind
@@ -727,17 +727,17 @@ def _eval_dag_vectorized(
             entry = var.entry
             if entry.kind == EntryType.MAIN:
                 if entry.offset == 0:
-                    node_values[i] = EF4.from_base(ff_parts_local[entry.part_index][var.index])
+                    node_values[i] = FF4.from_base(ff_parts_local[entry.part_index][var.index])
                 else:
-                    node_values[i] = EF4.from_base(ff_parts_next[entry.part_index][var.index])
+                    node_values[i] = FF4.from_base(ff_parts_next[entry.part_index][var.index])
             elif entry.kind == EntryType.PREPROCESSED:
                 if entry.offset == 0:
-                    node_values[i] = EF4.from_base(ff_prep_local[var.index])
+                    node_values[i] = FF4.from_base(ff_prep_local[var.index])
                 else:
-                    node_values[i] = EF4.from_base(ff_prep_next[var.index])
+                    node_values[i] = FF4.from_base(ff_prep_next[var.index])
             elif entry.kind == EntryType.PUBLIC:
-                node_values[i] = EF4.broadcast(
-                    EF4(public_values[var.index] % p), quot_size
+                node_values[i] = FF4.broadcast(
+                    FF4(public_values[var.index] % p), quot_size
                 )
             elif entry.kind == EntryType.PERMUTATION:
                 if entry.offset == 0:
@@ -745,25 +745,25 @@ def _eval_dag_vectorized(
                 else:
                     node_values[i] = ef4_ac_next[var.index]
             elif entry.kind == EntryType.CHALLENGE:
-                node_values[i] = EF4.broadcast(EF4(challenges[0][var.index]), quot_size)
+                node_values[i] = FF4.broadcast(FF4(challenges[0][var.index]), quot_size)
             elif entry.kind == EntryType.EXPOSED:
-                node_values[i] = EF4.broadcast(EF4(exposed_values[0][var.index]), quot_size)
+                node_values[i] = FF4.broadcast(FF4(exposed_values[0][var.index]), quot_size)
             else:
                 raise ValueError(f"Unknown entry kind: {entry.kind}")
 
         elif kind == SymbolicNodeKind.CONSTANT:
-            node_values[i] = EF4.broadcast(
-                EF4(node.constant_value % p), quot_size
+            node_values[i] = FF4.broadcast(
+                FF4(node.constant_value % p), quot_size
             )
 
         elif kind == SymbolicNodeKind.IS_FIRST_ROW:
-            node_values[i] = EF4.from_base(is_first_row_ff)
+            node_values[i] = FF4.from_base(is_first_row_ff)
 
         elif kind == SymbolicNodeKind.IS_LAST_ROW:
-            node_values[i] = EF4.from_base(is_last_row_ff)
+            node_values[i] = FF4.from_base(is_last_row_ff)
 
         elif kind == SymbolicNodeKind.IS_TRANSITION:
-            node_values[i] = EF4.from_base(is_transition_ff)
+            node_values[i] = FF4.from_base(is_transition_ff)
 
         elif kind == SymbolicNodeKind.ADD:
             node_values[i] = node_values[node.left_idx] + node_values[node.right_idx]
@@ -785,8 +785,8 @@ def _eval_dag_vectorized(
 
 def _accumulate_and_divide(
     dag: SymbolicExpressionDag,
-    node_values: list[EF4 | FF | None],
-    alpha: EF4,
+    node_values: list[FF4 | FF | None],
+    alpha: FF4,
     inv_zeroifier_ff: FF,
     quot_size: int,
 ) -> list[list[int]]:
@@ -795,13 +795,13 @@ def _accumulate_and_divide(
     Returns quotient values as a list of list[int] rows.
     """
     num_constraints = len(dag.constraint_idx)
-    alpha_powers: list[EF4] = []
-    current_alpha = EF4(1)
+    alpha_powers: list[FF4] = []
+    current_alpha = FF4(1)
     for _ in range(num_constraints):
         alpha_powers.append(current_alpha)
         current_alpha = current_alpha * alpha
 
-    acc = EF4.zeros(quot_size)
+    acc = FF4.zeros(quot_size)
     for alpha_pow, node_idx in zip(alpha_powers, reversed(dag.constraint_idx)):
         acc = acc + node_values[node_idx] * alpha_pow
 
@@ -815,7 +815,7 @@ def _compute_quotient_values_vectorized(
     trace_on_quotient_domain: list[list[Fe]],
     constraints_dag: SymbolicExpressionDag,
     public_values: list[Fe],
-    alpha: EF4,
+    alpha: FF4,
     quotient_domain: TwoAdicMultiplicativeCoset,
     trace_domain: TwoAdicMultiplicativeCoset,
     preprocessed_on_quot: list[list[Fe]] | None,
@@ -882,7 +882,7 @@ def quotient_values_to_chunks(
     strided" into num_chunks sub-cosets.  Row i of the full quotient maps to
     chunk (i % num_chunks), row (i // num_chunks) of that chunk.
 
-    Each chunk row has 4 base field elements (the EF4 coefficients), matching
+    Each chunk row has 4 base field elements (the FF4 coefficients), matching
     the Rust representation where extension field elements are transmuted to
     base field columns.
 
@@ -895,12 +895,12 @@ def quotient_values_to_chunks(
     goes into chunk[chunk_idx][row_idx].
 
     Args:
-        quotient_values: Flat list of EF4 quotient values on the quotient domain.
+        quotient_values: Flat list of FF4 quotient values on the quotient domain.
         num_chunks: Number of chunks (= quotient_degree, a power of 2).
 
     Returns:
         List of chunks. Each chunk is a list of rows, each row being
-        [c0, c1, c2, c3] (the 4 base field coefficients of the EF4 element).
+        [c0, c1, c2, c3] (the 4 base field coefficients of the FF4 element).
     """
     quot_size = len(quotient_values)
     assert quot_size % num_chunks == 0
@@ -914,7 +914,7 @@ def quotient_values_to_chunks(
             # full_idx = chunk_idx + row_idx * num_chunks
             full_idx = chunk_idx + row_idx * num_chunks
             ef4_val = quotient_values[full_idx]
-            # Flatten EF4 to 4 base field elements
+            # Flatten FF4 to 4 base field elements
             chunks[chunk_idx].append(list(ef4_val))
 
     return chunks
@@ -930,24 +930,24 @@ def extend_after_challenge_to_quotient_domain(
     trace_domain: TwoAdicMultiplicativeCoset,
     quotient_domain: TwoAdicMultiplicativeCoset,
 ) -> list[list[list[int]]]:
-    """Extend after-challenge trace (EF4 values) to the quotient domain.
+    """Extend after-challenge trace (FF4 values) to the quotient domain.
 
-    Each EF4 element has 4 base field coefficients. We LDE each coefficient
-    column independently, then reconstruct EF4 values at quotient domain points.
+    Each FF4 element has 4 base field coefficients. We LDE each coefficient
+    column independently, then reconstruct FF4 values at quotient domain points.
 
     Args:
-        after_challenge_trace: [rows][perm_width] of EF4Coeffs on trace domain.
+        after_challenge_trace: [rows][perm_width] of FF4Coeffs on trace domain.
         trace_domain: Trace domain (shift=1 subgroup).
         quotient_domain: Quotient domain (disjoint coset).
 
     Returns:
-        [quot_rows][perm_width] of EF4Coeffs on quotient domain.
+        [quot_rows][perm_width] of FF4Coeffs on quotient domain.
     """
     n_trace = trace_domain.size()
     n_quot = quotient_domain.size()
     perm_width = len(after_challenge_trace[0])
 
-    # Flatten: extract 4 base field columns per EF4 column
+    # Flatten: extract 4 base field columns per FF4 column
     # Total base field columns = perm_width * 4
     num_base_cols = perm_width * 4
     base_columns: list[list[Fe]] = [[] for _ in range(num_base_cols)]
@@ -963,7 +963,7 @@ def extend_after_challenge_to_quotient_domain(
         for col in base_columns
     ]
 
-    # Reconstruct EF4 values at quotient domain points
+    # Reconstruct FF4 values at quotient domain points
     result: list[list[list[int]]] = []
     for row in range(n_quot):
         ef4_row: list[list[int]] = []
@@ -982,7 +982,7 @@ def compute_quotient_chunks(
     trace: list[list[Fe]],
     constraints_dag: SymbolicExpressionDag,
     public_values: list[Fe],
-    alpha: EF4,
+    alpha: FF4,
     trace_domain: TwoAdicMultiplicativeCoset,
     quotient_degree: int,
     preprocessed_trace: list[list[Fe]] | None = None,
@@ -1011,7 +1011,7 @@ def compute_quotient_chunks(
         trace_domain: Trace domain (shift=1 subgroup).
         quotient_degree: Factor multiplying trace degree to get quotient degree.
         preprocessed_trace: Preprocessed trace matrix [rows][cols] (optional).
-        after_challenge_trace: After-challenge trace [rows][perm_width] of EF4 (optional).
+        after_challenge_trace: After-challenge trace [rows][perm_width] of FF4 (optional).
         challenges: Challenges per phase (optional).
         exposed_values: Exposed values per phase (optional).
 

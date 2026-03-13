@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from primitives.field import (
     BABYBEAR_PRIME,
-    EF4,
+    FF4,
     Fe,
     GENERATOR,
     get_omega,
@@ -36,10 +36,10 @@ class DomainSelectors:
     Reference:
         p3-commit-0.4.1/src/domain.rs (LagrangeSelectors struct, lines 20-30)
     """
-    is_first_row: EF4    # Z_H(x) / (unshifted_x - 1)
-    is_last_row: EF4     # Z_H(x) / (unshifted_x - gen^{-1})
-    is_transition: EF4   # unshifted_x - gen^{-1}
-    inv_zeroifier: EF4   # 1 / Z_H(x)
+    is_first_row: FF4    # Z_H(x) / (unshifted_x - 1)
+    is_last_row: FF4     # Z_H(x) / (unshifted_x - gen^{-1})
+    is_transition: FF4   # unshifted_x - gen^{-1}
+    inv_zeroifier: FF4   # 1 / Z_H(x)
 
 
 @dataclass
@@ -87,7 +87,7 @@ class TwoAdicMultiplicativeCoset:
         """
         return self.shift
 
-    def next_point(self, point) -> EF4:
+    def next_point(self, point) -> FF4:
         """Map the i-th element to the (i+1)-th: multiply by the generator.
 
         For a coset gH with generator h, next_point(x) = x * h.
@@ -101,9 +101,9 @@ class TwoAdicMultiplicativeCoset:
         Reference:
             p3-commit domain.rs PolynomialSpace::next_point (line 144-146)
         """
-        return EF4(point).mul_base(self.gen())
+        return FF4(point).mul_base(self.gen())
 
-    def vanishing_poly_at_point(self, point) -> EF4:
+    def vanishing_poly_at_point(self, point) -> FF4:
         """Evaluate the vanishing polynomial Z_{gH}(X) at the given point.
 
         Z_{gH}(X) = (g^{-1} * X)^|H| - 1
@@ -119,8 +119,8 @@ class TwoAdicMultiplicativeCoset:
         Reference:
             p3-commit domain.rs PolynomialSpace::vanishing_poly_at_point (lines 226-228)
         """
-        unshifted = EF4(point).mul_base(self.shift_inverse())
-        return unshifted ** (2 ** self.log_n) - EF4.one()
+        unshifted = FF4(point).mul_base(self.shift_inverse())
+        return unshifted ** (2 ** self.log_n) - FF4.one()
 
     def selectors_at_point(self, point) -> DomainSelectors:
         """Compute Lagrange selectors at an evaluation point.
@@ -145,14 +145,14 @@ class TwoAdicMultiplicativeCoset:
         Reference:
             p3-commit domain.rs PolynomialSpace::selectors_at_point (lines 237-245)
         """
-        unshifted_point = EF4(point).mul_base(self.shift_inverse())
+        unshifted_point = FF4(point).mul_base(self.shift_inverse())
         gen_inv = inv_mod(self.gen())
-        z_h = unshifted_point ** (2 ** self.log_n) - EF4.one()
+        z_h = unshifted_point ** (2 ** self.log_n) - FF4.one()
 
         return DomainSelectors(
-            is_first_row=z_h / (unshifted_point - EF4.one()),
-            is_last_row=z_h / (unshifted_point - EF4(gen_inv)),
-            is_transition=unshifted_point - EF4(gen_inv),
+            is_first_row=z_h / (unshifted_point - FF4.one()),
+            is_last_row=z_h / (unshifted_point - FF4(gen_inv)),
+            is_transition=unshifted_point - FF4(gen_inv),
             inv_zeroifier=z_h ** -1,
         )
 

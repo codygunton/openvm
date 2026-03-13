@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 
 from primitives.field import (
-    EF4,
+    FF4,
     FF,
     Fe,
 )
@@ -37,22 +37,22 @@ from protocol.proof import (
 # ---------------------------------------------------------------------------
 
 
-def unflatten_ext_values(flattened: list) -> list[EF4]:
+def unflatten_ext_values(flattened: list) -> list[FF4]:
     """Reconstitute extension field elements from flattened challenge values.
 
     In the Rust verifier, after_challenge (permutation) trace values are stored
-    as "flattened" extension field elements: each EF4 element is stored as 4
-    consecutive Challenge (== EF4) values where only the base field component
-    is meaningful.  This function groups them back into proper EF4 elements.
+    as "flattened" extension field elements: each FF4 element is stored as 4
+    consecutive Challenge (== FF4) values where only the base field component
+    is meaningful.  This function groups them back into proper FF4 elements.
 
     Given D=4 (extension degree), each group of 4 consecutive flattened values
-    [c0, c1, c2, c3] (each an EF4Coeffs with only coeffs[0] used) is combined
+    [c0, c1, c2, c3] (each an FF4Coeffs with only coeffs[0] used) is combined
     using the monomial basis:
         result = c0 * 1 + c1 * x + c2 * x^2 + c3 * x^3
 
-    Since each c_i is already an EF4Coeffs, multiplying by x^e_i is the same
+    Since each c_i is already an FF4Coeffs, multiplying by x^e_i is the same
     as shifting coefficients. But in the verifier, each c_i is treated as a
-    full EF4 element, and monomial(e_i) * c_i uses extension field multiplication.
+    full FF4 element, and monomial(e_i) * c_i uses extension field multiplication.
 
     For BabyBear extension degree 4 with irreducible x^4 - 11:
         monomial(0) = [1,0,0,0]
@@ -71,11 +71,11 @@ def unflatten_ext_values(flattened: list) -> list[EF4]:
     result = []
     for i in range(0, len(flattened), ext_degree):
         chunk = flattened[i : i + ext_degree]
-        acc = EF4.zero()
+        acc = FF4.zero()
         for e_i in range(ext_degree):
             monomial = [0, 0, 0, 0]
             monomial[e_i] = 1
-            acc = acc + EF4(chunk[e_i]) * EF4(monomial)
+            acc = acc + FF4(chunk[e_i]) * FF4(monomial)
         result.append(acc)
     return result
 
@@ -95,7 +95,7 @@ def eval_symbolic_dag(
     challenges: list[list],
     public_values: list[Fe],
     exposed_values_after_challenge: list[list],
-) -> list[EF4]:
+) -> list[FF4]:
     """Evaluate the symbolic expression DAG and return constraint values.
 
     Walks the DAG nodes in topological order (they are already sorted).
@@ -109,10 +109,10 @@ def eval_symbolic_dag(
         stark-backend/src/verifier/folder.rs
             GenericVerifierConstraintFolder impl of SymbolicEvaluator (lines 74-123)
     """
-    results: list[EF4] = []
+    results: list[FF4] = []
 
     for node in dag.nodes:
-        value: EF4
+        value: FF4
 
         if node.kind == SymbolicNodeKind.VARIABLE:
             value = _lookup_variable(
@@ -126,7 +126,7 @@ def eval_symbolic_dag(
                 exposed_values_after_challenge,
             )
         elif node.kind == SymbolicNodeKind.CONSTANT:
-            value = EF4(node.constant_value)
+            value = FF4(node.constant_value)
         elif node.kind == SymbolicNodeKind.IS_FIRST_ROW:
             value = selectors.is_first_row
         elif node.kind == SymbolicNodeKind.IS_LAST_ROW:
@@ -158,13 +158,13 @@ def _lookup_variable(
     challenges: list[list],
     public_values: list[Fe],
     exposed_values_after_challenge: list[list],
-) -> EF4:
+) -> FF4:
     """Look up a symbolic variable's value from the opened proof values.
 
     Maps each Entry type to the appropriate opened values slice:
     - Preprocessed{offset} -> preprocessed local (offset=0) or next (offset=1)
     - Main{part_index, offset} -> partitioned_main[part_index].local/next[index]
-    - Public -> public_values[index] embedded into EF4
+    - Public -> public_values[index] embedded into FF4
     - Permutation{offset} -> after_challenge[0].local/next[index] (always phase 0)
     - Challenge -> challenges[0][index] (always phase 0)
     - Exposed -> exposed_values_after_challenge[0][index] (always phase 0)
@@ -178,32 +178,32 @@ def _lookup_variable(
 
     if entry.kind == EntryType.PREPROCESSED:
         if entry.offset == 0:
-            return EF4(preprocessed_local[index])
+            return FF4(preprocessed_local[index])
         else:
-            return EF4(preprocessed_next[index])
+            return FF4(preprocessed_next[index])
 
     elif entry.kind == EntryType.MAIN:
         part = partitioned_main_values[entry.part_index]
         if entry.offset == 0:
-            return EF4(part.local[index])
+            return FF4(part.local[index])
         else:
-            return EF4(part.next[index])
+            return FF4(part.next[index])
 
     elif entry.kind == EntryType.PUBLIC:
-        return EF4(public_values[index])
+        return FF4(public_values[index])
 
     elif entry.kind == EntryType.PERMUTATION:
         part = after_challenge_values[0]
         if entry.offset == 0:
-            return EF4(part.local[index])
+            return FF4(part.local[index])
         else:
-            return EF4(part.next[index])
+            return FF4(part.next[index])
 
     elif entry.kind == EntryType.CHALLENGE:
-        return EF4(challenges[0][index])
+        return FF4(challenges[0][index])
 
     elif entry.kind == EntryType.EXPOSED:
-        return EF4(exposed_values_after_challenge[0][index])
+        return FF4(exposed_values_after_challenge[0][index])
 
     else:
         raise ValueError(f"Unknown EntryType: {entry.kind}")
@@ -215,9 +215,9 @@ def _lookup_variable(
 
 
 def fold_constraints(
-    constraint_evals: list[EF4],
-    alpha: EF4,
-) -> EF4:
+    constraint_evals: list[FF4],
+    alpha: FF4,
+) -> FF4:
     """Compute random linear combination of constraint evaluations.
 
     The Rust verifier uses Horner's method: starting with accumulator = 0,
@@ -230,7 +230,7 @@ def fold_constraints(
         stark-backend/src/verifier/folder.rs lines 56-72
         (GenericVerifierConstraintFolder::eval_constraints + assert_zero)
     """
-    accumulator = EF4.zero()
+    accumulator = FF4.zero()
     for c_eval in constraint_evals:
         accumulator = accumulator * alpha + c_eval
     return accumulator
@@ -244,8 +244,8 @@ def fold_constraints(
 def reconstruct_quotient(
     quotient_chunks: list[list],
     qc_domains: list[TwoAdicMultiplicativeCoset],
-    zeta: EF4,
-) -> EF4:
+    zeta: FF4,
+) -> FF4:
     """Recompute the full quotient polynomial value at zeta from chunks.
 
     For each chunk domain D_i, compute:
@@ -256,7 +256,7 @@ def reconstruct_quotient(
 
     Each quotient_chunks[i] has D=4 elements, which are the coefficients
     in the extension field basis. So quotient_chunks[i] is treated as a
-    single EF4 element by combining with the monomial basis.
+    single FF4 element by combining with the monomial basis.
 
     Reference:
         stark-backend/src/verifier/constraints.rs lines 38-63
@@ -264,25 +264,25 @@ def reconstruct_quotient(
     num_chunks = len(qc_domains)
     assert len(quotient_chunks) == num_chunks
 
-    zps: list[EF4] = []
+    zps: list[FF4] = []
     for i in range(num_chunks):
-        prod = EF4.one()
+        prod = FF4.one()
         for j in range(num_chunks):
             if j != i:
                 zp_at_zeta = qc_domains[j].vanishing_poly_at_point(zeta)
-                first_pt = EF4(qc_domains[i].first_point())
+                first_pt = FF4(qc_domains[i].first_point())
                 zp_at_first = qc_domains[j].vanishing_poly_at_point(first_pt)
                 prod = prod * (zp_at_zeta / zp_at_first)
         zps.append(prod)
 
-    result = EF4.zero()
+    result = FF4.zero()
     for ch_i in range(num_chunks):
         chunk = quotient_chunks[ch_i]
-        chunk_sum = EF4.zero()
+        chunk_sum = FF4.zero()
         for e_i, c in enumerate(chunk):
             monomial = [0, 0, 0, 0]
             monomial[e_i] = 1
-            chunk_sum = chunk_sum + EF4(c) * EF4(monomial)
+            chunk_sum = chunk_sum + FF4(c) * FF4(monomial)
         result = result + zps[ch_i] * chunk_sum
 
     return result
@@ -419,8 +419,8 @@ def verify_single_rap_constraints(
     quotient_chunks: list[list],
     domain: TwoAdicMultiplicativeCoset,
     qc_domains: list[TwoAdicMultiplicativeCoset],
-    zeta: EF4,
-    alpha: EF4,
+    zeta: FF4,
+    alpha: FF4,
     challenges: list[list],
     public_values: list[Fe],
     exposed_values_after_challenge: list[list],
@@ -429,7 +429,7 @@ def verify_single_rap_constraints(
 
     Steps:
     1. Compute selectors at zeta (is_first_row, is_last_row, is_transition, inv_zeroifier).
-    2. Unflatten after_challenge values from base-field-flattened to EF4 elements.
+    2. Unflatten after_challenge values from base-field-flattened to FF4 elements.
     3. Evaluate constraint DAG at opened values.
     4. Fold constraints with alpha (random linear combination).
     5. Reconstruct quotient from chunks.
@@ -454,7 +454,7 @@ def verify_single_rap_constraints(
 
     # Step 3: unflatten after_challenge values
     # In Rust, after_challenge opened values are stored as flattened extension
-    # field elements (each EF4 element = 4 consecutive Challenge values).
+    # field elements (each FF4 element = 4 consecutive Challenge values).
     # We reconstitute them before passing to the DAG evaluator.
     unflattened_after_challenge: list[AdjacentOpenedValues] = []
     for ac_vals in after_challenge_values:

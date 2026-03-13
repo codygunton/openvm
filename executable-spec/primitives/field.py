@@ -1,14 +1,14 @@
 """BabyBear field GF(p) and quartic extension GF(p^4).
 
 Uses galois library for base field GF(p) arithmetic.
-Uses custom EF4 class for fast quartic extension field arithmetic.
+Uses custom FF4 class for fast quartic extension field arithmetic.
 
 Type Discipline
 ---------------
 FF (galois GF(p)):
     Base field columns and scalars. Fast jit-compiled numpy operations.
 
-EF4:
+FF4:
     Extension field GF(p^4) scalars and columns. Stores coefficients as int64 arrays.
     Supports operator overloads: +, -, *, /, **, negation.
     Scalars: shape (4,). Columns: shape (N, 4).
@@ -68,7 +68,7 @@ _P3 = _P2 * _P
 _W_EXT = 11  # Extension polynomial constant: x^4 = 11
 
 
-# --- EF4: Fast Extension Field GF(p^4) ---
+# --- FF4: Fast Extension Field GF(p^4) ---
 
 
 def _modpow_arr(base: np.ndarray, exp: int) -> np.ndarray:
@@ -83,7 +83,7 @@ def _modpow_arr(base: np.ndarray, exp: int) -> np.ndarray:
     return result
 
 
-class EF4:
+class FF4:
     """Extension field GF(p^4) = GF(p)[x]/(x^4 - 11) element or column.
 
     Internal storage: int64 ndarray of shape (4,) for scalar or (N, 4) for column.
@@ -100,7 +100,7 @@ class EF4:
     __slots__ = ('_d',)
 
     def __init__(self, data=None):
-        if isinstance(data, EF4):
+        if isinstance(data, FF4):
             self._d = data._d.copy()
         elif isinstance(data, int):
             # Embed base field element as (val, 0, 0, 0)
@@ -114,9 +114,9 @@ class EF4:
             elif arr.ndim == 2 and arr.shape[1] == 4:
                 self._d = arr % _P
             elif arr.ndim == 1 and arr.shape[0] != 4:
-                raise ValueError(f"EF4 1D array must have 4 elements, got {arr.shape[0]}")
+                raise ValueError(f"FF4 1D array must have 4 elements, got {arr.shape[0]}")
             else:
-                raise ValueError(f"EF4 array must be shape (4,) or (N,4), got {arr.shape}")
+                raise ValueError(f"FF4 array must be shape (4,) or (N,4), got {arr.shape}")
         elif hasattr(data, 'vector'):
             # galois FieldArray — extract polynomial coefficients.
             # Must check before np.ndarray since FieldArray is a subclass.
@@ -134,14 +134,14 @@ class EF4:
             elif data.ndim == 2 and data.shape[1] == 4:
                 self._d = data.astype(np.int64) % _P
             else:
-                raise ValueError(f"EF4 array must be shape (4,) or (N,4), got {data.shape}")
+                raise ValueError(f"FF4 array must be shape (4,) or (N,4), got {data.shape}")
         elif data is None:
             self._d = np.array([0, 0, 0, 0], dtype=np.int64)
         else:
-            raise TypeError(f"Cannot create EF4 from {type(data)}")
+            raise TypeError(f"Cannot create FF4 from {type(data)}")
 
     @classmethod
-    def _wrap(cls, data: np.ndarray) -> 'EF4':
+    def _wrap(cls, data: np.ndarray) -> 'FF4':
         """Wrap raw int64 array without copying or mod. Internal use only."""
         obj = object.__new__(cls)
         obj._d = data
@@ -150,23 +150,23 @@ class EF4:
     # --- Constructors ---
 
     @classmethod
-    def zeros(cls, n: int) -> 'EF4':
+    def zeros(cls, n: int) -> 'FF4':
         """Zero column of length n."""
         return cls._wrap(np.zeros((n, 4), dtype=np.int64))
 
     @classmethod
-    def one(cls) -> 'EF4':
+    def one(cls) -> 'FF4':
         """Multiplicative identity scalar."""
         return cls._wrap(np.array([1, 0, 0, 0], dtype=np.int64))
 
     @classmethod
-    def zero(cls) -> 'EF4':
+    def zero(cls) -> 'FF4':
         """Additive identity scalar."""
         return cls._wrap(np.array([0, 0, 0, 0], dtype=np.int64))
 
     @classmethod
-    def from_base(cls, base) -> 'EF4':
-        """Lift base field values to EF4 as (val, 0, 0, 0).
+    def from_base(cls, base) -> 'FF4':
+        """Lift base field values to FF4 as (val, 0, 0, 0).
 
         Args:
             base: int, FF array, list[int], or ndarray of base field elements.
@@ -183,16 +183,16 @@ class EF4:
             d = np.zeros((len(vals), 4), dtype=np.int64)
             d[:, 0] = vals
             return cls._wrap(d)
-        raise TypeError(f"Cannot create EF4.from_base from {type(base)}")
+        raise TypeError(f"Cannot create FF4.from_base from {type(base)}")
 
     @classmethod
-    def from_rows(cls, rows: list) -> 'EF4':
+    def from_rows(cls, rows: list) -> 'FF4':
         """Create from list of [c0, c1, c2, c3] coefficient lists."""
         return cls(np.array(rows, dtype=np.int64))
 
     @classmethod
-    def broadcast(cls, scalar: 'EF4', n: int) -> 'EF4':
-        """Broadcast a scalar EF4 to a column of length n."""
+    def broadcast(cls, scalar: 'FF4', n: int) -> 'FF4':
+        """Broadcast a scalar FF4 to a column of length n."""
         if isinstance(scalar, cls):
             coeffs = scalar._d if scalar._d.ndim == 1 else scalar._d[0]
         elif isinstance(scalar, (list, tuple)):
@@ -233,19 +233,19 @@ class EF4:
             if isinstance(key, (int, np.integer)):
                 # Return individual coefficient
                 return int(self._d[key])
-            raise IndexError(f"Invalid index for scalar EF4: {key}")
+            raise IndexError(f"Invalid index for scalar FF4: {key}")
         result = self._d[key]
         if result.ndim == 1:
-            return EF4._wrap(result.copy())
-        return EF4._wrap(result)
+            return FF4._wrap(result.copy())
+        return FF4._wrap(result)
 
     def __setitem__(self, key, value):
         if self._d.ndim == 1:
-            raise IndexError("Cannot set items on scalar EF4")
-        if isinstance(value, EF4):
+            raise IndexError("Cannot set items on scalar FF4")
+        if isinstance(value, FF4):
             self._d[key] = value._d
         else:
-            raise TypeError(f"Can only assign EF4, got {type(value)}")
+            raise TypeError(f"Can only assign FF4, got {type(value)}")
 
     def to_rows(self) -> list:
         """Convert to list of [c0, c1, c2, c3] coefficient lists."""
@@ -254,7 +254,7 @@ class EF4:
         return self._d.tolist()
 
     def to_list(self) -> list:
-        """Convert scalar to [c0, c1, c2, c3] list (backward compat with EF4Coeffs)."""
+        """Convert scalar to [c0, c1, c2, c3] list (backward compat with FF4Coeffs)."""
         if self._d.ndim == 1:
             return self._d.tolist()
         raise ValueError("to_list() only for scalars")
@@ -262,46 +262,46 @@ class EF4:
     # --- Arithmetic ---
 
     def __add__(self, other):
-        if isinstance(other, EF4):
-            return EF4._wrap((self._d + other._d) % _P)
+        if isinstance(other, FF4):
+            return FF4._wrap((self._d + other._d) % _P)
         return NotImplemented
 
     def __radd__(self, other):
         if other == 0:  # Support sum()
             return self
-        if isinstance(other, EF4):
+        if isinstance(other, FF4):
             return other.__add__(self)
         return NotImplemented
 
     def __sub__(self, other):
-        if isinstance(other, EF4):
-            return EF4._wrap((self._d - other._d) % _P)
+        if isinstance(other, FF4):
+            return FF4._wrap((self._d - other._d) % _P)
         return NotImplemented
 
     def __rsub__(self, other):
-        if isinstance(other, EF4):
+        if isinstance(other, FF4):
             return other.__sub__(self)
         return NotImplemented
 
     def __neg__(self):
         d = self._d
         result = np.where(d == 0, d, _P - d)
-        return EF4._wrap(result)
+        return FF4._wrap(result)
 
     def __mul__(self, other):
-        if isinstance(other, EF4):
+        if isinstance(other, FF4):
             return _ef4_mul(self._d, other._d)
         if isinstance(other, (int, np.integer)):
-            return EF4._wrap((self._d * (int(other) % _P)) % _P)
+            return FF4._wrap((self._d * (int(other) % _P)) % _P)
         return NotImplemented
 
     def __rmul__(self, other):
         if isinstance(other, (int, np.integer)):
-            return EF4._wrap((self._d * (int(other) % _P)) % _P)
+            return FF4._wrap((self._d * (int(other) % _P)) % _P)
         return NotImplemented
 
     def __truediv__(self, other):
-        if isinstance(other, EF4):
+        if isinstance(other, FF4):
             return self * other.inv()
         return NotImplemented
 
@@ -310,16 +310,16 @@ class EF4:
             return self.inv()
         if exp == 0:
             if self._d.ndim == 1:
-                return EF4.one()
-            return EF4._wrap(np.tile(np.array([1, 0, 0, 0], dtype=np.int64),
+                return FF4.one()
+            return FF4._wrap(np.tile(np.array([1, 0, 0, 0], dtype=np.int64),
                                      (self._d.shape[0], 1)))
         if exp == 1:
-            return EF4._wrap(self._d.copy())
+            return FF4._wrap(self._d.copy())
         if exp < 0:
             return self.inv() ** (-exp)
         # Square-and-multiply
         result = self ** 0  # identity
-        base = EF4._wrap(self._d.copy())
+        base = FF4._wrap(self._d.copy())
         n = exp
         while n > 0:
             if n & 1:
@@ -328,45 +328,45 @@ class EF4:
             n >>= 1
         return result
 
-    def inv(self) -> 'EF4':
+    def inv(self) -> 'FF4':
         """Multiplicative inverse via tower decomposition."""
         return _ef4_inv(self._d)
 
-    def mul_base(self, base_vals) -> 'EF4':
+    def mul_base(self, base_vals) -> 'FF4':
         """Multiply each element by base field values (coefficient-wise scaling).
 
-        More efficient than a * EF4.from_base(b) because it avoids
+        More efficient than a * FF4.from_base(b) because it avoids
         the full polynomial multiply (only 4 multiplications vs 16).
         """
         if isinstance(base_vals, np.ndarray):
             b = base_vals.view(np.ndarray).ravel().astype(np.int64) % _P
             if self._d.ndim == 2:
-                return EF4._wrap((self._d * b[:, np.newaxis]) % _P)
-            return EF4._wrap((self._d * int(b[0])) % _P)
+                return FF4._wrap((self._d * b[:, np.newaxis]) % _P)
+            return FF4._wrap((self._d * int(b[0])) % _P)
         if isinstance(base_vals, (int, np.integer)):
-            return EF4._wrap((self._d * (int(base_vals) % _P)) % _P)
+            return FF4._wrap((self._d * (int(base_vals) % _P)) % _P)
         if isinstance(base_vals, list):
             b = np.array(base_vals, dtype=np.int64) % _P
             if self._d.ndim == 2:
-                return EF4._wrap((self._d * b[:, np.newaxis]) % _P)
-            return EF4._wrap((self._d * int(b[0])) % _P)
+                return FF4._wrap((self._d * b[:, np.newaxis]) % _P)
+            return FF4._wrap((self._d * int(b[0])) % _P)
         raise TypeError(f"Cannot mul_base with {type(base_vals)}")
 
     # --- Column operations ---
 
-    def roll(self, shift: int) -> 'EF4':
+    def roll(self, shift: int) -> 'FF4':
         """Circular shift (for columns)."""
-        return EF4._wrap(np.roll(self._d, shift, axis=0))
+        return FF4._wrap(np.roll(self._d, shift, axis=0))
 
-    def cumsum(self) -> 'EF4':
+    def cumsum(self) -> 'FF4':
         """Prefix sum (for columns). Safe for height <= 2^27."""
         d = np.cumsum(self._d, axis=0) % _P
-        return EF4._wrap(d)
+        return FF4._wrap(d)
 
     # --- Comparison ---
 
     def __eq__(self, other):
-        if isinstance(other, EF4):
+        if isinstance(other, FF4):
             return np.array_equal(self._d, other._d)
         if isinstance(other, (list, tuple)):
             return np.array_equal(self._d, np.array(other, dtype=np.int64) % _P)
@@ -381,19 +381,19 @@ class EF4:
     def __hash__(self):
         if self._d.ndim == 1:
             return hash(tuple(self._d.tolist()))
-        raise TypeError("Unhashable: column EF4")
+        raise TypeError("Unhashable: column FF4")
 
     def __repr__(self):
         if self._d.ndim == 1:
-            return f"EF4({self._d.tolist()})"
-        return f"EF4(shape=({self._d.shape[0]}, 4))"
+            return f"FF4({self._d.tolist()})"
+        return f"FF4(shape=({self._d.shape[0]}, 4))"
 
     def __bool__(self):
-        raise ValueError("Truth value of EF4 is ambiguous. Use == EF4.zero() for comparison.")
+        raise ValueError("Truth value of FF4 is ambiguous. Use == FF4.zero() for comparison.")
 
 
-def _ef4_mul(a: np.ndarray, b: np.ndarray) -> EF4:
-    """Polynomial multiply for EF4 internal arrays.
+def _ef4_mul(a: np.ndarray, b: np.ndarray) -> FF4:
+    """Polynomial multiply for FF4 internal arrays.
 
     Handles all broadcasting: scalar*scalar, scalar*column, column*column.
     """
@@ -407,7 +407,7 @@ def _ef4_mul(a: np.ndarray, b: np.ndarray) -> EF4:
         c1 = (a0 * b1 + a1 * b0 + W * (a2 * b3 + a3 * b2)) % _P
         c2 = (a0 * b2 + a1 * b1 + a2 * b0 + W * a3 * b3) % _P
         c3 = (a0 * b3 + a1 * b2 + a2 * b1 + a3 * b0) % _P
-        return EF4._wrap(np.array([c0, c1, c2, c3], dtype=np.int64))
+        return FF4._wrap(np.array([c0, c1, c2, c3], dtype=np.int64))
 
     # At least one operand is a column — use vectorized numpy.
     # Use intermediate mod to prevent int64 overflow: (p-1)^2 ~ 2^62, sum of 3 can overflow.
@@ -430,10 +430,10 @@ def _ef4_mul(a: np.ndarray, b: np.ndarray) -> EF4:
     c2 = ((_m(a0, b2) + _m(a1, b1)) % _P + (_m(a2, b0) + W * _m(a3, b3)) % _P) % _P
     c3 = ((_m(a0, b3) + _m(a1, b2)) % _P + (_m(a2, b1) + _m(a3, b0)) % _P) % _P
 
-    return EF4._wrap(np.column_stack([c0, c1, c2, c3]))
+    return FF4._wrap(np.column_stack([c0, c1, c2, c3]))
 
 
-def _ef4_inv(d: np.ndarray) -> EF4:
+def _ef4_inv(d: np.ndarray) -> FF4:
     """Inverse via tower decomposition.
 
     GF(p^4) = GF(p^2)[y]/(y^2 - W) where GF(p^2) = GF(p)[u]/(u^2 - W).
@@ -469,7 +469,7 @@ def _ef4_inv(d: np.ndarray) -> EF4:
         r1 = (_P - (a1 * e0 + _W_EXT * a3 * e1) % _P) % _P
         r2 = (a0 * e1 + a2 * e0) % _P
         r3 = (_P - (a1 * e1 + a3 * e0) % _P) % _P
-        return EF4._wrap(np.array([r0, r1, r2, r3], dtype=np.int64))
+        return FF4._wrap(np.array([r0, r1, r2, r3], dtype=np.int64))
 
     # Column inverse — vectorized with intermediate mod to prevent int64 overflow.
     # W=11, so W*x*y can reach 11*(P-1)^2 ~ 5e19 > 2^63.
@@ -498,25 +498,25 @@ def _ef4_inv(d: np.ndarray) -> EF4:
     r1 = (_P - (_m(a1, e0) + W * _m(a3, e1)) % _P) % _P
     r2 = (_m(a0, e1) + _m(a2, e0)) % _P
     r3 = (_P - (_m(a1, e1) + _m(a3, e0)) % _P) % _P
-    return EF4._wrap(np.column_stack([r0, r1, r2, r3]))
+    return FF4._wrap(np.column_stack([r0, r1, r2, r3]))
 
 
 # --- Type Aliases ---
 
 # Keep galois FF4 accessible for tests and backward compat
-FF4 = _GaloisFF4
-FF4Poly = _GaloisFF4
+GaloisFF4 = _GaloisFF4
+GaloisFF4Poly = _GaloisFF4
 FFPoly = FF
 HashOutput = list[int]
 
 # Semantic type aliases for protocol code
 Fe = int                    # Base field element (BabyBear, in [0, p))
-EF4Coeffs = list[int]       # Extension field element as [c0,c1,c2,c3] — DEPRECATED, use EF4
+FF4Coeffs = list[int]       # Extension field element as [c0,c1,c2,c3] — DEPRECATED, use FF4
 Digest = list[int]          # 8-element Poseidon2 digest
 MerklePath = list[Digest]   # Merkle opening proof
 
 
-# --- Galois FF4 / EF4 Conversion (boundary helpers) ---
+# --- Galois FF4 / FF4 Conversion (boundary helpers) ---
 
 
 def ff4_coeffs(elem) -> list[int]:
@@ -525,12 +525,12 @@ def ff4_coeffs(elem) -> list[int]:
     return [val % _P, (val // _P) % _P, (val // _P2) % _P, (val // _P3) % _P]
 
 
-def ff4(coeffs) -> 'FF4':
+def ff4(coeffs) -> 'GaloisFF4':
     """Construct galois FF4 scalar from ascending-order coefficients [a0, a1, a2, a3].
 
-    Also accepts EF4 objects for backward compat.
+    Also accepts FF4 objects for backward compat.
     """
-    if isinstance(coeffs, EF4):
+    if isinstance(coeffs, FF4):
         c = coeffs._d if coeffs._d.ndim == 1 else coeffs._d[0]
         a0, a1, a2, a3 = int(c[0]) % _P, int(c[1]) % _P, int(c[2]) % _P, int(c[3]) % _P
     else:
@@ -541,12 +541,12 @@ def ff4(coeffs) -> 'FF4':
     return _GaloisFF4(a0 + a1 * _P + a2 * _P2 + a3 * _P3)
 
 
-def ff4_from_base(val: int) -> 'FF4':
+def ff4_from_base(val: int) -> 'GaloisFF4':
     """Embed base field element into galois FF4 as (val, 0, 0, 0)."""
     return _GaloisFF4(int(val) % _P)
 
 
-def ff4_array(c0: list[int], c1: list[int], c2: list[int], c3: list[int]) -> 'FF4':
+def ff4_array(c0: list[int], c1: list[int], c2: list[int], c3: list[int]) -> 'GaloisFF4':
     """Construct galois FF4 array from parallel coefficient lists."""
     n = len(c0)
     vals = [
@@ -559,7 +559,7 @@ def ff4_array(c0: list[int], c1: list[int], c2: list[int], c3: list[int]) -> 'FF
     return _GaloisFF4(vals)
 
 
-def ff4_from_json(json_arr: list[list[int]]) -> 'FF4':
+def ff4_from_json(json_arr: list[list[int]]) -> 'GaloisFF4':
     """Parse JSON [[c0,c1,c2,c3],...] to galois FF4 array."""
     n = len(json_arr)
     c0 = [json_arr[i][0] for i in range(n)]
@@ -574,203 +574,203 @@ def ff4_to_json(arr) -> list[list[int]]:
     return [ff4_coeffs(elem) for elem in arr]
 
 
-# --- EF4 JSON converters ---
+# --- FF4 JSON converters ---
 
 
-def ef4_from_json(json_arr: list[list[int]]) -> EF4:
-    """Parse JSON [[c0,c1,c2,c3],...] to EF4 column."""
-    return EF4(np.array(json_arr, dtype=np.int64))
+def ef4_from_json(json_arr: list[list[int]]) -> FF4:
+    """Parse JSON [[c0,c1,c2,c3],...] to FF4 column."""
+    return FF4(np.array(json_arr, dtype=np.int64))
 
 
-def ef4_to_json(ef4_col: EF4) -> list[list[int]]:
-    """Convert EF4 column/scalar to JSON [[c0,c1,c2,c3],...] format."""
+def ef4_to_json(ef4_col: FF4) -> list[list[int]]:
+    """Convert FF4 column/scalar to JSON [[c0,c1,c2,c3],...] format."""
     return ef4_col.to_rows()
 
 
 # --- Deprecated Extension Field Helpers (kept for backward compat) ---
 
 
-def ef4_from_base(x: int) -> EF4:
+def ef4_from_base(x: int) -> FF4:
     """Embed base field element into extension field as (x, 0, 0, 0).
 
-    DEPRECATED: Use EF4(x) or EF4.from_base(x) instead.
+    DEPRECATED: Use FF4(x) or FF4.from_base(x) instead.
     """
-    return EF4(int(x))
+    return FF4(int(x))
 
 
-def ef4_mul(a, b) -> EF4:
+def ef4_mul(a, b) -> FF4:
     """Multiply two extension field elements.
 
     DEPRECATED: Use a * b instead.
     """
-    if not isinstance(a, EF4):
-        a = EF4(a)
-    if not isinstance(b, EF4):
-        b = EF4(b)
+    if not isinstance(a, FF4):
+        a = FF4(a)
+    if not isinstance(b, FF4):
+        b = FF4(b)
     return a * b
 
 
-def ef4_mul_base(a, b: int) -> EF4:
+def ef4_mul_base(a, b: int) -> FF4:
     """Multiply extension field element by a base field element.
 
     DEPRECATED: Use a.mul_base(b) instead.
     """
-    if not isinstance(a, EF4):
-        a = EF4(a)
+    if not isinstance(a, FF4):
+        a = FF4(a)
     return a.mul_base(b)
 
 
-def ef4_add(a, b) -> EF4:
+def ef4_add(a, b) -> FF4:
     """Add two extension field elements.
 
     DEPRECATED: Use a + b instead.
     """
-    if not isinstance(a, EF4):
-        a = EF4(a)
-    if not isinstance(b, EF4):
-        b = EF4(b)
+    if not isinstance(a, FF4):
+        a = FF4(a)
+    if not isinstance(b, FF4):
+        b = FF4(b)
     return a + b
 
 
-def ef4_sub(a, b) -> EF4:
+def ef4_sub(a, b) -> FF4:
     """Subtract two extension field elements.
 
     DEPRECATED: Use a - b instead.
     """
-    if not isinstance(a, EF4):
-        a = EF4(a)
-    if not isinstance(b, EF4):
-        b = EF4(b)
+    if not isinstance(a, FF4):
+        a = FF4(a)
+    if not isinstance(b, FF4):
+        b = FF4(b)
     return a - b
 
 
-def ef4_neg(a) -> EF4:
+def ef4_neg(a) -> FF4:
     """Negate an extension field element.
 
     DEPRECATED: Use -a instead.
     """
-    if not isinstance(a, EF4):
-        a = EF4(a)
+    if not isinstance(a, FF4):
+        a = FF4(a)
     return -a
 
 
-def ef4_inv(x) -> EF4:
+def ef4_inv(x) -> FF4:
     """Multiplicative inverse in extension field.
 
     DEPRECATED: Use x ** -1 instead.
     """
-    if not isinstance(x, EF4):
-        x = EF4(x)
+    if not isinstance(x, FF4):
+        x = FF4(x)
     return x ** -1
 
 
-def ef4_div(a, b) -> EF4:
+def ef4_div(a, b) -> FF4:
     """Division in extension field: a / b.
 
     DEPRECATED: Use a / b instead.
     """
-    if not isinstance(a, EF4):
-        a = EF4(a)
-    if not isinstance(b, EF4):
-        b = EF4(b)
+    if not isinstance(a, FF4):
+        a = FF4(a)
+    if not isinstance(b, FF4):
+        b = FF4(b)
     return a / b
 
 
-def ef4_pow(x, n: int) -> EF4:
+def ef4_pow(x, n: int) -> FF4:
     """Exponentiation in extension field.
 
     DEPRECATED: Use x ** n instead.
     """
-    if not isinstance(x, EF4):
-        x = EF4(x)
+    if not isinstance(x, FF4):
+        x = FF4(x)
     return x ** n
 
 
-def ef4_exp_power_of_2(x, log_power: int) -> EF4:
+def ef4_exp_power_of_2(x, log_power: int) -> FF4:
     """Compute x^(2^log_power) by repeated squaring.
 
     DEPRECATED: Use x ** (2 ** log_power) instead.
     """
-    if not isinstance(x, EF4):
-        x = EF4(x)
+    if not isinstance(x, FF4):
+        x = FF4(x)
     return x ** (2 ** log_power)
 
 
-# --- Deprecated EF4Vec Wrappers ---
+# --- Deprecated FF4Vec Wrappers ---
 
-EF4Vec = tuple  # Backward compat type alias
+FF4Vec = tuple  # Backward compat type alias
 
 
-def ef4v_add(a: EF4, b: EF4) -> EF4:
+def ef4v_add(a: FF4, b: FF4) -> FF4:
     """DEPRECATED: Use a + b."""
     return a + b
 
 
-def ef4v_sub(a: EF4, b: EF4) -> EF4:
+def ef4v_sub(a: FF4, b: FF4) -> FF4:
     """DEPRECATED: Use a - b."""
     return a - b
 
 
-def ef4v_neg(a: EF4) -> EF4:
+def ef4v_neg(a: FF4) -> FF4:
     """DEPRECATED: Use -a."""
     return -a
 
 
-def ef4v_mul(a: EF4, b: EF4) -> EF4:
+def ef4v_mul(a: FF4, b: FF4) -> FF4:
     """DEPRECATED: Use a * b."""
     return a * b
 
 
-def ef4v_mul_base(a: EF4, b) -> EF4:
+def ef4v_mul_base(a: FF4, b) -> FF4:
     """DEPRECATED: Use a.mul_base(b)."""
     return a.mul_base(b)
 
 
-def ef4v_from_base(b) -> EF4:
-    """DEPRECATED: Use EF4.from_base(b)."""
-    return EF4.from_base(b)
+def ef4v_from_base(b) -> FF4:
+    """DEPRECATED: Use FF4.from_base(b)."""
+    return FF4.from_base(b)
 
 
-def ef4v_from_scalar(coeffs, n: int) -> EF4:
-    """DEPRECATED: Use EF4.broadcast(scalar, n)."""
-    if isinstance(coeffs, EF4):
-        return EF4.broadcast(coeffs, n)
-    return EF4.broadcast(EF4(coeffs), n)
+def ef4v_from_scalar(coeffs, n: int) -> FF4:
+    """DEPRECATED: Use FF4.broadcast(scalar, n)."""
+    if isinstance(coeffs, FF4):
+        return FF4.broadcast(coeffs, n)
+    return FF4.broadcast(FF4(coeffs), n)
 
 
-def ef4v_inv(a: EF4) -> EF4:
+def ef4v_inv(a: FF4) -> FF4:
     """DEPRECATED: Use a.inv() or a ** -1."""
     return a.inv()
 
 
-def ef4v_mul_scalar(a: EF4, s) -> EF4:
+def ef4v_mul_scalar(a: FF4, s) -> FF4:
     """DEPRECATED: Use a * s."""
-    if not isinstance(s, EF4):
-        s = EF4(s)
+    if not isinstance(s, FF4):
+        s = FF4(s)
     return a * s
 
 
-def ef4v_zeros(n: int) -> EF4:
-    """DEPRECATED: Use EF4.zeros(n)."""
-    return EF4.zeros(n)
+def ef4v_zeros(n: int) -> FF4:
+    """DEPRECATED: Use FF4.zeros(n)."""
+    return FF4.zeros(n)
 
 
-def ef4v_from_rows(rows: list) -> EF4:
-    """DEPRECATED: Use EF4.from_rows(rows)."""
-    return EF4.from_rows(rows)
+def ef4v_from_rows(rows: list) -> FF4:
+    """DEPRECATED: Use FF4.from_rows(rows)."""
+    return FF4.from_rows(rows)
 
 
-def ef4v_to_rows(v: EF4) -> list:
+def ef4v_to_rows(v: FF4) -> list:
     """DEPRECATED: Use v.to_rows()."""
     return v.to_rows()
 
 
-def ef4v_roll(v: EF4, shift: int) -> EF4:
+def ef4v_roll(v: FF4, shift: int) -> FF4:
     """DEPRECATED: Use v.roll(shift)."""
     return v.roll(shift)
 
 
-def ef4v_cumsum(v: EF4) -> EF4:
+def ef4v_cumsum(v: FF4) -> FF4:
     """DEPRECATED: Use v.cumsum()."""
     return v.cumsum()
 
@@ -891,17 +891,17 @@ def batch_inverse(values):
 
 
 def ef4_batch_inverse(values: list) -> list:
-    """Montgomery batch inversion for EF4 elements.
+    """Montgomery batch inversion for FF4 elements.
 
     Converts N extension field inversions into 3N-3 multiplications + 1 inversion.
-    Accepts list of EF4 scalars or list of EF4Coeffs (list[int]).
+    Accepts list of FF4 scalars or list of FF4Coeffs (list[int]).
     """
     n = len(values)
     if n == 0:
         return []
 
-    # Convert to EF4 if needed
-    vals = [v if isinstance(v, EF4) else EF4(v) for v in values]
+    # Convert to FF4 if needed
+    vals = [v if isinstance(v, FF4) else FF4(v) for v in values]
 
     if n == 1:
         return [vals[0] ** -1]
@@ -947,11 +947,11 @@ def batch_inverse_base(values: list) -> list:
     return results
 
 
-# --- Batch polynomial evaluation at a single EF4 point ---
+# --- Batch polynomial evaluation at a single FF4 point ---
 
 
 def _ef4_mul_raw(a, b):
-    """Raw EF4 multiply on tuples/lists of ints. Internal use for BSGS."""
+    """Raw FF4 multiply on tuples/lists of ints. Internal use for BSGS."""
     a0, a1, a2, a3 = a
     b0, b1, b2, b3 = b
     c0 = (a0 * b0 + _W_EXT * (a1 * b3 + a2 * b2 + a3 * b1)) % _P
@@ -1026,23 +1026,23 @@ def eval_poly_ef4_batch(
     coeffs_per_col: list[list[int]],
     eval_point,
 ) -> list:
-    """Evaluate multiple polynomials at a single EF4 point using BSGS.
+    """Evaluate multiple polynomials at a single FF4 point using BSGS.
 
     Args:
         coeffs_per_col: Polynomial coefficient vectors, all same degree.
-        eval_point: EF4 scalar or [c0,c1,c2,c3] list.
+        eval_point: FF4 scalar or [c0,c1,c2,c3] list.
 
     Returns:
-        List of EF4 scalars, one per polynomial.
+        List of FF4 scalars, one per polynomial.
     """
     num_cols = len(coeffs_per_col)
     if num_cols == 0:
         return []
     degree = len(coeffs_per_col[0])
     if degree == 0:
-        return [EF4.zero()] * num_cols
+        return [FF4.zero()] * num_cols
 
-    if isinstance(eval_point, EF4):
+    if isinstance(eval_point, FF4):
         z = tuple(int(c) for c in eval_point._d[:4])
     else:
         z = tuple(int(c) for c in eval_point[:4])
@@ -1058,4 +1058,4 @@ def eval_poly_ef4_batch(
         results.append(result_j)
 
     out = np.stack(results, axis=1)
-    return [EF4._wrap(np.array(row, dtype=np.int64)) for row in out]
+    return [FF4._wrap(np.array(row, dtype=np.int64)) for row in out]

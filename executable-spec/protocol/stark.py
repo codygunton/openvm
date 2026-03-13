@@ -14,7 +14,7 @@ Reference:
 
 from __future__ import annotations
 
-from primitives.field import BABYBEAR_PRIME, EF4, Digest, Fe
+from primitives.field import BABYBEAR_PRIME, FF4, Digest, Fe
 from primitives.transcript import Challenger, check_witness, grind
 from protocol.constraints import (
     VerificationError,
@@ -198,10 +198,10 @@ def _preprocessed_commits(per_air_vks: list[StarkVerifyingKey]) -> list[Digest |
 def _partially_verify_fri_log_up(
     challenger: Challenger,
     partial_proof: FriLogUpPartialProof | None,
-    exposed_values_per_air_per_phase: list[list[list[EF4]]],
+    exposed_values_per_air_per_phase: list[list[list[FF4]]],
     commitments_per_phase: list[Digest],
     log_up_pow_bits: int,
-) -> tuple[list[list[EF4]], str | None]:
+) -> tuple[list[list[FF4]], str | None]:
     """Partially verify the FRI LogUp challenge phase.
 
     Returns (challenges_per_phase, error_or_none).
@@ -234,7 +234,7 @@ def _partially_verify_fri_log_up(
 
     # Sample interaction challenges (2 for FRI LogUp)
     # Reference: fri_log_up.rs lines 191-192
-    challenges: list[EF4] = []
+    challenges: list[FF4] = []
     for _ in range(STARK_LU_NUM_CHALLENGES):
         challenges.append(challenger.sample_ext())
 
@@ -244,7 +244,7 @@ def _partially_verify_fri_log_up(
         if exposed_values_per_phase:
             exposed_values = exposed_values_per_phase[0]  # .first()
             for exposed_value in exposed_values:
-                # exposed_value is EF4 (4 base field elements)
+                # exposed_value is FF4 (4 base field elements)
                 # challenger.observe_slice(exposed_value.as_base_slice())
                 challenger.observe_many(exposed_value)
 
@@ -255,7 +255,7 @@ def _partially_verify_fri_log_up(
     # Check cumulative sum == 0
     # Reference: fri_log_up.rs lines 204-232
     # Sum all cumulative sums (exposed_values[0][0] for each AIR that has them)
-    cumulative_sum = EF4.zero()
+    cumulative_sum = FF4.zero()
     for exposed_values_per_phase in exposed_values_per_air_per_phase:
         if exposed_values_per_phase and exposed_values_per_phase[0]:
             assert len(exposed_values_per_phase) <= 1, (
@@ -265,10 +265,10 @@ def _partially_verify_fri_log_up(
                 "Only exposed value should be cumulative sum"
             )
             csum = exposed_values_per_phase[0][0]
-            cumulative_sum = cumulative_sum + EF4(csum)
+            cumulative_sum = cumulative_sum + FF4(csum)
 
     error = None
-    if cumulative_sum != EF4.zero():
+    if cumulative_sum != FF4.zero():
         error = "NonZeroCumulativeSum"
 
     return [challenges], error
@@ -281,7 +281,7 @@ def _partially_verify_fri_log_up(
 
 def _build_trace_domain_and_openings(
     domain: TwoAdicMultiplicativeCoset,
-    zeta: EF4,
+    zeta: FF4,
     values: AdjacentOpenedValues,
 ) -> tuple[TwoAdicMultiplicativeCoset, list[tuple]]:
     """Build (domain, [(zeta, local_values), (next_point, next_values)]).
@@ -461,7 +461,7 @@ def verify_stark(
 
     # Sample alpha (constraint combination challenge)
     # Reference: mod.rs lines 187-188
-    alpha: EF4 = challenger.sample_ext()
+    alpha: FF4 = challenger.sample_ext()
 
     # Observe quotient commitment (8 u32s)
     # Reference: mod.rs line 191
@@ -475,7 +475,7 @@ def verify_stark(
 
     # Sample zeta (OOD evaluation point)
     # Reference: mod.rs lines 199-201
-    zeta: EF4 = challenger.sample_ext()
+    zeta: FF4 = challenger.sample_ext()
 
     # --- Phase 5: Build domains ---
     # Reference: mod.rs lines 204-218
@@ -857,10 +857,10 @@ def prove_stark(
     # --- Phase 4: RAP phase (interactions) ---
     has_any_interaction = any(_has_interaction(svk) for svk in per_air_vks)
     rap_phase_seq_proof = None
-    challenges_per_phase: list[list[EF4]] = []
+    challenges_per_phase: list[list[FF4]] = []
     after_challenge_commits: list[Digest] = []
-    after_challenge_per_air: list[list[list[EF4]] | None] = [None] * num_airs
-    exposed_values_per_air: list[list[list[EF4]]] = [[] for _ in range(num_airs)]
+    after_challenge_per_air: list[list[list[FF4]] | None] = [None] * num_airs
+    exposed_values_per_air: list[list[list[FF4]]] = [[] for _ in range(num_airs)]
     ac_committed: CommittedData | None = None
 
     if has_any_interaction:
@@ -876,7 +876,7 @@ def prove_stark(
         logup_pow_witness = grind(challenger, vk.inner.log_up_pow_bits)
 
         # (b) Sample 2 interaction challenges
-        interaction_challenges: list[EF4] = [
+        interaction_challenges: list[FF4] = [
             challenger.sample_ext() for _ in range(STARK_LU_NUM_CHALLENGES)
         ]
         alpha_lu, beta_lu = interaction_challenges[0], interaction_challenges[1]
@@ -921,7 +921,7 @@ def prove_stark(
                     challenger.observe_many(ev)
 
         # (e) Flatten after_challenge traces to base field and commit.
-        # Each EF4 element → 4 base field columns.
+        # Each FF4 element → 4 base field columns.
         ac_evals = []
         for i_air in range(num_airs):
             if after_challenge_per_air[i_air] is not None:
@@ -949,7 +949,7 @@ def prove_stark(
         after_challenge_commits = [ac_committed.root]
 
     # --- Phase 5: Sample alpha and compute quotient ---
-    alpha: EF4 = challenger.sample_ext()
+    alpha: FF4 = challenger.sample_ext()
 
     # Compute quotient for each AIR
     all_quotient_chunks: list[list[list[list[Fe]]]] = []
@@ -1016,7 +1016,7 @@ def prove_stark(
     deep_pow_witness = grind(challenger, vk.inner.deep_pow_bits)
 
     # --- Phase 8: Sample zeta ---
-    zeta: EF4 = challenger.sample_ext()
+    zeta: FF4 = challenger.sample_ext()
 
     # --- Phase 9: Build PCS opening rounds ---
     # Round order must match the verifier exactly:
@@ -1132,10 +1132,10 @@ def prove_stark(
 
     # Quotient opened values
     quotient_round = all_opened_values[round_idx]
-    quotient_ov: list[list[list[EF4]]] = []
+    quotient_ov: list[list[list[FF4]]] = []
     chunk_idx = 0
     for i_air in range(num_airs):
-        air_chunks_ov: list[list[EF4]] = []
+        air_chunks_ov: list[list[FF4]] = []
         for _ in all_quotient_chunks[i_air]:
             air_chunks_ov.append(quotient_round[chunk_idx][0])
             chunk_idx += 1
