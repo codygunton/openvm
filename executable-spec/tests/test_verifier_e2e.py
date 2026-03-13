@@ -132,11 +132,9 @@ class TestStarkVerifierE2E:
         batch = random.choice(all_main)
         adj = random.choice(batch)
         row = random.choice([adj.local, adj.next])
-        if row:
-            elem = random.choice(row)
-            _flip_random_element(elem)
-        else:
-            pytest.skip("Empty opened values row")
+        assert row, "Opened values row should not be empty"
+        elem = random.choice(row)
+        _flip_random_element(elem)
 
         with pytest.raises((VerificationError, AssertionError)):
             verify_stark(vk, proof, fri_params)

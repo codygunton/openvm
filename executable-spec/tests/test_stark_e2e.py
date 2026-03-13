@@ -36,7 +36,7 @@ from witness.fibonacci import generate_fibonacci_trace
 def _load_e2e(vectors):
     """Parse VK and FRI params from e2e test vectors."""
     if "verifying_key" not in vectors or "vk_bytes_hex" not in vectors["verifying_key"]:
-        pytest.skip("VK data not available — regenerate test vectors")
+        raise FileNotFoundError("VK data not available — regenerate test vectors")
 
     vk_bytes = bytes.fromhex(vectors["verifying_key"]["vk_bytes_hex"])
     vk_json = json.loads(vk_bytes)
