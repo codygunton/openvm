@@ -51,7 +51,7 @@ A knowledgeable reader can read the spec top-to-bottom and understand the comple
 
 - **Code that requires reverse-engineering to understand.**
 - **Educational comments explaining well-known concepts.** Do not explain what FRI is. The readers know. Comments explaining common knowledge add noise that obscures the comments that actually matter.
-- **Performance-optimized code that obscures the algorithm.** Bit-twiddling, lookup tables, SIMD-style batching belong in production implementations, not here.
+- **Performance-optimized code that obscures the algorithm in `protocol/`.** Bit-twiddling, lookup tables, SIMD-style batching do not belong in protocol code. They are acceptable *inside* `primitives/` types if hidden behind clean operator interfaces (see Chapter 5, "Operator Overloads as the Type Interface").
 - **Dense one-liners that pack multiple concepts.** Unpack them. Use intermediate variables.
 - **Abstraction layers that exist for engineering reasons rather than conceptual clarity.** Factory patterns, dependency injection, and plugin architectures solve software engineering problems. The spec has communication problems.
 
@@ -495,6 +495,44 @@ FF3Poly = np.ndarray  # Local definition — duplicates and may diverge
 
 Rule of thumb: mathematical objects get type aliases; program logistics get raw types.
 
+## Operator Overloads as the Type Interface
+
+Field types exposed by `primitives/` **must support standard Python operators** (`+`, `-`, `*`, `/`, `**`, unary `-`). Protocol code should read as mathematical expressions, not function calls:
+
+```python
+# TARGET — protocol code reads like math
+folded = (e0 + e1) + beta * (e0 - e1) * inv_two_adic
+quotient = accumulated / vanishing
+
+# NOT THIS — wrapper functions obscure the algebra
+folded = ext_add(ext_add(e0, e1), ext_mul(beta, ext_mul(ext_sub(e0, e1), inv_two_adic)))
+quotient = ext_div(accumulated, vanishing)
+```
+
+This applies to both **scalar** and **column** (vectorized) field types. A column of extension field elements is algebraically the same object as a scalar — it just operates element-wise over an array. The operator interface must be consistent across both:
+
+```python
+# Scalar context (verifier)
+result = alpha * eval_at_point + beta
+
+# Column context (prover) — same syntax, different backing type
+result = alpha * eval_column + beta
+```
+
+**If a field library is too slow**, build custom types in `primitives/` that maintain the operator interface while using faster internals (e.g., numpy int64 arrays, custom polynomial multiply). The operator interface is non-negotiable — the performance implementation is swappable. Never introduce wrapper functions (e.g., `ext_mul(a, b)`) in `protocol/` as a workaround for slow operator dispatch in `primitives/`.
+
+**Common additional methods** beyond operators:
+
+| Method | Purpose |
+|--------|---------|
+| `a.inv()` | Multiplicative inverse (alternative to `a ** -1`) |
+| `a.mul_base(b)` | Multiply extension element by base field element (4 muls vs 16) |
+| `Ext.from_base(b)` | Lift base field value into extension field |
+| `Ext.zeros(n)` | Zero column of length n |
+| `Ext.broadcast(s, n)` | Broadcast scalar to column |
+
+These are acceptable because they express mathematical operations that do not have standard Python operator equivalents.
+
 ## Per-Project Adaptation
 
 1. Identify the base field and set `FF`.
@@ -572,6 +610,21 @@ Ask for every line in `protocol/`:
 ## The Boundary Is Strict
 
 Protocol code should read like a mathematical specification. A cryptographer should understand the proving protocol by reading only `protocol/`, without understanding NTT algorithms or hash internals. Conversely, a systems programmer should optimize everything in `primitives/` without understanding the cryptographic protocol.
+
+## Performance Is a Primitives Concern
+
+If a field library or dependency is too slow for the test suite to complete in reasonable time, **fix it in `primitives/`** by building fast custom types with the same operator interface. Never compromise protocol readability to work around slow primitives.
+
+```python
+# VIOLATION: Wrapper functions in protocol/ because the field type is slow
+from primitives.field import ext_mul, ext_add, ext_inv
+result = ext_add(ext_mul(alpha, a), ext_mul(beta, ext_inv(b)))
+
+# CORRECTION: Fix the field type in primitives/ so operators are fast, then use them
+result = alpha * a + beta * b ** -1
+```
+
+Wrapper functions like `ext_mul(a, b)` are a code smell. They indicate that the underlying type's `__mul__` is either missing or too slow. The fix is always to improve the type in `primitives/`, not to add an indirection layer that protocol code must call through.
 
 *Enforced by: protocol-purity-guardian agent (insistent and uncompromising).*
 
