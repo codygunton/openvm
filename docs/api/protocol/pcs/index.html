@@ -1,0 +1,734 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>protocol.pcs &#8212; OpenVM STARK Spec</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../../../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../../../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../../../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=f281be69"></script>
+    <script src="../../../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api/protocol/pcs/index';</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="protocol.proof" href="../proof/index.html" />
+    <link rel="prev" title="protocol.logup" href="../logup/index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">OpenVM STARK Spec</p>
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../part-stark/index.html">Part I: STARK Protocol</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/notation.html">Primitives</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/building-blocks.html">Building Blocks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/commitment-phase.html">Commitment Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/verification.html">Verification Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/full-protocol.html">The Full Protocol, Rolled Out</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/appendix-constraints.html">Appendix: Constraint System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/appendix-fri.html">Appendix: FRI Protocol</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/glossary.html">Glossary of Notation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../part-programs/index.html">Part II: Programs</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-programs/fibonacci.html">Fibonacci (Single-AIR)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-programs/multi-air.html">Multi-AIR (RV32IM)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../../index.html">API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../witness/index.html">witness</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../witness/fibonacci/index.html">witness.fibonacci</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 current active has-children"><a class="reference internal" href="../index.html">protocol</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="../constraints/index.html">protocol.constraints</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../domain/index.html">protocol.domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../fri/index.html">protocol.fri</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../logup/index.html">protocol.logup</a></li>
+<li class="toctree-l3 current active"><a class="current reference internal" href="#">protocol.pcs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../proof/index.html">protocol.proof</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quotient/index.html">protocol.quotient</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../stark/index.html">protocol.stark</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../primitives/index.html">primitives</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/field/index.html">primitives.field</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/merkle/index.html">primitives.merkle</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/ntt/index.html">primitives.ntt</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/poseidon2/index.html">primitives.poseidon2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/transcript/index.html">primitives.transcript</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../constraints/index.html">constraints</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../constraints/fibonacci_air/index.html">constraints.fibonacci_air</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../../../_sources/api/protocol/pcs/index.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>protocol.pcs</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classes">Classes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#functions">Functions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-contents">Module Contents</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.p"><code class="docutils literal notranslate"><span class="pre">p</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsRound"><code class="docutils literal notranslate"><span class="pre">PcsRound</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsRound.commitment"><code class="docutils literal notranslate"><span class="pre">PcsRound.commitment</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsRound.domains_and_openings"><code class="docutils literal notranslate"><span class="pre">PcsRound.domains_and_openings</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.pcs_verify"><code class="docutils literal notranslate"><span class="pre">pcs_verify()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData"><code class="docutils literal notranslate"><span class="pre">CommittedData</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.root"><code class="docutils literal notranslate"><span class="pre">CommittedData.root</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.tree"><code class="docutils literal notranslate"><span class="pre">CommittedData.tree</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.lde_rows"><code class="docutils literal notranslate"><span class="pre">CommittedData.lde_rows</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.coeffs"><code class="docutils literal notranslate"><span class="pre">CommittedData.coeffs</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.domains"><code class="docutils literal notranslate"><span class="pre">CommittedData.domains</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.pcs_commit"><code class="docutils literal notranslate"><span class="pre">pcs_commit()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsOpeningRound"><code class="docutils literal notranslate"><span class="pre">PcsOpeningRound</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsOpeningRound.committed"><code class="docutils literal notranslate"><span class="pre">PcsOpeningRound.committed</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsOpeningRound.points_per_mat"><code class="docutils literal notranslate"><span class="pre">PcsOpeningRound.points_per_mat</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.pcs_open"><code class="docutils literal notranslate"><span class="pre">pcs_open()</span></code></a></li>
+</ul>
+</li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="module-protocol.pcs">
+<span id="protocol-pcs"></span><h1>protocol.pcs<a class="headerlink" href="#module-protocol.pcs" title="Link to this heading">#</a></h1>
+<p>PCS (Polynomial Commitment Scheme) for TwoAdicFriPcs.</p>
+<p>Implements both prover and verifier sides of the FRI-based PCS.</p>
+<p>Verifier: given committed polynomial batches opened at evaluation points,
+reduces them to a single FRI verification problem.</p>
+<p>Prover: commits polynomials via LDE + Merkle, evaluates at opening points,
+computes reduced polynomials, and delegates to the FRI prover.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-fri-0.4.1/src/two_adic_pcs.rs  – TwoAdicFriPcs::commit, open, verify
+p3-fri-0.4.1/src/verifier.rs      – verify_fri, verify_query, open_input
+p3-fri-0.4.1/src/prover.rs        – prove (FRI prover)</p>
+</dd>
+</dl>
+<section id="attributes">
+<h2>Attributes<a class="headerlink" href="#attributes" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.pcs.p" title="protocol.pcs.p"><code class="xref py py-obj docutils literal notranslate"><span class="pre">p</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.pcs.PcsRound" title="protocol.pcs.PcsRound"><code class="xref py py-obj docutils literal notranslate"><span class="pre">PcsRound</span></code></a></p></td>
+<td><p>One round of PCS verification data.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#protocol.pcs.CommittedData" title="protocol.pcs.CommittedData"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CommittedData</span></code></a></p></td>
+<td><p>Prover data for a single MMCS commitment (batch of matrices).</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.pcs.PcsOpeningRound" title="protocol.pcs.PcsOpeningRound"><code class="xref py py-obj docutils literal notranslate"><span class="pre">PcsOpeningRound</span></code></a></p></td>
+<td><p>One round of PCS opening data for the prover.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.pcs.pcs_verify" title="protocol.pcs.pcs_verify"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pcs_verify</span></code></a>(→ None)</p></td>
+<td><p>Verify PCS openings using FRI.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#protocol.pcs.pcs_commit" title="protocol.pcs.pcs_commit"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pcs_commit</span></code></a>(→ CommittedData)</p></td>
+<td><p>Commit to a batch of matrices via LDE + Merkle tree.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.pcs.pcs_open" title="protocol.pcs.pcs_open"><code class="xref py py-obj docutils literal notranslate"><span class="pre">pcs_open</span></code></a>(→ tuple[list[list[list[list[list[int]]]]], ...)</p></td>
+<td><p>Open committed polynomials at specified points.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="module-contents">
+<h2>Module Contents<a class="headerlink" href="#module-contents" title="Link to this heading">#</a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="protocol.pcs.p">
+<span class="sig-prename descclassname"><span class="pre">protocol.pcs.</span></span><span class="sig-name descname"><span class="pre">p</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2013265921</span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#p"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.p" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="protocol.pcs.PcsRound">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">protocol.pcs.</span></span><span class="sig-name descname"><span class="pre">PcsRound</span></span><a class="reference internal" href="../../../_modules/protocol/pcs.html#PcsRound"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.PcsRound" title="Link to this definition">#</a></dt>
+<dd><p>One round of PCS verification data.</p>
+<p>Corresponds to a single MMCS commitment (batch of matrices) and the
+domains/openings associated with it.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-fri/src/two_adic_pcs.rs (CommitmentWithOpeningPoints type alias)</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.PcsRound.commitment">
+<span class="sig-name descname"><span class="pre">commitment</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">primitives.field.Digest</span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#PcsRound.commitment"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.PcsRound.commitment" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.PcsRound.domains_and_openings">
+<span class="sig-name descname"><span class="pre">domains_and_openings</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#PcsRound.domains_and_openings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.PcsRound.domains_and_openings" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.pcs.pcs_verify">
+<span class="sig-prename descclassname"><span class="pre">protocol.pcs.</span></span><span class="sig-name descname"><span class="pre">pcs_verify</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rounds</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#protocol.pcs.PcsRound" title="protocol.pcs.PcsRound"><span class="pre">PcsRound</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fri_proof</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.FriProof" title="protocol.proof.FriProof"><span class="pre">protocol.proof.FriProof</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">challenger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../primitives/transcript/index.html#primitives.transcript.Challenger" title="primitives.transcript.Challenger"><span class="pre">primitives.transcript.Challenger</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">fri_params</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.FriParameters" title="protocol.proof.FriParameters"><span class="pre">protocol.proof.FriParameters</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../../../_modules/protocol/pcs.html#pcs_verify"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.pcs_verify" title="Link to this definition">#</a></dt>
+<dd><p>Verify PCS openings using FRI.</p>
+<p>This is the Python translation of TwoAdicFriPcs::verify followed by
+verify_fri. The algorithm:</p>
+<ol class="arabic simple">
+<li><p>Sample FRI alpha from challenger (batch combination challenge)</p></li>
+<li><p>Replay FRI commit phase: for each commitment, observe it, check PoW,
+then sample beta</p></li>
+<li><p>Observe final polynomial</p></li>
+<li><p>Check query PoW</p></li>
+<li><p>For each query:
+a. Sample query index
+b. Compute reduced openings from the input proof (open_input)
+c. Verify FRI query (fold chain + Merkle proofs + final poly check)</p></li>
+</ol>
+<dl>
+<dt>Args:</dt><dd><dl class="simple">
+<dt>rounds: List of PcsRound, one per batch commitment. Each contains</dt><dd><p>the commitment digest and the domains/openings for that batch.</p>
+</dd>
+<dt>fri_proof: The FRI proof containing commit phase commits, query proofs,</dt><dd><p>final polynomial, and PoW witnesses.</p>
+</dd>
+</dl>
+<p>challenger: The Fiat-Shamir challenger (already has opened values observed).
+fri_params: FRI protocol parameters.</p>
+</dd>
+<dt>Raises:</dt><dd><p>AssertionError: If any verification check fails.</p>
+</dd>
+<dt>Reference:</dt><dd><p>p3-fri-0.4.1/src/two_adic_pcs.rs (TwoAdicFriPcs::verify, lines 523-554)
+p3-fri-0.4.1/src/verifier.rs (verify_fri, lines 54-204)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="protocol.pcs.CommittedData">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">protocol.pcs.</span></span><span class="sig-name descname"><span class="pre">CommittedData</span></span><a class="reference internal" href="../../../_modules/protocol/pcs.html#CommittedData"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.CommittedData" title="Link to this definition">#</a></dt>
+<dd><p>Prover data for a single MMCS commitment (batch of matrices).</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-merkle-tree MerkleTreeMmcs::commit</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.CommittedData.root">
+<span class="sig-name descname"><span class="pre">root</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">primitives.field.Digest</span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#CommittedData.root"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.CommittedData.root" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.CommittedData.tree">
+<span class="sig-name descname"><span class="pre">tree</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Digest</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#CommittedData.tree"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.CommittedData.tree" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.CommittedData.lde_rows">
+<span class="sig-name descname"><span class="pre">lde_rows</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#CommittedData.lde_rows"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.CommittedData.lde_rows" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.CommittedData.coeffs">
+<span class="sig-name descname"><span class="pre">coeffs</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#CommittedData.coeffs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.CommittedData.coeffs" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.CommittedData.domains">
+<span class="sig-name descname"><span class="pre">domains</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#CommittedData.domains"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.CommittedData.domains" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.pcs.pcs_commit">
+<span class="sig-prename descclassname"><span class="pre">protocol.pcs.</span></span><span class="sig-name descname"><span class="pre">pcs_commit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">evaluations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_blowup</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#protocol.pcs.CommittedData" title="protocol.pcs.CommittedData"><span class="pre">CommittedData</span></a></span></span><a class="reference internal" href="../../../_modules/protocol/pcs.html#pcs_commit"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.pcs_commit" title="Link to this definition">#</a></dt>
+<dd><p>Commit to a batch of matrices via LDE + Merkle tree.</p>
+<p>For each matrix on its domain:
+1. INTT each column to coefficients (treating as subgroup evaluations).
+2. Zero-pad to LDE size (n * 2^log_blowup).
+3. Coset-shift coefficients: c’[j] = c[j] * (GENERATOR / domain.shift)^j.
+4. NTT on the extended subgroup.
+5. Bit-reverse the rows.
+Then build a single Merkle tree from the concatenated rows.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>evaluations: List of (domain, matrix) where matrix is list of rows.
+log_blowup: Log2 of the FRI blowup factor.</p>
+</dd>
+<dt>Returns:</dt><dd><p>CommittedData with Merkle tree, LDE, and coefficients.</p>
+</dd>
+<dt>Reference:</dt><dd><p>p3-fri-0.4.1/src/two_adic_pcs.rs TwoAdicFriPcs::commit</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="protocol.pcs.PcsOpeningRound">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">protocol.pcs.</span></span><span class="sig-name descname"><span class="pre">PcsOpeningRound</span></span><a class="reference internal" href="../../../_modules/protocol/pcs.html#PcsOpeningRound"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.PcsOpeningRound" title="Link to this definition">#</a></dt>
+<dd><p>One round of PCS opening data for the prover.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-fri-0.4.1/src/two_adic_pcs.rs TwoAdicFriPcs::open</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.PcsOpeningRound.committed">
+<span class="sig-name descname"><span class="pre">committed</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#protocol.pcs.CommittedData" title="protocol.pcs.CommittedData"><span class="pre">CommittedData</span></a></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#PcsOpeningRound.committed"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.PcsOpeningRound.committed" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.pcs.PcsOpeningRound.points_per_mat">
+<span class="sig-name descname"><span class="pre">points_per_mat</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/pcs.html#PcsOpeningRound.points_per_mat"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.PcsOpeningRound.points_per_mat" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.pcs.pcs_open">
+<span class="sig-prename descclassname"><span class="pre">protocol.pcs.</span></span><span class="sig-name descname"><span class="pre">pcs_open</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rounds</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#protocol.pcs.PcsOpeningRound" title="protocol.pcs.PcsOpeningRound"><span class="pre">PcsOpeningRound</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">challenger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../primitives/transcript/index.html#primitives.transcript.Challenger" title="primitives.transcript.Challenger"><span class="pre">primitives.transcript.Challenger</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">fri_params</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.FriParameters" title="protocol.proof.FriParameters"><span class="pre">protocol.proof.FriParameters</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">dict</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/pcs.html#pcs_open"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.pcs.pcs_open" title="Link to this definition">#</a></dt>
+<dd><p>Open committed polynomials at specified points.</p>
+<p>Prover-side PCS open: evaluates polynomials, computes reduced
+polynomials, runs FRI, and generates Merkle openings.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>rounds: Per-commitment opening data.
+challenger: The Fiat-Shamir challenger (quotient already observed).
+fri_params: FRI protocol parameters.</p>
+</dd>
+<dt>Returns:</dt><dd><p>(all_opened_values, fri_proof_data, query_indices) where:
+- all_opened_values[round][mat][point] = list[list[int]]
+- fri_proof_data contains the FRI proof components
+- query_indices for Merkle opening generation</p>
+</dd>
+<dt>Reference:</dt><dd><p>p3-fri-0.4.1/src/two_adic_pcs.rs TwoAdicFriPcs::open lines 286-440</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../logup/index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">protocol.logup</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../proof/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">protocol.proof</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classes">Classes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#functions">Functions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-contents">Module Contents</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.p"><code class="docutils literal notranslate"><span class="pre">p</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsRound"><code class="docutils literal notranslate"><span class="pre">PcsRound</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsRound.commitment"><code class="docutils literal notranslate"><span class="pre">PcsRound.commitment</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsRound.domains_and_openings"><code class="docutils literal notranslate"><span class="pre">PcsRound.domains_and_openings</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.pcs_verify"><code class="docutils literal notranslate"><span class="pre">pcs_verify()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData"><code class="docutils literal notranslate"><span class="pre">CommittedData</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.root"><code class="docutils literal notranslate"><span class="pre">CommittedData.root</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.tree"><code class="docutils literal notranslate"><span class="pre">CommittedData.tree</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.lde_rows"><code class="docutils literal notranslate"><span class="pre">CommittedData.lde_rows</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.coeffs"><code class="docutils literal notranslate"><span class="pre">CommittedData.coeffs</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.CommittedData.domains"><code class="docutils literal notranslate"><span class="pre">CommittedData.domains</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.pcs_commit"><code class="docutils literal notranslate"><span class="pre">pcs_commit()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsOpeningRound"><code class="docutils literal notranslate"><span class="pre">PcsOpeningRound</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsOpeningRound.committed"><code class="docutils literal notranslate"><span class="pre">PcsOpeningRound.committed</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.PcsOpeningRound.points_per_mat"><code class="docutils literal notranslate"><span class="pre">PcsOpeningRound.points_per_mat</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.pcs.pcs_open"><code class="docutils literal notranslate"><span class="pre">pcs_open()</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Derived from the Python Executable Specification
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

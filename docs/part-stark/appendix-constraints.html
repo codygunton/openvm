@@ -1,0 +1,636 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Appendix: Constraint System &#8212; OpenVM STARK Spec</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>window.MathJax = {"loader": {"load": ["[tex]/textmacros"]}, "tex": {"packages": {"[+]": ["textmacros"]}, "macros": {"F": "\\mathbb{F}_p", "Fext": "\\mathbb{F}_{p^4}", "ZH": "Z_H", "MT": "\\mathsf{MT}", "Hash": "\\mathsf{H}", "Poseidon": "\\mathsf{Poseidon2}", "Fold": "\\mathsf{Fold}", "INTT": "\\mathsf{INTT}", "NTT": "\\mathsf{NTT}", "LDE": "\\mathsf{LDE}", "longto": "\\longrightarrow", "longfrom": "\\longleftarrow"}}, "options": {"processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'part-stark/appendix-constraints';</script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Appendix: FRI Protocol" href="appendix-fri.html" />
+    <link rel="prev" title="The Full Protocol, Rolled Out" href="full-protocol.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">OpenVM STARK Spec</p>
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Part I: STARK Protocol</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="notation.html">Primitives</a></li>
+<li class="toctree-l2"><a class="reference internal" href="building-blocks.html">Building Blocks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="commitment-phase.html">Commitment Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="verification.html">Verification Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="full-protocol.html">The Full Protocol, Rolled Out</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Appendix: Constraint System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="appendix-fri.html">Appendix: FRI Protocol</a></li>
+<li class="toctree-l2"><a class="reference internal" href="glossary.html">Glossary of Notation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../part-programs/index.html">Part II: Programs</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../part-programs/fibonacci.html">Fibonacci (Single-AIR)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../part-programs/multi-air.html">Multi-AIR (RV32IM)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../api/index.html">API Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../api/witness/index.html">witness</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/witness/fibonacci/index.html">witness.fibonacci</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../api/protocol/index.html">protocol</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/constraints/index.html">protocol.constraints</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/domain/index.html">protocol.domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/fri/index.html">protocol.fri</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/logup/index.html">protocol.logup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/pcs/index.html">protocol.pcs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/proof/index.html">protocol.proof</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/quotient/index.html">protocol.quotient</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/protocol/stark/index.html">protocol.stark</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../api/primitives/index.html">primitives</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/primitives/field/index.html">primitives.field</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/primitives/merkle/index.html">primitives.merkle</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/primitives/ntt/index.html">primitives.ntt</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/primitives/poseidon2/index.html">primitives.poseidon2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/primitives/transcript/index.html">primitives.transcript</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../api/constraints/index.html">constraints</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/constraints/fibonacci_air/index.html">constraints.fibonacci_air</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../_sources/part-stark/appendix-constraints.md" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.md</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>Appendix: Constraint System</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#symbolic-expression-dag">Symbolic Expression DAG</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#node-types">Node Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#variables">Variables</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dag-evaluation">DAG Evaluation</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#at-a-point-verifier">At a Point (Verifier)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#over-the-full-trace-prover">Over the Full Trace (Prover)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#constraint-folding">Constraint Folding</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quotient-relationship">Quotient Relationship</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#domain-selectors">Domain Selectors</a></li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section class="tex2jax_ignore mathjax_ignore" id="appendix-constraint-system">
+<span id="app-constraints"></span><h1>Appendix: Constraint System<a class="headerlink" href="#appendix-constraint-system" title="Link to this heading">#</a></h1>
+<section id="symbolic-expression-dag">
+<h2>Symbolic Expression DAG<a class="headerlink" href="#symbolic-expression-dag" title="Link to this heading">#</a></h2>
+<p>Constraints are represented as a directed acyclic graph (DAG) of symbolic
+expressions (<a class="reference external" href="../_modules/protocol/proof.html#L-289"><code class="docutils literal notranslate"><span class="pre">SymbolicExpressionDag</span></code></a>). Each node has:</p>
+<ul class="simple">
+<li><p><strong>kind</strong>: One of <code class="docutils literal notranslate"><span class="pre">VARIABLE</span></code>, <code class="docutils literal notranslate"><span class="pre">CONSTANT</span></code>, <code class="docutils literal notranslate"><span class="pre">IS_FIRST_ROW</span></code>, <code class="docutils literal notranslate"><span class="pre">IS_LAST_ROW</span></code>,
+<code class="docutils literal notranslate"><span class="pre">IS_TRANSITION</span></code>, <code class="docutils literal notranslate"><span class="pre">ADD</span></code>, <code class="docutils literal notranslate"><span class="pre">SUB</span></code>, <code class="docutils literal notranslate"><span class="pre">MUL</span></code>, <code class="docutils literal notranslate"><span class="pre">NEG</span></code>.</p></li>
+<li><p><strong>operands</strong>: Indices into the DAG node array (for binary/unary operations).</p></li>
+<li><p><strong>degree_multiple</strong>: The constraint degree for variable nodes.</p></li>
+</ul>
+<p>The DAG is stored in topological order: every node’s operands have smaller
+indices than the node itself.</p>
+<section id="node-types">
+<h3>Node Types<a class="headerlink" href="#node-types" title="Link to this heading">#</a></h3>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Kind</p></th>
+<th class="head"><p>Arity</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VARIABLE</span></code></p></td>
+<td><p>0</p></td>
+<td><p>Reference to a trace column at a specific offset</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">CONSTANT</span></code></p></td>
+<td><p>0</p></td>
+<td><p>Literal field element</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">IS_FIRST_ROW</span></code></p></td>
+<td><p>0</p></td>
+<td><p>Lagrange selector <span class="math notranslate nohighlight">\(L_0(\zeta)\)</span></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">IS_LAST_ROW</span></code></p></td>
+<td><p>0</p></td>
+<td><p>Lagrange selector <span class="math notranslate nohighlight">\(L_{N-1}(\zeta)\)</span></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">IS_TRANSITION</span></code></p></td>
+<td><p>0</p></td>
+<td><p><span class="math notranslate nohighlight">\(\zeta/s - \omega^{-1}\)</span> (nonzero on non-last rows)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ADD</span></code></p></td>
+<td><p>2</p></td>
+<td><p><span class="math notranslate nohighlight">\(a + b\)</span></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SUB</span></code></p></td>
+<td><p>2</p></td>
+<td><p><span class="math notranslate nohighlight">\(a - b\)</span></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MUL</span></code></p></td>
+<td><p>2</p></td>
+<td><p><span class="math notranslate nohighlight">\(a \cdot b\)</span></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">NEG</span></code></p></td>
+<td><p>1</p></td>
+<td><p><span class="math notranslate nohighlight">\(-a\)</span></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="variables">
+<h3>Variables<a class="headerlink" href="#variables" title="Link to this heading">#</a></h3>
+<p>A <code class="docutils literal notranslate"><span class="pre">SymbolicVariable</span></code> (<a class="reference external" href="../_modules/protocol/proof.html#L-231"><code class="docutils literal notranslate"><span class="pre">SymbolicVariable</span></code></a>) references a
+specific trace column:</p>
+<ul class="simple">
+<li><p><strong>entry_type</strong>: <code class="docutils literal notranslate"><span class="pre">PREPROCESSED</span></code>, <code class="docutils literal notranslate"><span class="pre">MAIN</span></code>, <code class="docutils literal notranslate"><span class="pre">PERMUTATION</span></code>, <code class="docutils literal notranslate"><span class="pre">PUBLIC</span></code>, <code class="docutils literal notranslate"><span class="pre">CHALLENGE</span></code>,
+<code class="docutils literal notranslate"><span class="pre">EXPOSED_AFTER_CHALLENGE</span></code>.</p></li>
+<li><p><strong>column_index</strong>: Column within the partition.</p></li>
+<li><p><strong>offset</strong>: Row offset (0 = current row, 1 = next row).</p></li>
+</ul>
+</section>
+</section>
+<section id="dag-evaluation">
+<h2>DAG Evaluation<a class="headerlink" href="#dag-evaluation" title="Link to this heading">#</a></h2>
+<section id="at-a-point-verifier">
+<h3>At a Point (Verifier)<a class="headerlink" href="#at-a-point-verifier" title="Link to this heading">#</a></h3>
+<p>The verifier evaluates the DAG at the OOD point <span class="math notranslate nohighlight">\(\zeta\)</span> using the opened
+polynomial values (<a class="reference external" href="../_modules/protocol/constraints.html#L-89"><code class="docutils literal notranslate"><span class="pre">eval_symbolic_dag</span></code></a>):</p>
+<ol class="arabic simple">
+<li><p>Walk nodes in topological order.</p></li>
+<li><p>For each node, dispatch on kind:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">VARIABLE</span></code>: look up the opened value from the appropriate trace partition.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CONSTANT</span></code>: wrap as FF4.</p></li>
+<li><p>Selector nodes: fetch from precomputed <code class="docutils literal notranslate"><span class="pre">DomainSelectors</span></code>.</p></li>
+<li><p>Arithmetic nodes: compute from previously evaluated operands.</p></li>
+</ul>
+</li>
+<li><p>Extract the constraint output indices: <code class="docutils literal notranslate"><span class="pre">dag.constraint_idx</span></code>.</p></li>
+</ol>
+</section>
+<section id="over-the-full-trace-prover">
+<h3>Over the Full Trace (Prover)<a class="headerlink" href="#over-the-full-trace-prover" title="Link to this heading">#</a></h3>
+<p>The prover evaluates the DAG at every point of the quotient domain
+(<a class="reference external" href="../_modules/protocol/quotient.html#L-357"><code class="docutils literal notranslate"><span class="pre">eval_symbolic_expression_dag_full</span></code></a>). The same
+DAG walk applies, but each node result is a column (array) rather than a scalar.</p>
+</section>
+</section>
+<section id="constraint-folding">
+<h2>Constraint Folding<a class="headerlink" href="#constraint-folding" title="Link to this heading">#</a></h2>
+<p>Given <span class="math notranslate nohighlight">\(k\)</span> constraint evaluations <span class="math notranslate nohighlight">\(C_0, C_1, \ldots, C_{k-1}\)</span> and the challenge
+<span class="math notranslate nohighlight">\(\alpha\)</span>, the folded constraint value is computed by Horner’s method
+(<a class="reference external" href="../_modules/protocol/constraints.html#L-219"><code class="docutils literal notranslate"><span class="pre">fold_constraints</span></code></a>):</p>
+<div class="math notranslate nohighlight">
+\[
+\text{folded} = C_0 \cdot \alpha^{k-1} + C_1 \cdot \alpha^{k-2} + \cdots + C_{k-1}
+\]</div>
+<p>Equivalently, accumulate right-to-left:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><a id="L-1" name="L-1" href="#L-1"></a><span class="n">accumulator</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="L-2" name="L-2" href="#L-2"></a><span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span><span class="p">):</span>
+<a id="L-3" name="L-3" href="#L-3"></a>    <span class="n">accumulator</span> <span class="o">=</span> <span class="n">accumulator</span> <span class="o">*</span> <span class="n">alpha</span> <span class="o">+</span> <span class="n">C_i</span>
+</pre></div>
+</div>
+</section>
+<section id="quotient-relationship">
+<h2>Quotient Relationship<a class="headerlink" href="#quotient-relationship" title="Link to this heading">#</a></h2>
+<p>The quotient polynomial <span class="math notranslate nohighlight">\(Q(X)\)</span> encodes the constraint satisfaction:</p>
+<div class="math notranslate nohighlight">
+\[
+Q(X) = \frac{\sum_i \alpha^i \cdot C_i(X)}{Z_H(X)}
+\]</div>
+<p>where <span class="math notranslate nohighlight">\(Z_H(X) = (X/s)^N - 1\)</span> is the vanishing polynomial of the trace domain.</p>
+<p>The verifier checks this at <span class="math notranslate nohighlight">\(\zeta\)</span>:</p>
+<div class="math notranslate nohighlight">
+\[
+\text{folded} \cdot Z_H(\zeta)^{-1} = Q(\zeta)
+\]</div>
+<p>where <span class="math notranslate nohighlight">\(Q(\zeta)\)</span> is reconstructed from the quotient chunk openings
+(<a class="reference external" href="../_modules/protocol/constraints.html#L-247"><code class="docutils literal notranslate"><span class="pre">reconstruct_quotient</span></code></a>).</p>
+</section>
+<section id="domain-selectors">
+<h2>Domain Selectors<a class="headerlink" href="#domain-selectors" title="Link to this heading">#</a></h2>
+<p>The selectors at a point <span class="math notranslate nohighlight">\(\zeta\)</span> outside the trace domain <span class="math notranslate nohighlight">\(H = \{s \cdot \omega^i\}\)</span>
+are ():</p>
+<p>Let <span class="math notranslate nohighlight">\(u = \zeta / s\)</span> (the “unshifted” point).</p>
+<div class="math notranslate nohighlight">
+\[\begin{split}
+\begin{aligned}
+Z_H(\zeta) &amp;= u^N - 1 \\
+\text{is\_first\_row} &amp;= \frac{Z_H(\zeta)}{u - 1} \\
+\text{is\_last\_row} &amp;= \frac{Z_H(\zeta)}{u - \omega^{-1}} \\
+\text{is\_transition} &amp;= u - \omega^{-1} \\
+\text{inv\_zeroifier} &amp;= Z_H(\zeta)^{-1}
+\end{aligned}
+\end{split}\]</div>
+<p>These are <strong>unnormalized</strong> selectors (as in Plonky3). The normalization factor
+cancels in the quotient relationship.</p>
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="full-protocol.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">The Full Protocol, Rolled Out</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="appendix-fri.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Appendix: FRI Protocol</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#symbolic-expression-dag">Symbolic Expression DAG</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#node-types">Node Types</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#variables">Variables</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dag-evaluation">DAG Evaluation</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#at-a-point-verifier">At a Point (Verifier)</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#over-the-full-trace-prover">Over the Full Trace (Prover)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#constraint-folding">Constraint Folding</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quotient-relationship">Quotient Relationship</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#domain-selectors">Domain Selectors</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Derived from the Python Executable Specification
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

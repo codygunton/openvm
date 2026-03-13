@@ -1,0 +1,682 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>primitives.transcript &#8212; OpenVM STARK Spec</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../../../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../../../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../../../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=f281be69"></script>
+    <script src="../../../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api/primitives/transcript/index';</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="constraints" href="../../constraints/index.html" />
+    <link rel="prev" title="primitives.poseidon2" href="../poseidon2/index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">OpenVM STARK Spec</p>
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../part-stark/index.html">Part I: STARK Protocol</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/notation.html">Primitives</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/building-blocks.html">Building Blocks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/commitment-phase.html">Commitment Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/verification.html">Verification Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/full-protocol.html">The Full Protocol, Rolled Out</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/appendix-constraints.html">Appendix: Constraint System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/appendix-fri.html">Appendix: FRI Protocol</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/glossary.html">Glossary of Notation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../part-programs/index.html">Part II: Programs</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-programs/fibonacci.html">Fibonacci (Single-AIR)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-programs/multi-air.html">Multi-AIR (RV32IM)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../../index.html">API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../witness/index.html">witness</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../witness/fibonacci/index.html">witness.fibonacci</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../protocol/index.html">protocol</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/constraints/index.html">protocol.constraints</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/domain/index.html">protocol.domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/fri/index.html">protocol.fri</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/logup/index.html">protocol.logup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/pcs/index.html">protocol.pcs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/proof/index.html">protocol.proof</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/quotient/index.html">protocol.quotient</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../protocol/stark/index.html">protocol.stark</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 current active has-children"><a class="reference internal" href="../index.html">primitives</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="../field/index.html">primitives.field</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../merkle/index.html">primitives.merkle</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../ntt/index.html">primitives.ntt</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../poseidon2/index.html">primitives.poseidon2</a></li>
+<li class="toctree-l3 current active"><a class="current reference internal" href="#">primitives.transcript</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../constraints/index.html">constraints</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../constraints/fibonacci_air/index.html">constraints.fibonacci_air</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../../../_sources/api/primitives/transcript/index.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>primitives.transcript</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classes">Classes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#functions">Functions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-contents">Module Contents</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.WIDTH"><code class="docutils literal notranslate"><span class="pre">WIDTH</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.RATE"><code class="docutils literal notranslate"><span class="pre">RATE</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger"><code class="docutils literal notranslate"><span class="pre">Challenger</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sponge_state"><code class="docutils literal notranslate"><span class="pre">Challenger.sponge_state</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.input_buffer"><code class="docutils literal notranslate"><span class="pre">Challenger.input_buffer</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.output_buffer"><code class="docutils literal notranslate"><span class="pre">Challenger.output_buffer</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.from_state"><code class="docutils literal notranslate"><span class="pre">Challenger.from_state()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.observe"><code class="docutils literal notranslate"><span class="pre">Challenger.observe()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.observe_many"><code class="docutils literal notranslate"><span class="pre">Challenger.observe_many()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sample"><code class="docutils literal notranslate"><span class="pre">Challenger.sample()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sample_ext"><code class="docutils literal notranslate"><span class="pre">Challenger.sample_ext()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sample_bits"><code class="docutils literal notranslate"><span class="pre">Challenger.sample_bits()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.clone"><code class="docutils literal notranslate"><span class="pre">Challenger.clone()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.check_witness"><code class="docutils literal notranslate"><span class="pre">check_witness()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.grind"><code class="docutils literal notranslate"><span class="pre">grind()</span></code></a></li>
+</ul>
+</li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="module-primitives.transcript">
+<span id="primitives-transcript"></span><h1>primitives.transcript<a class="headerlink" href="#module-primitives.transcript" title="Link to this heading">#</a></h1>
+<p>Fiat-Shamir transcript using Poseidon2 duplex sponge.</p>
+<p>Matches Plonky3’s DuplexChallenger&lt;BabyBear, Poseidon2&lt;16&gt;, 16, 8&gt; bit-exactly.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-challenger-0.4.1/src/duplex_challenger.rs</p>
+</dd>
+</dl>
+<section id="attributes">
+<h2>Attributes<a class="headerlink" href="#attributes" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#primitives.transcript.WIDTH" title="primitives.transcript.WIDTH"><code class="xref py py-obj docutils literal notranslate"><span class="pre">WIDTH</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#primitives.transcript.RATE" title="primitives.transcript.RATE"><code class="xref py py-obj docutils literal notranslate"><span class="pre">RATE</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#primitives.transcript.Challenger" title="primitives.transcript.Challenger"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Challenger</span></code></a></p></td>
+<td><p>Fiat-Shamir challenger using Poseidon2 duplex sponge.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#primitives.transcript.check_witness" title="primitives.transcript.check_witness"><code class="xref py py-obj docutils literal notranslate"><span class="pre">check_witness</span></code></a>(→ bool)</p></td>
+<td><p>Verify a proof-of-work witness against the Fiat-Shamir transcript.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#primitives.transcript.grind" title="primitives.transcript.grind"><code class="xref py py-obj docutils literal notranslate"><span class="pre">grind</span></code></a>(→ int)</p></td>
+<td><p>Brute-force search for a proof-of-work witness.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="module-contents">
+<h2>Module Contents<a class="headerlink" href="#module-contents" title="Link to this heading">#</a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="primitives.transcript.WIDTH">
+<span class="sig-prename descclassname"><span class="pre">primitives.transcript.</span></span><span class="sig-name descname"><span class="pre">WIDTH</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">16</span></em><a class="reference internal" href="../../../_modules/primitives/transcript.html#WIDTH"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.WIDTH" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="primitives.transcript.RATE">
+<span class="sig-prename descclassname"><span class="pre">primitives.transcript.</span></span><span class="sig-name descname"><span class="pre">RATE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">8</span></em><a class="reference internal" href="../../../_modules/primitives/transcript.html#RATE"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.RATE" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">primitives.transcript.</span></span><span class="sig-name descname"><span class="pre">Challenger</span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger" title="Link to this definition">#</a></dt>
+<dd><p>Fiat-Shamir challenger using Poseidon2 duplex sponge.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-challenger-0.4.1/src/duplex_challenger.rs</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.sponge_state">
+<span class="sig-name descname"><span class="pre">sponge_state</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0,</span> <span class="pre">0]</span></em><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.sponge_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.sponge_state" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.input_buffer">
+<span class="sig-name descname"><span class="pre">input_buffer</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[]</span></em><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.input_buffer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.input_buffer" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.output_buffer">
+<span class="sig-name descname"><span class="pre">output_buffer</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">[]</span></em><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.output_buffer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.output_buffer" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.from_state">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sponge_state</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_buffer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_buffer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#primitives.transcript.Challenger" title="primitives.transcript.Challenger"><span class="pre">Challenger</span></a></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.from_state"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.from_state" title="Link to this definition">#</a></dt>
+<dd><p>Create Challenger from exported internal state (for transcript replay).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.observe">
+<span class="sig-name descname"><span class="pre">observe</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">primitives.field.Fe</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.observe"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.observe" title="Link to this definition">#</a></dt>
+<dd><p>Absorb a single field element.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>duplex_challenger.rs lines 111-120</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.observe_many">
+<span class="sig-name descname"><span class="pre">observe_many</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.observe_many"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.observe_many" title="Link to this definition">#</a></dt>
+<dd><p>Absorb multiple field elements or an FF4 scalar.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>duplex_challenger.rs lines 142-146</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.sample">
+<span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">primitives.field.Fe</span></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.sample"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.sample" title="Link to this definition">#</a></dt>
+<dd><p>Squeeze one base field element (LIFO from output buffer).</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>duplex_challenger.rs lines 172-184</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.sample_ext">
+<span class="sig-name descname"><span class="pre">sample_ext</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.sample_ext"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.sample_ext" title="Link to this definition">#</a></dt>
+<dd><p>Squeeze one extension field element.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>duplex_challenger.rs (CanSample&lt;EF&gt;)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.sample_bits">
+<span class="sig-name descname"><span class="pre">sample_bits</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bits</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.sample_bits"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.sample_bits" title="Link to this definition">#</a></dt>
+<dd><p>Sample a random index with the given number of bits.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>duplex_challenger.rs lines 201-207 (CanSampleBits)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="primitives.transcript.Challenger.clone">
+<span class="sig-name descname"><span class="pre">clone</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#primitives.transcript.Challenger" title="primitives.transcript.Challenger"><span class="pre">Challenger</span></a></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#Challenger.clone"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.Challenger.clone" title="Link to this definition">#</a></dt>
+<dd><p>Deep copy this challenger’s state.</p>
+<p>Used by the prover for proof-of-work grinding.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>duplex_challenger.rs Clone impl</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="primitives.transcript.check_witness">
+<span class="sig-prename descclassname"><span class="pre">primitives.transcript.</span></span><span class="sig-name descname"><span class="pre">check_witness</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">challenger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#primitives.transcript.Challenger" title="primitives.transcript.Challenger"><span class="pre">Challenger</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">bits</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">witness</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#check_witness"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.check_witness" title="Link to this definition">#</a></dt>
+<dd><p>Verify a proof-of-work witness against the Fiat-Shamir transcript.</p>
+<p>Observes the witness, samples <cite>bits</cite> bits, and checks == 0.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-challenger GrindingChallenger::check_witness</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="primitives.transcript.grind">
+<span class="sig-prename descclassname"><span class="pre">primitives.transcript.</span></span><span class="sig-name descname"><span class="pre">grind</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">challenger</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#primitives.transcript.Challenger" title="primitives.transcript.Challenger"><span class="pre">Challenger</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">bits</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">int</span></span></span><a class="reference internal" href="../../../_modules/primitives/transcript.html#grind"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#primitives.transcript.grind" title="Link to this definition">#</a></dt>
+<dd><p>Brute-force search for a proof-of-work witness.</p>
+<p>Tries witness = 0, 1, 2, … until check_witness passes.
+Then calls check_witness on the original challenger to update its state.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>challenger: The Fiat-Shamir challenger.
+bits: Number of bits for the PoW check.</p>
+</dd>
+<dt>Returns:</dt><dd><p>The winning witness value.</p>
+</dd>
+<dt>Reference:</dt><dd><p>p3-challenger grinding_challenger.rs GrindingChallenger::grind</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../poseidon2/index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">primitives.poseidon2</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../../constraints/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">constraints</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classes">Classes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#functions">Functions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-contents">Module Contents</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.WIDTH"><code class="docutils literal notranslate"><span class="pre">WIDTH</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.RATE"><code class="docutils literal notranslate"><span class="pre">RATE</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger"><code class="docutils literal notranslate"><span class="pre">Challenger</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sponge_state"><code class="docutils literal notranslate"><span class="pre">Challenger.sponge_state</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.input_buffer"><code class="docutils literal notranslate"><span class="pre">Challenger.input_buffer</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.output_buffer"><code class="docutils literal notranslate"><span class="pre">Challenger.output_buffer</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.from_state"><code class="docutils literal notranslate"><span class="pre">Challenger.from_state()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.observe"><code class="docutils literal notranslate"><span class="pre">Challenger.observe()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.observe_many"><code class="docutils literal notranslate"><span class="pre">Challenger.observe_many()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sample"><code class="docutils literal notranslate"><span class="pre">Challenger.sample()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sample_ext"><code class="docutils literal notranslate"><span class="pre">Challenger.sample_ext()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.sample_bits"><code class="docutils literal notranslate"><span class="pre">Challenger.sample_bits()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.Challenger.clone"><code class="docutils literal notranslate"><span class="pre">Challenger.clone()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.check_witness"><code class="docutils literal notranslate"><span class="pre">check_witness()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#primitives.transcript.grind"><code class="docutils literal notranslate"><span class="pre">grind()</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Derived from the Python Executable Specification
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>

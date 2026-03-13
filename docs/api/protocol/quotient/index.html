@@ -1,0 +1,889 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>protocol.quotient &#8212; OpenVM STARK Spec</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../_static/styles/bootstrap.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+
+  
+  <link href="../../../_static/vendor/fontawesome/6.5.2/css/all.min.css?digest=dfe6caa3a7d634c4db9b" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.5.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/sphinx-book-theme.css?v=eba8b062" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b" />
+  <script src="../../../_static/vendor/fontawesome/6.5.2/js/all.min.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+    <script src="../../../_static/documentation_options.js?v=9eb32ce0"></script>
+    <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=f281be69"></script>
+    <script src="../../../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'api/protocol/quotient/index';</script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="protocol.stark" href="../stark/index.html" />
+    <link rel="prev" title="protocol.proof" href="../proof/index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-primary-sidebar-checkbox"/>
+  <label class="overlay overlay-primary" for="pst-primary-sidebar-checkbox"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          id="pst-secondary-sidebar-checkbox"/>
+  <label class="overlay overlay-secondary" for="pst-secondary-sidebar-checkbox"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search..."
+         aria-label="Search..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+    
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">OpenVM STARK Spec</p>
+  
+</a></div>
+        <div class="sidebar-primary-item">
+
+ <script>
+ document.write(`
+   <button class="btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script></div>
+        <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item navbar-nav active">
+        <ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../part-stark/index.html">Part I: STARK Protocol</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/notation.html">Primitives</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/building-blocks.html">Building Blocks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/commitment-phase.html">Commitment Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/verification.html">Verification Phase</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/full-protocol.html">The Full Protocol, Rolled Out</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/appendix-constraints.html">Appendix: Constraint System</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/appendix-fri.html">Appendix: FRI Protocol</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-stark/glossary.html">Glossary of Notation</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../part-programs/index.html">Part II: Programs</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-programs/fibonacci.html">Fibonacci (Single-AIR)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../part-programs/multi-air.html">Multi-AIR (RV32IM)</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../../index.html">API Reference</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../witness/index.html">witness</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../witness/fibonacci/index.html">witness.fibonacci</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 current active has-children"><a class="reference internal" href="../index.html">protocol</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="../constraints/index.html">protocol.constraints</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../domain/index.html">protocol.domain</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../fri/index.html">protocol.fri</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../logup/index.html">protocol.logup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../pcs/index.html">protocol.pcs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../proof/index.html">protocol.proof</a></li>
+<li class="toctree-l3 current active"><a class="current reference internal" href="#">protocol.quotient</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../stark/index.html">protocol.stark</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../primitives/index.html">primitives</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/field/index.html">primitives.field</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/merkle/index.html">primitives.merkle</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/ntt/index.html">primitives.ntt</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/poseidon2/index.html">primitives.poseidon2</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../primitives/transcript/index.html">primitives.transcript</a></li>
+</ul>
+</details></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../constraints/index.html">constraints</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../constraints/fibonacci_air/index.html">constraints.fibonacci_air</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+
+    </div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+
+<div class="sbt-scroll-pixel-helper"></div>
+
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item"><button class="sidebar-toggle primary-toggle btn btn-sm" title="Toggle primary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <span class="fa-solid fa-bars"></span>
+</button></div>
+      
+    </div>
+  
+  
+    <div class="header-article-items__end">
+      
+        <div class="header-article-item">
+
+<div class="article-header-buttons">
+
+
+
+
+
+<div class="dropdown dropdown-download-buttons">
+  <button class="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Download this page">
+    <i class="fas fa-download"></i>
+  </button>
+  <ul class="dropdown-menu">
+      
+      
+      
+      <li><a href="../../../_sources/api/protocol/quotient/index.rst" target="_blank"
+   class="btn btn-sm btn-download-source-button dropdown-item"
+   title="Download source file"
+   data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file"></i>
+  </span>
+<span class="btn__text-container">.rst</span>
+</a>
+</li>
+      
+      
+      
+      
+      <li>
+<button onclick="window.print()"
+  class="btn btn-sm btn-download-pdf-button dropdown-item"
+  title="Print to PDF"
+  data-bs-placement="left" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-file-pdf"></i>
+  </span>
+<span class="btn__text-container">.pdf</span>
+</button>
+</li>
+      
+  </ul>
+</div>
+
+
+
+
+<button onclick="toggleFullScreen()"
+  class="btn btn-sm btn-fullscreen-button"
+  title="Fullscreen mode"
+  data-bs-placement="bottom" data-bs-toggle="tooltip"
+>
+  
+
+<span class="btn__icon-container">
+  <i class="fas fa-expand"></i>
+  </span>
+
+</button>
+
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="theme-switch fa-solid fa-sun fa-lg" data-mode="light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg" data-mode="dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"></i>
+  </button>
+`);
+</script>
+
+
+<script>
+document.write(`
+  <button class="btn btn-sm pst-navbar-icon search-button search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass fa-lg"></i>
+  </button>
+`);
+</script>
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
+</div></div>
+      
+    </div>
+  
+</div>
+</div>
+              
+              
+
+<div id="jb-print-docs-body" class="onlyprint">
+    <h1>protocol.quotient</h1>
+    <!-- Table of contents -->
+    <div id="print-main-content">
+        <div id="jb-print-toc">
+            
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classes">Classes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#functions">Functions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-contents">Module Contents</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.p"><code class="docutils literal notranslate"><span class="pre">p</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.coset_lde_column"><code class="docutils literal notranslate"><span class="pre">coset_lde_column()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.extend_trace_to_quotient_domain"><code class="docutils literal notranslate"><span class="pre">extend_trace_to_quotient_domain()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors"><code class="docutils literal notranslate"><span class="pre">CosetSelectors</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.is_first_row"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.is_first_row</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.is_last_row"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.is_last_row</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.is_transition"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.is_transition</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.inv_zeroifier"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.inv_zeroifier</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.selectors_on_coset"><code class="docutils literal notranslate"><span class="pre">selectors_on_coset()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.eval_symbolic_expression_dag"><code class="docutils literal notranslate"><span class="pre">eval_symbolic_expression_dag()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.eval_symbolic_expression_dag_full"><code class="docutils literal notranslate"><span class="pre">eval_symbolic_expression_dag_full()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.accumulate_constraints_ef4"><code class="docutils literal notranslate"><span class="pre">accumulate_constraints_ef4()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.accumulate_constraints"><code class="docutils literal notranslate"><span class="pre">accumulate_constraints()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.compute_quotient_values"><code class="docutils literal notranslate"><span class="pre">compute_quotient_values()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.quotient_values_to_chunks"><code class="docutils literal notranslate"><span class="pre">quotient_values_to_chunks()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.extend_after_challenge_to_quotient_domain"><code class="docutils literal notranslate"><span class="pre">extend_after_challenge_to_quotient_domain()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.compute_quotient_chunks"><code class="docutils literal notranslate"><span class="pre">compute_quotient_chunks()</span></code></a></li>
+</ul>
+</li>
+</ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="module-protocol.quotient">
+<span id="protocol-quotient"></span><h1>protocol.quotient<a class="headerlink" href="#module-protocol.quotient" title="Link to this heading">#</a></h1>
+<p>Prover-side quotient polynomial computation.</p>
+<p>Computes Q(x) = (sum of alpha-weighted constraints at x) / Z_H(x) for each
+point x in the quotient domain.  The quotient domain is a coset disjoint from
+the trace domain with size = trace_size * quotient_degree.</p>
+<p>The output is split into <cite>quotient_degree</cite> chunks, each of trace_domain.size()
+rows, with extension field elements flattened to base field coefficients for
+Merkle commitment.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/single.rs  — compute_single_rap_quotient_values
+stark-backend/src/prover/cpu/quotient/mod.rs      — QuotientCommitter
+stark-backend/src/prover/cpu/quotient/evaluator.rs — ProverConstraintEvaluator
+p3-commit-0.4.1/src/domain.rs                      — selectors_on_coset
+p3-dft-0.4.1/src/traits.rs                         — coset_lde_batch</p>
+</dd>
+</dl>
+<section id="attributes">
+<h2>Attributes<a class="headerlink" href="#attributes" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.p" title="protocol.quotient.p"><code class="xref py py-obj docutils literal notranslate"><span class="pre">p</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.CosetSelectors" title="protocol.quotient.CosetSelectors"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CosetSelectors</span></code></a></p></td>
+<td><p>Precomputed Lagrange selectors at every point of a coset.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="autosummary longtable table">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.coset_lde_column" title="protocol.quotient.coset_lde_column"><code class="xref py py-obj docutils literal notranslate"><span class="pre">coset_lde_column</span></code></a>(→ list[primitives.field.Fe])</p></td>
+<td><p>Extend polynomial from trace domain to quotient domain via coset LDE.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#protocol.quotient.extend_trace_to_quotient_domain" title="protocol.quotient.extend_trace_to_quotient_domain"><code class="xref py py-obj docutils literal notranslate"><span class="pre">extend_trace_to_quotient_domain</span></code></a>(...)</p></td>
+<td><p>Extend the full trace matrix from trace domain to quotient domain.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.selectors_on_coset" title="protocol.quotient.selectors_on_coset"><code class="xref py py-obj docutils literal notranslate"><span class="pre">selectors_on_coset</span></code></a>(→ CosetSelectors)</p></td>
+<td><p>Compute Lagrange selectors of the trace domain at every quotient domain point.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#protocol.quotient.eval_symbolic_expression_dag" title="protocol.quotient.eval_symbolic_expression_dag"><code class="xref py py-obj docutils literal notranslate"><span class="pre">eval_symbolic_expression_dag</span></code></a>(→ list[primitives.field.Fe])</p></td>
+<td><p>Evaluate all nodes of a symbolic expression DAG at a given row.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.eval_symbolic_expression_dag_full" title="protocol.quotient.eval_symbolic_expression_dag_full"><code class="xref py py-obj docutils literal notranslate"><span class="pre">eval_symbolic_expression_dag_full</span></code></a>(...)</p></td>
+<td><p>Evaluate all DAG nodes for multi-AIR quotient computation, in FF4.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#protocol.quotient.accumulate_constraints_ef4" title="protocol.quotient.accumulate_constraints_ef4"><code class="xref py py-obj docutils literal notranslate"><span class="pre">accumulate_constraints_ef4</span></code></a>(→ primitives.field.FF4)</p></td>
+<td><p>Fold constraint values using powers of alpha (FF4 variant).</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.accumulate_constraints" title="protocol.quotient.accumulate_constraints"><code class="xref py py-obj docutils literal notranslate"><span class="pre">accumulate_constraints</span></code></a>(→ primitives.field.FF4)</p></td>
+<td><p>Fold constraint values using powers of alpha.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#protocol.quotient.compute_quotient_values" title="protocol.quotient.compute_quotient_values"><code class="xref py py-obj docutils literal notranslate"><span class="pre">compute_quotient_values</span></code></a>(→ list[list[int]])</p></td>
+<td><p>Compute quotient polynomial evaluations on the quotient domain.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.quotient_values_to_chunks" title="protocol.quotient.quotient_values_to_chunks"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quotient_values_to_chunks</span></code></a>(...)</p></td>
+<td><p>Split quotient evaluations into chunks and flatten to base field.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#protocol.quotient.extend_after_challenge_to_quotient_domain" title="protocol.quotient.extend_after_challenge_to_quotient_domain"><code class="xref py py-obj docutils literal notranslate"><span class="pre">extend_after_challenge_to_quotient_domain</span></code></a>(...)</p></td>
+<td><p>Extend after-challenge trace (FF4 values) to the quotient domain.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#protocol.quotient.compute_quotient_chunks" title="protocol.quotient.compute_quotient_chunks"><code class="xref py py-obj docutils literal notranslate"><span class="pre">compute_quotient_chunks</span></code></a>(...)</p></td>
+<td><p>End-to-end quotient computation: trace -&gt; quotient chunks ready for commitment.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="module-contents">
+<h2>Module Contents<a class="headerlink" href="#module-contents" title="Link to this heading">#</a></h2>
+<dl class="py data">
+<dt class="sig sig-object py" id="protocol.quotient.p">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">p</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2013265921</span></em><a class="reference internal" href="../../../_modules/protocol/quotient.html#p"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.p" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.coset_lde_column">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">coset_lde_column</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">evals</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trace_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quotient_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#coset_lde_column"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.coset_lde_column" title="Link to this definition">#</a></dt>
+<dd><p>Extend polynomial from trace domain to quotient domain via coset LDE.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-dft-0.4.1/src/traits.rs coset_lde_batch (lines 226-249)
+p3-dft-0.4.1/src/util.rs   coset_shift_cols (lines 28-36)</p>
+</dd>
+<dt>Args:</dt><dd><p>evals: Column evaluations on the trace domain (natural order).
+trace_domain: The trace domain (shift=1 subgroup).
+quotient_domain: The quotient domain (disjoint coset).</p>
+</dd>
+<dt>Returns:</dt><dd><p>Column evaluations on the quotient domain (natural order).</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.extend_trace_to_quotient_domain">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">extend_trace_to_quotient_domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trace_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quotient_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#extend_trace_to_quotient_domain"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.extend_trace_to_quotient_domain" title="Link to this definition">#</a></dt>
+<dd><p>Extend the full trace matrix from trace domain to quotient domain.</p>
+<p>Input: trace as list of rows [[col0, col1, …], …] on the trace domain.
+Output: evaluations on the quotient domain, as list of rows.</p>
+<p>Each column is independently extended via coset LDE.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/mod.rs single_rap_quotient_values
+(trace LDE is done externally but the math is the same)</p>
+</dd>
+<dt>Args:</dt><dd><p>trace: Trace matrix as list of rows, each row a list of base field elements.
+trace_domain: Trace domain (shift=1 subgroup).
+quotient_domain: Quotient domain (disjoint coset, larger).</p>
+</dd>
+<dt>Returns:</dt><dd><p>Trace evaluations on quotient domain, as list of rows.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="protocol.quotient.CosetSelectors">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">CosetSelectors</span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#CosetSelectors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.CosetSelectors" title="Link to this definition">#</a></dt>
+<dd><p>Precomputed Lagrange selectors at every point of a coset.</p>
+<p>These are base-field-valued selectors for the trace domain evaluated at
+every point of the quotient domain (a coset).</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-commit-0.4.1/src/domain.rs selectors_on_coset (lines 252-292)</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.quotient.CosetSelectors.is_first_row">
+<span class="sig-name descname"><span class="pre">is_first_row</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/quotient.html#CosetSelectors.is_first_row"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.CosetSelectors.is_first_row" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.quotient.CosetSelectors.is_last_row">
+<span class="sig-name descname"><span class="pre">is_last_row</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/quotient.html#CosetSelectors.is_last_row"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.CosetSelectors.is_last_row" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.quotient.CosetSelectors.is_transition">
+<span class="sig-name descname"><span class="pre">is_transition</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/quotient.html#CosetSelectors.is_transition"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.CosetSelectors.is_transition" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="protocol.quotient.CosetSelectors.inv_zeroifier">
+<span class="sig-name descname"><span class="pre">inv_zeroifier</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></em><a class="reference internal" href="../../../_modules/protocol/quotient.html#CosetSelectors.inv_zeroifier"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.CosetSelectors.inv_zeroifier" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.selectors_on_coset">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">selectors_on_coset</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trace_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quotient_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#protocol.quotient.CosetSelectors" title="protocol.quotient.CosetSelectors"><span class="pre">CosetSelectors</span></a></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#selectors_on_coset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.selectors_on_coset" title="Link to this definition">#</a></dt>
+<dd><p>Compute Lagrange selectors of the trace domain at every quotient domain point.</p>
+<p>This is a batch computation that avoids per-point extension field arithmetic.
+All arithmetic is in the base field because quotient domain points are base
+field elements (the coset shift is a base field element).</p>
+<p>Algorithm from p3-commit selectors_on_coset:
+1. Compute Z_H(x) = (shift^n * rate_gen^i) - 1 for each i in [0, rate),</p>
+<blockquote>
+<div><p>where rate = quotient_size / trace_size. These values cycle with period
+<cite>rate</cite> over the quotient domain.</p>
+</div></blockquote>
+<ol class="arabic simple" start="2">
+<li><p>For single_point_selector(j):
+- Compute denoms[i] = x_i - omega^j for each quotient domain point x_i
+- Batch invert the denoms
+- Multiply: selector[i] = Z_H(x_i) * denom_inv[i]</p></li>
+<li><p>is_first_row = single_point_selector(0)
+is_last_row = single_point_selector(n-1) where n = trace_size</p></li>
+<li><p>is_transition[i] = x_i - omega^{-1} (omega = trace generator)</p></li>
+<li><p>inv_zeroifier = batch_inverse(Z_H) cycled over quotient_size</p></li>
+</ol>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-commit-0.4.1/src/domain.rs selectors_on_coset (lines 252-292)</p>
+</dd>
+<dt>Args:</dt><dd><p>trace_domain: The trace domain (must have shift=1).
+quotient_domain: A coset disjoint from trace domain.</p>
+</dd>
+<dt>Returns:</dt><dd><p>CosetSelectors with base field values at each quotient domain point.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.eval_symbolic_expression_dag">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">eval_symbolic_expression_dag</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.SymbolicExpressionDag" title="protocol.proof.SymbolicExpressionDag"><span class="pre">protocol.proof.SymbolicExpressionDag</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">local_row</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">next_row</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">public_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_first_row</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">primitives.field.Fe</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_last_row</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">primitives.field.Fe</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_transition</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">primitives.field.Fe</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#eval_symbolic_expression_dag"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.eval_symbolic_expression_dag" title="Link to this definition">#</a></dt>
+<dd><p>Evaluate all nodes of a symbolic expression DAG at a given row.</p>
+<p>Evaluates in topological order (nodes reference only earlier nodes).
+All arithmetic is in the base field.</p>
+<p>This is the simplified version for AIRs without preprocessed traces,
+permutation arguments, or challenges (e.g., FibonacciAir).</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/evaluator.rs
+ProverConstraintEvaluator::eval_nodes_mut (lines 175-217)</p>
+</dd>
+<dt>Args:</dt><dd><p>dag: The symbolic expression DAG.
+local_row: Trace values at the current row.
+next_row: Trace values at the next row.
+public_values: Public input values.
+is_first_row: Selector value for first row.
+is_last_row: Selector value for last row.
+is_transition: Selector value for transition.</p>
+</dd>
+<dt>Returns:</dt><dd><p>Evaluated values for every node in the DAG (base field).</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.eval_symbolic_expression_dag_full">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">eval_symbolic_expression_dag_full</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.SymbolicExpressionDag" title="protocol.proof.SymbolicExpressionDag"><span class="pre">protocol.proof.SymbolicExpressionDag</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">partitioned_local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">partitioned_next</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">public_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_first_row</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">primitives.field.Fe</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_last_row</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">primitives.field.Fe</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_transition</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">primitives.field.Fe</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preprocessed_local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preprocessed_next</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">after_challenge_local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">after_challenge_next</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">challenges</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exposed_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#eval_symbolic_expression_dag_full"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.eval_symbolic_expression_dag_full" title="Link to this definition">#</a></dt>
+<dd><p>Evaluate all DAG nodes for multi-AIR quotient computation, in FF4.</p>
+<p>Handles all entry types: PREPROCESSED, MAIN, PUBLIC, PERMUTATION,
+CHALLENGE, EXPOSED.  All arithmetic is in FF4 since PERMUTATION/CHALLENGE/
+EXPOSED variables are inherently extension field.</p>
+<p>For MAIN, partitioned_local[part_index][col_index] gives the base field
+value for the current row.  part_index selects the trace partition
+(cached mains first, then common main).</p>
+<p>For PERMUTATION, after_challenge_local[index] and after_challenge_next[index]
+are FF4 values indexed by extension field column number.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/evaluator.rs
+ProverConstraintEvaluator (eval_var + eval_nodes_mut)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.accumulate_constraints_ef4">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">accumulate_constraints_ef4</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.SymbolicExpressionDag" title="protocol.proof.SymbolicExpressionDag"><span class="pre">protocol.proof.SymbolicExpressionDag</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#accumulate_constraints_ef4"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.accumulate_constraints_ef4" title="Link to this definition">#</a></dt>
+<dd><p>Fold constraint values using powers of alpha (FF4 variant).</p>
+<p>Same as accumulate_constraints but node_values are already FF4.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/evaluator.rs accumulate (lines 229-247)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.accumulate_constraints">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">accumulate_constraints</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.SymbolicExpressionDag" title="protocol.proof.SymbolicExpressionDag"><span class="pre">protocol.proof.SymbolicExpressionDag</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#accumulate_constraints"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.accumulate_constraints" title="Link to this definition">#</a></dt>
+<dd><p>Fold constraint values using powers of alpha.</p>
+<p>Computes sum_{k} alpha^k * constraint_value[k], where the constraints
+are indexed by dag.constraint_idx in reverse order (highest power first)
+to match the Rust evaluator.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/evaluator.rs
+ProverConstraintEvaluator::accumulate (lines 229-247)</p>
+</dd>
+<dt>Args:</dt><dd><p>dag: The symbolic expression DAG.
+node_values: Evaluated values for all DAG nodes (from eval_symbolic_expression_dag).
+alpha: The alpha challenge (extension field element).</p>
+</dd>
+<dt>Returns:</dt><dd><p>The folded constraint value (extension field element).</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.compute_quotient_values">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">compute_quotient_values</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trace_on_quotient_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints_dag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.SymbolicExpressionDag" title="protocol.proof.SymbolicExpressionDag"><span class="pre">protocol.proof.SymbolicExpressionDag</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">public_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quotient_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">trace_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">preprocessed_on_quot</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">after_challenge_on_quot</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">challenges</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exposed_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">partitioned_trace_on_quot</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#compute_quotient_values"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.compute_quotient_values" title="Link to this definition">#</a></dt>
+<dd><p>Compute quotient polynomial evaluations on the quotient domain.</p>
+<p>For each point x in the quotient domain:
+1. Look up precomputed selectors (is_first_row, is_last_row, is_transition).
+2. Get the local row and next row from the extended trace.</p>
+<blockquote>
+<div><p>The “next” row uses the trace-domain step size within the quotient domain:
+next[i] = trace[(i + quotient_size / trace_size) % quotient_size].</p>
+</div></blockquote>
+<ol class="arabic simple" start="3">
+<li><p>Evaluate all symbolic constraints at (local, next, public_values, selectors).</p></li>
+<li><p>Fold constraints: accumulator = sum(alpha^k * C_k).</p></li>
+<li><p>Divide by vanishing polynomial: quotient[x] = accumulator * inv_zeroifier[x].</p></li>
+</ol>
+<p>When preprocessed/after_challenge/challenges/exposed_values are provided,
+uses the full FF4 evaluator to handle PERMUTATION/CHALLENGE/EXPOSED variables.
+Otherwise, uses the base field evaluator for simple AIRs.</p>
+<dl>
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/single.rs
+compute_single_rap_quotient_values (lines 60-346)</p>
+</dd>
+<dt>Args:</dt><dd><p>trace_on_quotient_domain: Extended trace as list of rows on quotient domain.
+constraints_dag: Symbolic expression DAG for the AIR constraints.
+public_values: Public input values.
+alpha: Alpha challenge for constraint folding (extension field element).
+quotient_domain: The quotient domain (disjoint coset).
+trace_domain: The trace domain (shift=1 subgroup).
+preprocessed_on_quot: Preprocessed trace on quotient domain (optional).
+after_challenge_on_quot: After-challenge trace on quotient domain as</p>
+<blockquote>
+<div><p>[rows][perm_width] of FF4Coeffs (optional).</p>
+</div></blockquote>
+<p>challenges: Challenges per phase (optional).
+exposed_values: Exposed values per phase (optional).</p>
+</dd>
+<dt>Returns:</dt><dd><p>List of FF4 values, one per quotient domain point.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.quotient_values_to_chunks">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">quotient_values_to_chunks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">quotient_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_chunks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#quotient_values_to_chunks"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.quotient_values_to_chunks" title="Link to this definition">#</a></dt>
+<dd><p>Split quotient evaluations into chunks and flatten to base field.</p>
+<p>The quotient evaluations on the quotient domain (a coset) are “vertically
+strided” into num_chunks sub-cosets.  Row i of the full quotient maps to
+chunk (i % num_chunks), row (i // num_chunks) of that chunk.</p>
+<p>Each chunk row has 4 base field elements (the FF4 coefficients), matching
+the Rust representation where extension field elements are transmuted to
+base field columns.</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>p3-commit-0.4.1/src/domain.rs split_evals (lines 188-221)
+stark-backend/src/prover/cpu/quotient/single.rs lines 336-343</p>
+</dd>
+<dt>The ordering follows the Rust pattern:</dt><dd><p>quotient_values[chunk_idx + row_idx * quotient_degree]</p>
+</dd>
+</dl>
+<p>goes into chunk[chunk_idx][row_idx].</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>quotient_values: Flat list of FF4 quotient values on the quotient domain.
+num_chunks: Number of chunks (= quotient_degree, a power of 2).</p>
+</dd>
+<dt>Returns:</dt><dd><p>List of chunks. Each chunk is a list of rows, each row being
+[c0, c1, c2, c3] (the 4 base field coefficients of the FF4 element).</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.extend_after_challenge_to_quotient_domain">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">extend_after_challenge_to_quotient_domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">after_challenge_trace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">trace_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quotient_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#extend_after_challenge_to_quotient_domain"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.extend_after_challenge_to_quotient_domain" title="Link to this definition">#</a></dt>
+<dd><p>Extend after-challenge trace (FF4 values) to the quotient domain.</p>
+<p>Each FF4 element has 4 base field coefficients. We LDE each coefficient
+column independently, then reconstruct FF4 values at quotient domain points.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>after_challenge_trace: [rows][perm_width] of FF4Coeffs on trace domain.
+trace_domain: Trace domain (shift=1 subgroup).
+quotient_domain: Quotient domain (disjoint coset).</p>
+</dd>
+<dt>Returns:</dt><dd><p>[quot_rows][perm_width] of FF4Coeffs on quotient domain.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="protocol.quotient.compute_quotient_chunks">
+<span class="sig-prename descclassname"><span class="pre">protocol.quotient.</span></span><span class="sig-name descname"><span class="pre">compute_quotient_chunks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">trace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constraints_dag</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../proof/index.html#protocol.proof.SymbolicExpressionDag" title="protocol.proof.SymbolicExpressionDag"><span class="pre">protocol.proof.SymbolicExpressionDag</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">public_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alpha</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../primitives/field/index.html#primitives.field.FF4" title="primitives.field.FF4"><span class="pre">primitives.field.FF4</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">trace_domain</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">quotient_degree</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preprocessed_trace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">after_challenge_trace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">challenges</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exposed_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">partitioned_traces</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">primitives.field.Fe</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">list</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="../domain/index.html#protocol.domain.TwoAdicMultiplicativeCoset" title="protocol.domain.TwoAdicMultiplicativeCoset"><span class="pre">protocol.domain.TwoAdicMultiplicativeCoset</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../../_modules/protocol/quotient.html#compute_quotient_chunks"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#protocol.quotient.compute_quotient_chunks" title="Link to this definition">#</a></dt>
+<dd><p>End-to-end quotient computation: trace -&gt; quotient chunks ready for commitment.</p>
+<p>This combines:
+1. Create the quotient domain (disjoint from trace domain)
+2. LDE the trace to the quotient domain
+3. Compute quotient values on the quotient domain
+4. Split into chunks</p>
+<dl class="simple">
+<dt>Reference:</dt><dd><p>stark-backend/src/prover/cpu/quotient/mod.rs
+QuotientCommitter::single_rap_quotient_values (lines 84-130)</p>
+</dd>
+<dt>Args:</dt><dd><p>trace: Trace matrix as list of rows on the trace domain.
+constraints_dag: Symbolic expression DAG for the AIR constraints.
+public_values: Public input values.
+alpha: Alpha challenge (extension field element).
+trace_domain: Trace domain (shift=1 subgroup).
+quotient_degree: Factor multiplying trace degree to get quotient degree.
+preprocessed_trace: Preprocessed trace matrix [rows][cols] (optional).
+after_challenge_trace: After-challenge trace [rows][perm_width] of FF4 (optional).
+challenges: Challenges per phase (optional).
+exposed_values: Exposed values per phase (optional).</p>
+</dd>
+<dt>Returns:</dt><dd><p>Tuple of (chunks, chunk_domains) where:
+- chunks: list of num_chunks matrices, each a list of rows of 4 Fe elements.
+- chunk_domains: the sub-coset domains for each chunk.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+                </article>
+              
+
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../proof/index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">protocol.proof</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../stark/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">protocol.stark</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#attributes">Attributes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#classes">Classes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#functions">Functions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#module-contents">Module Contents</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.p"><code class="docutils literal notranslate"><span class="pre">p</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.coset_lde_column"><code class="docutils literal notranslate"><span class="pre">coset_lde_column()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.extend_trace_to_quotient_domain"><code class="docutils literal notranslate"><span class="pre">extend_trace_to_quotient_domain()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors"><code class="docutils literal notranslate"><span class="pre">CosetSelectors</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.is_first_row"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.is_first_row</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.is_last_row"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.is_last_row</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.is_transition"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.is_transition</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.CosetSelectors.inv_zeroifier"><code class="docutils literal notranslate"><span class="pre">CosetSelectors.inv_zeroifier</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.selectors_on_coset"><code class="docutils literal notranslate"><span class="pre">selectors_on_coset()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.eval_symbolic_expression_dag"><code class="docutils literal notranslate"><span class="pre">eval_symbolic_expression_dag()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.eval_symbolic_expression_dag_full"><code class="docutils literal notranslate"><span class="pre">eval_symbolic_expression_dag_full()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.accumulate_constraints_ef4"><code class="docutils literal notranslate"><span class="pre">accumulate_constraints_ef4()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.accumulate_constraints"><code class="docutils literal notranslate"><span class="pre">accumulate_constraints()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.compute_quotient_values"><code class="docutils literal notranslate"><span class="pre">compute_quotient_values()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.quotient_values_to_chunks"><code class="docutils literal notranslate"><span class="pre">quotient_values_to_chunks()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.extend_after_challenge_to_quotient_domain"><code class="docutils literal notranslate"><span class="pre">extend_after_challenge_to_quotient_domain()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol.quotient.compute_quotient_chunks"><code class="docutils literal notranslate"><span class="pre">compute_quotient_chunks()</span></code></a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+<div class="bd-footer-content__inner container">
+  
+  <div class="footer-item">
+    
+<p class="component-author">
+By Derived from the Python Executable Specification
+</p>
+
+  </div>
+  
+  <div class="footer-item">
+    
+
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+  <div class="footer-item">
+    
+  </div>
+  
+</div>
+          </footer>
+        
+
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../../_static/scripts/bootstrap.js?digest=dfe6caa3a7d634c4db9b"></script>
+<script src="../../../_static/scripts/pydata-sphinx-theme.js?digest=dfe6caa3a7d634c4db9b"></script>
+
+  <footer class="bd-footer">
+  </footer>
+  </body>
+</html>
