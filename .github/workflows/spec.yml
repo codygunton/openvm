@@ -6,6 +6,7 @@ on:
     paths:
       - 'docs/spec/**'
       - 'executable-spec/**'
+      - '.github/workflows/spec.yml'
   workflow_dispatch:
 
 permissions:
