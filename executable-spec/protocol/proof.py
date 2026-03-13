@@ -602,6 +602,7 @@ def _parse_air_proof_data(data: dict) -> AirProofData:
     )
 
 
+# <doc-anchor id="parse-proof">
 def parse_proof_json(data: dict) -> Proof:
     """Parse a Proof from a JSON dict (serde_json format).
 
@@ -875,6 +876,7 @@ def _parse_linear_constraint(data: dict) -> LinearConstraint:
     )
 
 
+# <doc-anchor id="parse-vk">
 def parse_vk_json(data: dict) -> MultiStarkVerifyingKey:
     """Parse a MultiStarkVerifyingKey from a JSON dict (serde_json format).
 
@@ -1113,6 +1115,7 @@ def _ser_air_proof_data(apd: AirProofData) -> dict:
     }
 
 
+# <doc-anchor id="serialize-proof">
 def serialize_proof_json(proof: Proof) -> dict:
     """Serialize a Proof to serde-compatible JSON dict.
 

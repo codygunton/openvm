@@ -117,6 +117,7 @@ def fri_fold(
 # --- Verifier: Query Verification ---
 
 
+# <doc-anchor id="fri-fold">
 def fold_row(
     index: int,
     log_height: int,
@@ -141,6 +142,7 @@ def fold_row(
     return e0 + (beta - x_even) * (e1 - e0) * inv_diff
 
 
+# <doc-anchor id="hash-fri-leaf">
 def hash_fri_leaf(e0: FF4, e1: FF4) -> Digest:
     """Hash pair of extension field evaluations as FRI Merkle leaf.
 
@@ -224,6 +226,7 @@ def fri_verify_query(
     return folded_eval.to_list()
 
 
+# <doc-anchor id="verify-fri">
 def verify_fri(
     commit_phase_commits: list[Digest],
     final_poly: list[list[int]],
@@ -304,6 +307,7 @@ def verify_fri(
 # --- Prover: Bit-Reversed Folding ---
 
 
+# <doc-anchor id="fold-matrix">
 def fold_matrix(
     evals_bit_reversed: list[list[int]],
     beta: FF4,
@@ -349,6 +353,7 @@ def fold_matrix(
 # --- Prover: Commit Phase ---
 
 
+# <doc-anchor id="commit-phase">
 def commit_phase(
     evals_bit_reversed: list[list[int]],
     log_blowup: int,
@@ -445,6 +450,7 @@ def commit_phase(
 # --- Prover: Query Phase ---
 
 
+# <doc-anchor id="answer-query">
 def answer_query(
     trees: list[list[list[Digest]]],
     all_round_evals: list[list[list[int]]],
@@ -475,6 +481,7 @@ def answer_query(
     return openings
 
 
+# <doc-anchor id="prove-fri">
 def prove_fri(
     evals_bit_reversed: list[list[int]],
     log_blowup: int,

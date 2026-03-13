@@ -74,6 +74,7 @@ def coset_lde_column(
     return coset_lde(evals, lde_shift, log_blowup)
 
 
+# <doc-anchor id="extend-trace">
 def extend_trace_to_quotient_domain(
     trace: list[list[Fe]],
     trace_domain: TwoAdicMultiplicativeCoset,
@@ -522,6 +523,7 @@ def accumulate_constraints(
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="compute-quotient-values">
 def compute_quotient_values(
     trace_on_quotient_domain: list[list[Fe]],
     constraints_dag: SymbolicExpressionDag,
@@ -978,6 +980,7 @@ def extend_after_challenge_to_quotient_domain(
     return result
 
 
+# <doc-anchor id="compute-quotient-chunks">
 def compute_quotient_chunks(
     trace: list[list[Fe]],
     constraints_dag: SymbolicExpressionDag,

@@ -122,6 +122,7 @@ class TwoAdicMultiplicativeCoset:
         unshifted = FF4(point).mul_base(self.shift_inverse())
         return unshifted ** (2 ** self.log_n) - FF4.one()
 
+    # <doc-anchor id="get-selectors">
     def selectors_at_point(self, point) -> DomainSelectors:
         """Compute Lagrange selectors at an evaluation point.
 
@@ -200,6 +201,7 @@ class TwoAdicMultiplicativeCoset:
 # --- Module-level Helper Functions ---
 
 
+# <doc-anchor id="natural-domain">
 def natural_domain_for_degree(degree: int) -> TwoAdicMultiplicativeCoset:
     """Return the canonical domain (subgroup) for the given degree.
 
@@ -220,6 +222,7 @@ def natural_domain_for_degree(degree: int) -> TwoAdicMultiplicativeCoset:
     return TwoAdicMultiplicativeCoset(log_n=log_n, shift=1)
 
 
+# <doc-anchor id="create-disjoint-domain">
 def create_disjoint_domain(
     domain: TwoAdicMultiplicativeCoset,
     min_size: int,

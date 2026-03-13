@@ -39,6 +39,7 @@ class Challenger:
         c.output_buffer = list(output_buffer)
         return c
 
+    # <doc-anchor id="observe">
     def observe(self, value: Fe) -> None:
         """Absorb a single field element.
 
@@ -63,6 +64,7 @@ class Challenger:
         for v in values:
             self.observe(v)
 
+    # <doc-anchor id="sample">
     def sample(self) -> Fe:
         """Squeeze one base field element (LIFO from output buffer).
 
@@ -120,6 +122,7 @@ class Challenger:
         )
 
 
+# <doc-anchor id="check-witness">
 def check_witness(challenger: Challenger, bits: int, witness: int) -> bool:
     """Verify a proof-of-work witness against the Fiat-Shamir transcript.
 

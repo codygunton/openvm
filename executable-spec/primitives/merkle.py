@@ -11,6 +11,7 @@ from primitives.field import Digest, MerklePath
 from primitives.poseidon2 import hash_to_digest, compress, compress_batch, hash_batch
 
 
+# <doc-anchor id="build-tree">
 def build_merkle_tree(
     leaves: list[list[int]],
 ) -> tuple[Digest, list[list[Digest]]]:
@@ -44,6 +45,7 @@ def build_merkle_tree(
     return root, tree
 
 
+# <doc-anchor id="open-proof">
 def get_opening_proof(
     tree: list[list[Digest]], leaf_index: int
 ) -> MerklePath:
@@ -61,6 +63,7 @@ def get_opening_proof(
     return proof
 
 
+# <doc-anchor id="verify-opening">
 def verify_opening_prehashed(
     root: Digest,
     leaf_digest: Digest,

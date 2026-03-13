@@ -72,6 +72,7 @@ class PcsRound:
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="verify-batch-opening">
 def _verify_batch_opening(
     commitment: Digest,
     dimensions: list[int],
@@ -203,6 +204,7 @@ def _hash_matrix_rows(
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="reduce-to-fri-input">
 def _open_input(
     fri_params: FriParameters,
     log_global_max_height: int,
@@ -318,6 +320,7 @@ def _open_input(
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="verify-fri-query">
 def _verify_query(
     fri_params: FriParameters,
     start_index: int,
@@ -411,6 +414,7 @@ def _verify_query(
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="pcs-verify">
 def pcs_verify(
     rounds: list[PcsRound],
     fri_proof: FriProof,
@@ -597,6 +601,7 @@ class CommittedData:
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="pcs-commit">
 def pcs_commit(
     evaluations: list[tuple[TwoAdicMultiplicativeCoset, list[list[Fe]]]],
     log_blowup: int,
@@ -676,6 +681,7 @@ def pcs_commit(
     )
 
 
+# <doc-anchor id="build-mmcs-tree">
 def _build_mmcs_tree(
     all_lde_rows: list[list[list[Fe]]],
 ) -> tuple[Digest, list[list[Digest]]]:
@@ -874,6 +880,7 @@ class PcsOpeningRound:
     points_per_mat: list[list[list[int]]]
 
 
+# <doc-anchor id="pcs-open">
 def pcs_open(
     rounds: list[PcsOpeningRound],
     challenger: Challenger,
@@ -952,6 +959,7 @@ def pcs_open(
     # Pre-compute bit-reversed domain points x_i per log_height
     x_arrays: dict[int, FF] = {}
 
+    # <doc-anchor id="per-height-alpha">
     # Per-height alpha_pow accumulators (matching Rust's num_reduced[log_height]).
     # Each height independently tracks alpha^k for its k-th column.
     # Reference: p3-fri two_adic_pcs.rs lines 226,253,271

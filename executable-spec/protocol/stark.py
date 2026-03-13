@@ -305,6 +305,7 @@ def _build_trace_domain_and_openings(
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="verify-stark">
 def verify_stark(
     vk: MultiStarkVerifyingKey,
     proof: Proof,
@@ -445,6 +446,7 @@ def verify_stark(
                     f"exposed_values count mismatch: {len(ev)} vs {n}"
                 )
 
+    # <doc-anchor id="verify-logup">
     # Call RAP phase partial verification
     # Reference: mod.rs lines 174-184
     challenges_per_phase, rap_phase_error = _partially_verify_fri_log_up(
@@ -635,6 +637,7 @@ def verify_stark(
         domains_and_openings=quotient_domains_and_openings,
     ))
 
+    # <doc-anchor id="verify-pcs">
     # --- Phase 6b: PCS verification ---
     # Reference: mod.rs lines 362-363 (pcs.verify)
     try:
@@ -689,6 +692,7 @@ def verify_stark(
                     opened_values.after_challenge[phase_idx][matrix_idx]
                 )
 
+        # <doc-anchor id="verify-constraints">
         # Verify constraints for this AIR
         # Reference: mod.rs lines 405-418
         verify_single_rap_constraints(
@@ -717,6 +721,7 @@ def verify_stark(
 # ===========================================================================
 
 
+# <doc-anchor id="prove-stark">
 def prove_stark(
     vk: MultiStarkVerifyingKey,
     traces: list[list[list[Fe]]],
@@ -765,6 +770,7 @@ def prove_stark(
     # --- Phase 1: Transcript initialization ---
     challenger = Challenger()
 
+    # <doc-anchor id="seed-transcript">
     # (1) Observe VK pre_hash
     challenger.observe_many(vk.pre_hash)
 
@@ -827,6 +833,7 @@ def prove_stark(
                 cached_committed_list.append(committed)
                 main_commits.append(committed.root)
 
+    # <doc-anchor id="commit-main-trace">
     # (c) Commit common main trace (all AIRs in one batch).
     common_main_evals = []
     for i_air in range(num_airs):
@@ -863,6 +870,7 @@ def prove_stark(
     exposed_values_per_air: list[list[list[FF4]]] = [[] for _ in range(num_airs)]
     ac_committed: CommittedData | None = None
 
+    # <doc-anchor id="commit-after-challenge">
     if has_any_interaction:
         from protocol.logup import (
             compute_after_challenge_trace,
@@ -1000,6 +1008,7 @@ def prove_stark(
         all_quotient_chunks.append(chunks)
         quotient_chunk_domains.append(qc_doms)
 
+    # <doc-anchor id="commit-quotient">
     # --- Phase 6: Commit quotient ---
     quotient_evals = []
     for i_air in range(num_airs):
@@ -1015,6 +1024,7 @@ def prove_stark(
     # --- Phase 7: DEEP PoW ---
     deep_pow_witness = grind(challenger, vk.inner.deep_pow_bits)
 
+    # <doc-anchor id="open-at-zeta">
     # --- Phase 8: Sample zeta ---
     zeta: FF4 = challenger.sample_ext()
 

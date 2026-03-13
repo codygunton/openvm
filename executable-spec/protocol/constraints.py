@@ -85,6 +85,7 @@ def unflatten_ext_values(flattened: list) -> list[FF4]:
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="eval-symbolic-dag">
 def eval_symbolic_dag(
     dag: SymbolicExpressionDag,
     selectors: DomainSelectors,
@@ -214,6 +215,7 @@ def _lookup_variable(
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="fold-constraints">
 def fold_constraints(
     constraint_evals: list[FF4],
     alpha: FF4,
@@ -241,6 +243,7 @@ def fold_constraints(
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="reconstruct-quotient">
 def reconstruct_quotient(
     quotient_chunks: list[list],
     qc_domains: list[TwoAdicMultiplicativeCoset],
@@ -411,6 +414,7 @@ class OodEvaluationMismatch(VerificationError):
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="verify-single-rap">
 def verify_single_rap_constraints(
     constraints: SymbolicExpressionDag,
     preprocessed_values: AdjacentOpenedValues | None,

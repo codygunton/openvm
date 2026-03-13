@@ -294,6 +294,7 @@ def compute_max_constraint_degree(per_air_vks: list[StarkVerifyingKey]) -> int:
 # ---------------------------------------------------------------------------
 
 
+# <doc-anchor id="compute-logup">
 def compute_after_challenge_trace(
     interactions: list[Interaction],
     interaction_partitions: list[list[int]],
