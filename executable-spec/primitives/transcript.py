@@ -6,7 +6,7 @@ Reference:
     p3-challenger-0.4.1/src/duplex_challenger.rs
 """
 
-from primitives.field import EF4Coeffs, Fe
+from primitives.field import EF4, Fe
 from primitives.poseidon2 import permute
 
 WIDTH = 16
@@ -50,12 +50,16 @@ class Challenger:
         if len(self.input_buffer) == RATE:
             self._duplexing()
 
-    def observe_many(self, values: list[Fe]) -> None:
-        """Absorb multiple field elements.
+    def observe_many(self, values) -> None:
+        """Absorb multiple field elements or an EF4 scalar.
 
         Reference:
             duplex_challenger.rs lines 142-146
         """
+        if isinstance(values, EF4):
+            for i in range(4):
+                self.observe(int(values._d[i]))
+            return
         for v in values:
             self.observe(v)
 
@@ -69,13 +73,13 @@ class Challenger:
             self._duplexing()
         return self.output_buffer.pop()
 
-    def sample_ext(self) -> EF4Coeffs:
-        """Squeeze one extension field element [c0, c1, c2, c3].
+    def sample_ext(self) -> EF4:
+        """Squeeze one extension field element.
 
         Reference:
             duplex_challenger.rs (CanSample<EF>)
         """
-        return [self.sample() for _ in range(4)]
+        return EF4([self.sample() for _ in range(4)])
 
     def sample_bits(self, bits: int) -> int:
         """Sample a random index with the given number of bits.
