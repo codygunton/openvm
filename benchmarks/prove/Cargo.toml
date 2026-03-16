@@ -69,3 +69,7 @@ path = "src/bin/kitchen_sink.rs"
 name = "async_regex"
 path = "src/bin/async_regex.rs"
 required-features = ["async"]
+
+[[bin]]
+name = "proof_size"
+path = "src/bin/proof_size.rs"
