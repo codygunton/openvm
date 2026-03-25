@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LogUp Protocol</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 { font-size: 17px; color: var(--accent); margin-bottom: 10px; }
+  .sidebar .intro { font-size: 11px; color: var(--text-dim); line-height: 1.7; margin-bottom: 20px; }
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-dim); margin-bottom: 10px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  .control-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .control-row label { width: 70px; font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
+
+  input, select, textarea {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 12px; padding: 5px 8px; border-radius: 4px; width: 100%;
+  }
+
+  textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+  button {
+    background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent);
+    font-family: var(--mono); font-size: 11px; padding: 5px 12px; border-radius: 4px;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:hover { background: var(--accent); color: var(--bg); }
+
+  .stat-row { display: flex; justify-content: space-between; font-size: 11px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+
+  .concept {
+    background: var(--surface2); border-left: 3px solid var(--purple); border-radius: 4px;
+    padding: 10px 12px; margin-bottom: 12px; font-size: 11px; line-height: 1.6;
+  }
+  .concept .concept-title { font-weight: 700; color: var(--purple); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+  .concept p { color: var(--text-dim); }
+  .concept strong { color: var(--text); }
+  .concept code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-size: 10px; color: var(--yellow); }
+
+  .badge { font-size: 9px; padding: 2px 6px; border-radius: 10px; font-weight: 600; }
+  .badge-send { background: var(--cyan-dim); color: var(--cyan); }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); }
+  .badge-prep { background: var(--purple-dim); color: var(--purple); }
+  .badge-challenge { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* --- Constraint list --- */
+  .constraint-list { list-style: none; }
+  .constraint-list li {
+    padding: 6px 8px; margin-bottom: 4px; border-radius: 4px;
+    background: var(--surface2); border-left: 3px solid var(--border); font-size: 11px;
+  }
+  .constraint-list .c-id { color: var(--accent); font-weight: 700; }
+  .constraint-list .c-desc { color: var(--text); }
+  .constraint-list .c-formula { color: var(--text-dim); display: block; font-size: 10px; margin-top: 2px; }
+  .constraint-list .c-sel { font-size: 9px; display: inline-block; padding: 1px 5px; border-radius: 3px; margin-top: 3px; }
+  .sel-all { background: var(--accent-dim); color: var(--accent); }
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-cross { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* --- Column listing --- */
+  .col-list { list-style: none; font-size: 11px; }
+  .col-list li { padding: 3px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+  .col-list .col-name { font-weight: 600; }
+  .col-list .col-idx { color: var(--text-dim); font-size: 10px; }
+
+  /* --- Main content --- */
+  .main { padding: 20px 24px; overflow-y: auto; }
+  .main h2 { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin: 28px 0 8px; }
+  .main h2:first-child { margin-top: 0; }
+  .main .hint { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.7; }
+  .main .hint strong { color: var(--text); }
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+
+  /* --- Tables --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; overflow: hidden;
+  }
+
+  th {
+    text-align: center; padding: 6px 8px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-dim); background: var(--surface2);
+    border-bottom: 2px solid var(--border); white-space: nowrap;
+  }
+
+  th.group-header { font-size: 9px; border-bottom: 1px solid var(--border); }
+
+  td {
+    padding: 4px 6px; border-bottom: 1px solid var(--border);
+    text-align: center; white-space: nowrap;
+  }
+
+  .col-dim { color: var(--text-dim); width: 40px; }
+  .col-prep { color: var(--purple); font-weight: 600; }
+  .col-main { color: var(--text); font-weight: 600; }
+  .col-perm0 { color: var(--cyan); font-weight: 600; }
+  .col-perm1 { color: var(--green); font-weight: 600; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  .mult-zero { color: var(--border); }
+  .mult-pos { color: var(--green); font-weight: 700; }
+  .row-zero td:not(.col-sep):not(.c-pass):not(.c-inactive) { opacity: 0.45; }
+
+  /* --- Cumulative sum result --- */
+  .cumsum-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 16px; margin-top: 16px;
+  }
+  .cumsum-box h4 { font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 10px; }
+  .cumsum-detail { font-size: 11px; color: var(--text-dim); line-height: 2; margin-bottom: 12px; }
+  .cumsum { font-size: 16px; font-weight: 700; text-align: center; padding: 14px; border-radius: 6px; }
+  .cumsum.pass { background: var(--green-dim); color: var(--green); }
+  .cumsum.fail { background: var(--red-dim); color: var(--red); }
+  .cumsum .sub { font-size: 11px; font-weight: 400; margin-top: 4px; opacity: 0.8; }
+
+  /* --- Step flow --- */
+  .step-flow { display: flex; gap: 0; margin-bottom: 20px; font-size: 10px; }
+  .step-flow .step {
+    flex: 1; text-align: center; padding: 8px 6px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+  }
+  .step-flow .step:first-child { border-radius: 6px 0 0 6px; }
+  .step-flow .step:last-child { border-radius: 0 6px 6px 0; }
+  .step-flow .step strong { color: var(--text); display: block; font-size: 11px; }
+  .step-flow .arrow { display: flex; align-items: center; color: var(--border); font-size: 16px; padding: 0 2px; }
+
+  .note-box {
+    background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 4px; padding: 10px 12px; font-size: 11px; color: var(--text-dim);
+    margin-top: 16px; line-height: 1.6;
+  }
+  .note-box strong { color: var(--text); }
+
+  @media (max-width: 1000px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>LogUp Protocol</h1>
+    <div class="intro">
+      The <strong>LogUp protocol</strong> proves that bus interactions balance
+      across AIRs without sorting. After the prover commits to the main trace,
+      random challenges <strong>&alpha;, &beta;</strong> are sampled. The prover
+      computes <strong>after-challenge trace columns</strong>
+      (perm[0] = chunk&#x2080;, perm[1] = &phi;) that the verifier checks
+      with polynomial constraints.
+    </div>
+
+    <div class="concept">
+      <div class="concept-title">Key insight</div>
+      <p>
+        The per-AIR polynomial constraints <strong>always pass</strong> &mdash;
+        the prover computes the after-challenge trace to satisfy them.
+        Soundness comes from the <strong>cross-AIR check</strong>:
+        the prover cannot force &Sigma;&phi;[last] = 0
+        unless the sent and received multisets actually match
+        (by Schwartz-Zippel over random &alpha;, &beta;).
+      </p>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Verifier Challenges <span class="badge badge-challenge">random</span></div>
+      <div class="control-row">
+        <label>&alpha;</label>
+        <input type="number" id="inp-alpha" value="7" min="1">
+      </div>
+      <div class="control-row">
+        <label>&beta;</label>
+        <input type="number" id="inp-beta" value="3" min="1">
+      </div>
+      <div style="margin-top:6px">
+        <button id="btn-random">Randomize &alpha;, &beta;</button>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">
+        From Fiat-Shamir in a real proof.
+        Try different values &mdash; C1&ndash;C3 always hold,
+        C4 fails only when multisets mismatch.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Bus Configuration</div>
+      <div class="control-row">
+        <label>range_max</label>
+        <select id="inp-max">
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+        </select>
+      </div>
+      <div class="control-row" style="align-items:start">
+        <label style="margin-top:6px">values</label>
+        <textarea id="inp-vals">0, 3, 3, 5, 7, 2, 1, 0</textarea>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+        Range-check scenario. Try a value &ge; range_max
+        to see C4 fail.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Sender AIR Columns <span class="badge badge-send">send</span></div>
+      <ul class="col-list">
+        <li><span class="col-name" style="color:var(--text)">val</span><span class="col-idx">main[0] &mdash; 1 col</span></li>
+        <li><span class="col-name" style="color:var(--cyan)">chunk&#x2080;</span><span class="col-idx">perm[0] &mdash; 4 cols (FF4)</span></li>
+        <li><span class="col-name" style="color:var(--green)">&phi;</span><span class="col-idx">perm[1] &mdash; 4 cols (FF4)</span></li>
+      </ul>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+        Total: 1 main + 8 perm base-field columns.
+        This demo shows 1 base-field value per perm column for clarity.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Checker AIR Columns <span class="badge badge-recv">recv</span></div>
+      <ul class="col-list">
+        <li><span class="col-name" style="color:var(--purple)">counter</span><span class="col-idx">prep[0] &mdash; 1 col</span></li>
+        <li><span class="col-name" style="color:var(--text)">mult</span><span class="col-idx">main[0] &mdash; 1 col</span></li>
+        <li><span class="col-name" style="color:var(--cyan)">chunk&#x2080;</span><span class="col-idx">perm[0] &mdash; 4 cols (FF4)</span></li>
+        <li><span class="col-name" style="color:var(--green)">&phi;</span><span class="col-idx">perm[1] &mdash; 4 cols (FF4)</span></li>
+      </ul>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+        Total: 1 prep + 1 main + 8 perm base-field columns.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints (3 per AIR + 1 cross-AIR)</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Chunk correctness</span>
+          <span class="c-formula">
+            Sender: chunk&#x2080; &times; (&alpha; + val + &beta;) &minus; 1 = 0<br>
+            Checker: chunk&#x2080; &times; (&alpha; + counter + &beta;) + mult = 0
+          </span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Running sum init</span>
+          <span class="c-formula">is_first_row &times; (&phi; &minus; chunk&#x2080;) = 0</span>
+          <span class="c-sel sel-first">first row</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Running sum step</span>
+          <span class="c-formula">is_transition &times; (&phi;_next &minus; &phi; &minus; chunk&#x2080;_next) = 0</span>
+          <span class="c-sel sel-trans">transitions</span>
+        </li>
+        <li style="border-left-color:var(--yellow)">
+          <span class="c-id" style="color:var(--yellow)">C4</span> <span class="c-desc">Cross-AIR balance</span>
+          <span class="c-formula">&phi;_sender[last] + &phi;_checker[last] = 0</span>
+          <span class="c-sel sel-cross">exposed value check</span>
+        </li>
+      </ul>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">
+        C1 uses no selector &mdash; it holds at every row.
+        The &ldquo;denom&rdquo; &alpha; + msg + &beta; is <em>not</em> a
+        trace column; it is computed from main/prep columns + challenges.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Protocol Details</div>
+      <div class="stat-row"><span class="label">Field</span><span class="val">BabyBear (p = 2013265921)</span></div>
+      <div class="stat-row"><span class="label">perm columns</span><span class="val">FF4 in real protocol</span></div>
+      <div class="stat-row"><span class="label">This demo</span><span class="val">base field for clarity</span></div>
+      <div class="stat-row"><span class="label">Denom formula</span><span class="val" style="color:var(--yellow)">&alpha; + msg + &beta;</span></div>
+      <div class="stat-row"><span class="label">General denom</span><span class="val" style="font-size:9px;color:var(--yellow)">&alpha;+m&#x2080;+&beta;m&#x2081;+&hellip;+&beta;&#x1D4F;(b+1)</span></div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Protocol Flow</h2>
+    <div class="step-flow">
+      <div class="step"><strong>1. Commit</strong>main trace</div>
+      <div class="arrow">&rarr;</div>
+      <div class="step"><strong>2. Challenge</strong>&alpha;, &beta;</div>
+      <div class="arrow">&rarr;</div>
+      <div class="step"><strong>3. Compute</strong>perm[0], perm[1]</div>
+      <div class="arrow">&rarr;</div>
+      <div class="step"><strong>4. Verify</strong>C1, C2, C3</div>
+      <div class="arrow">&rarr;</div>
+      <div class="step"><strong>5. Check</strong>C4: &Sigma;&phi; = 0</div>
+    </div>
+
+    <h2>Sender AIR <span class="badge badge-send">send, count = +1</span></h2>
+    <div class="hint">
+      Columns are exactly the witness polynomials: <strong>main[0]</strong> = val,
+      <strong>perm[0]</strong> = chunk&#x2080;, <strong>perm[1]</strong> = &phi;.
+      <span class="g">0</span> = constraint satisfied,
+      <span class="d">&mdash;</span> = selector off.
+    </div>
+    <div class="trace-wrapper">
+      <table id="sender-table"></table>
+    </div>
+
+    <h2>Checker AIR <span class="badge badge-recv">recv, count = &minus;mult</span></h2>
+    <div class="hint">
+      <strong>prep[0]</strong> = counter (fixed by VK),
+      <strong>main[0]</strong> = mult,
+      <strong>perm[0]</strong> = chunk&#x2080;, <strong>perm[1]</strong> = &phi;.
+      Rows with mult=0 are dimmed.
+    </div>
+    <div class="trace-wrapper">
+      <table id="checker-table"></table>
+    </div>
+
+    <div class="cumsum-box">
+      <h4>C4: Cross-AIR Cumulative Sum Check (exposed value)</h4>
+      <div class="cumsum-detail" id="cumsum-detail"></div>
+      <div id="cumsum-result" class="cumsum"></div>
+    </div>
+
+    <div class="note-box">
+      <strong>Why do C1&ndash;C3 always pass?</strong>
+      The prover sets perm[0] = count / (&alpha; + msg + &beta;) (satisfying C1)
+      and perm[1] as a prefix sum of perm[0] (satisfying C2, C3).
+      These are honest computations. The soundness is in C4: the prover
+      cannot make &Sigma;&phi;[last] = 0 unless the multisets match.
+      Schwartz-Zippel guarantees this over random &alpha;, &beta;.
+      <br><br>
+      <strong>Note:</strong> The real protocol uses <strong>FF4</strong>
+      (degree-4 extension) for perm columns and challenges.
+      See <code>protocol/logup.py</code>.
+    </div>
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921n;
+
+function mod(a) { return ((a % P) + P) % P; }
+
+function modInv(a) {
+  a = mod(a);
+  if (a === 0n) return null;
+  let [old_r, r] = [a, P];
+  let [old_s, s] = [1n, 0n];
+  while (r !== 0n) {
+    const q = old_r / r;
+    [old_r, r] = [r, old_r - q * r];
+    [old_s, s] = [s, old_s - q * s];
+  }
+  return mod(old_s);
+}
+
+function fmtFull(n) {
+  if (n === null) return '\u2014';
+  return mod(n).toString();
+}
+
+function valCell(n, cls) {
+  if (n === null) return `<td class="${cls}">\u2014</td>`;
+  return `<td class="${cls}">${fmtFull(n)}</td>`;
+}
+
+function constraintCell(value, active) {
+  if (!active) return '<td class="col-constraint c-inactive">\u2014</td>';
+  const v = mod(value);
+  if (v === 0n) return '<td class="col-constraint c-pass">0</td>';
+  return `<td class="col-constraint c-fail">${fmtFull(v)}</td>`;
+}
+
+function parseValues(str) {
+  return str.split(/[,\s]+/).map(s => s.trim()).filter(s => s !== '')
+    .map(s => parseInt(s)).filter(n => !isNaN(n) && n >= 0);
+}
+
+function render() {
+  const alpha = mod(BigInt(document.getElementById('inp-alpha').value.trim() || '7'));
+  const beta = mod(BigInt(document.getElementById('inp-beta').value.trim() || '3'));
+  const rangeMax = parseInt(document.getElementById('inp-max').value);
+  const values = parseValues(document.getElementById('inp-vals').value);
+
+  // Multiplicity table
+  const mult = new Array(rangeMax).fill(0);
+  for (const v of values) { if (v >= 0 && v < rangeMax) mult[v]++; }
+
+  // ========== SENDER ==========
+  const sChunks = [];  // perm[0]
+  const sPhis = [];    // perm[1]
+  let sPhi = 0n;
+
+  for (let i = 0; i < values.length; i++) {
+    const denom = mod(alpha + BigInt(values[i]) + beta);
+    const inv = modInv(denom);
+    const chunk = inv !== null ? inv : 0n; // count=+1, so perm[0] = 1/(α+val+β)
+    sPhi = mod(sPhi + chunk);
+    sChunks.push(chunk);
+    sPhis.push(sPhi);
+  }
+
+  let sHtml = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1" style="color:var(--text)">Main Trace</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2" style="color:var(--green)">After-Challenge Trace</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Selectors</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="3">Constraints (= 0 if valid)</th>
+    </tr>
+    <tr>
+      <th>Row</th>
+      <th class="col-sep"></th>
+      <th title="main[0]">val</th>
+      <th class="col-sep"></th>
+      <th title="perm[0]: count / (α + val + β)">chunk&#x2080;</th>
+      <th title="perm[1]: prefix sum of chunk₀">&phi;</th>
+      <th class="col-sep"></th>
+      <th title="is_first_row">1st</th>
+      <th title="is_transition">Tr</th>
+      <th class="col-sep"></th>
+      <th title="chunk₀ × (α + val + β) − 1 = 0">C1</th>
+      <th title="is_first × (φ − chunk₀) = 0">C2</th>
+      <th title="is_trans × (φ_next − φ − chunk₀_next) = 0">C3</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < values.length; i++) {
+    const isFirst = i === 0 ? 1 : 0;
+    const isTrans = i < values.length - 1 ? 1 : 0;
+    const denom = mod(alpha + BigInt(values[i]) + beta);
+
+    // C1: chunk₀ × (α + val + β) − 1 = 0
+    const c1 = mod(sChunks[i] * denom - 1n);
+
+    // C2: is_first × (φ − chunk₀) = 0
+    const c2 = mod(BigInt(isFirst) * mod(sPhis[i] - sChunks[i]));
+
+    // C3: is_trans × (φ_next − φ − chunk₀_next) = 0
+    let c3 = 0n;
+    if (isTrans) {
+      c3 = mod(sPhis[i + 1] - sPhis[i] - sChunks[i + 1]);
+    }
+
+    sHtml += '<tr>';
+    sHtml += `<td class="col-dim">${i}</td>`;
+    sHtml += '<td class="col-sep"></td>';
+    sHtml += `<td class="col-main">${values[i]}</td>`;
+    sHtml += '<td class="col-sep"></td>';
+    sHtml += valCell(sChunks[i], 'col-perm0');
+    sHtml += valCell(sPhis[i], 'col-perm1');
+    sHtml += '<td class="col-sep"></td>';
+    sHtml += `<td class="col-sel ${isFirst ? 'sel-on' : 'sel-off'}">${isFirst}</td>`;
+    sHtml += `<td class="col-sel ${isTrans ? 'sel-on' : 'sel-off'}">${isTrans}</td>`;
+    sHtml += '<td class="col-sep"></td>';
+    sHtml += constraintCell(c1, true);
+    sHtml += constraintCell(c2, isFirst);
+    sHtml += constraintCell(c3, isTrans);
+    sHtml += '</tr>';
+  }
+
+  if (values.length === 0) {
+    sHtml += '<tr><td colspan="12" style="color:var(--text-dim);padding:12px">no values</td></tr>';
+  }
+
+  sHtml += '</tbody>';
+  document.getElementById('sender-table').innerHTML = sHtml;
+
+  const senderPhiLast = values.length > 0 ? sPhis[values.length - 1] : 0n;
+
+  // ========== CHECKER ==========
+  const cChunks = [];  // perm[0]
+  const cPhis = [];    // perm[1]
+  let cPhi = 0n;
+
+  for (let i = 0; i < rangeMax; i++) {
+    const denom = mod(alpha + BigInt(i) + beta);
+    const inv = modInv(denom);
+    const m = mult[i];
+    // count = −mult for receives, so perm[0] = (−mult) / (α + counter + β)
+    const chunk = (inv !== null && m > 0) ? mod(-BigInt(m) * inv) : 0n;
+    cPhi = mod(cPhi + chunk);
+    cChunks.push(chunk);
+    cPhis.push(cPhi);
+  }
+
+  let cHtml = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1" style="color:var(--purple)">Preprocessed</th>
+      <th class="group-header" colspan="1" style="color:var(--text)">Main</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2" style="color:var(--green)">After-Challenge</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Selectors</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="3">Constraints (= 0 if valid)</th>
+    </tr>
+    <tr>
+      <th>Row</th>
+      <th class="col-sep"></th>
+      <th title="prep[0]">counter</th>
+      <th title="main[0]">mult</th>
+      <th class="col-sep"></th>
+      <th title="perm[0]: (−mult) / (α + counter + β)">chunk&#x2080;</th>
+      <th title="perm[1]: prefix sum of chunk₀">&phi;</th>
+      <th class="col-sep"></th>
+      <th title="is_first_row">1st</th>
+      <th title="is_transition">Tr</th>
+      <th class="col-sep"></th>
+      <th title="chunk₀ × (α + counter + β) + mult = 0">C1</th>
+      <th title="is_first × (φ − chunk₀) = 0">C2</th>
+      <th title="is_trans × (φ_next − φ − chunk₀_next) = 0">C3</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < rangeMax; i++) {
+    const isFirst = i === 0 ? 1 : 0;
+    const isTrans = i < rangeMax - 1 ? 1 : 0;
+    const m = mult[i];
+    const isZero = m === 0;
+    const denom = mod(alpha + BigInt(i) + beta);
+
+    // C1: chunk₀ × (α + counter + β) + mult = 0
+    const c1 = mod(cChunks[i] * denom + BigInt(m));
+
+    // C2: is_first × (φ − chunk₀) = 0
+    const c2 = mod(BigInt(isFirst) * mod(cPhis[i] - cChunks[i]));
+
+    // C3: is_trans × (φ_next − φ − chunk₀_next) = 0
+    let c3 = 0n;
+    if (isTrans) {
+      c3 = mod(cPhis[i + 1] - cPhis[i] - cChunks[i + 1]);
+    }
+
+    const multClass = isZero ? 'mult-zero' : 'mult-pos';
+
+    cHtml += `<tr${isZero ? ' class="row-zero"' : ''}>`;
+    cHtml += `<td class="col-dim">${i}</td>`;
+    cHtml += '<td class="col-sep"></td>';
+    cHtml += `<td class="col-prep">${i}</td>`;
+    cHtml += `<td class="${multClass}">${m}</td>`;
+    cHtml += '<td class="col-sep"></td>';
+    if (isZero) {
+      cHtml += '<td class="col-perm0" style="color:var(--border)">0</td>';
+    } else {
+      cHtml += valCell(cChunks[i], 'col-perm0');
+    }
+    cHtml += valCell(cPhis[i], 'col-perm1');
+    cHtml += '<td class="col-sep"></td>';
+    cHtml += `<td class="col-sel ${isFirst ? 'sel-on' : 'sel-off'}">${isFirst}</td>`;
+    cHtml += `<td class="col-sel ${isTrans ? 'sel-on' : 'sel-off'}">${isTrans}</td>`;
+    cHtml += '<td class="col-sep"></td>';
+    cHtml += constraintCell(c1, true);
+    cHtml += constraintCell(c2, isFirst);
+    cHtml += constraintCell(c3, isTrans);
+    cHtml += '</tr>';
+  }
+
+  cHtml += '</tbody>';
+  document.getElementById('checker-table').innerHTML = cHtml;
+
+  const checkerPhiLast = rangeMax > 0 ? cPhis[rangeMax - 1] : 0n;
+
+  // ========== CROSS-AIR CHECK ==========
+  const cumSum = mod(senderPhiLast + checkerPhiLast);
+  const balanced = cumSum === 0n;
+
+  document.getElementById('cumsum-detail').innerHTML = `
+    <span style="color:var(--cyan)">&phi;_sender[last]</span> = ${fmtFull(senderPhiLast)}<br>
+    <span style="color:var(--orange)">&phi;_checker[last]</span> = ${fmtFull(checkerPhiLast)}<br>
+    <strong style="color:var(--text)">&Sigma; &phi;[last]</strong> = &phi;_sender + &phi;_checker =
+    <strong style="color:${balanced ? 'var(--green)' : 'var(--red)'}">${fmtFull(cumSum)}</strong>
+  `;
+
+  const el = document.getElementById('cumsum-result');
+  if (balanced) {
+    el.className = 'cumsum pass';
+    el.innerHTML = 'C4: cumulative_sum = 0<div class="sub">All sends matched by receives. Bus interactions balance.</div>';
+  } else {
+    el.className = 'cumsum fail';
+    const oor = values.filter(v => v >= rangeMax);
+    const reason = oor.length > 0
+      ? `Values out of range: [${[...new Set(oor)].join(', ')}]. No checker row can absorb them.`
+      : 'Send/receive multisets do not match.';
+    el.innerHTML = `C4: cumulative_sum &ne; 0<div class="sub">${reason}</div>`;
+  }
+}
+
+document.getElementById('btn-random').addEventListener('click', () => {
+  const rand = () => Math.floor(Math.random() * 999999) + 1;
+  document.getElementById('inp-alpha').value = rand();
+  document.getElementById('inp-beta').value = rand();
+  render();
+});
+
+for (const id of ['inp-alpha', 'inp-beta']) {
+  document.getElementById(id).addEventListener('input', render);
+}
+document.getElementById('inp-max').addEventListener('change', render);
+document.getElementById('inp-vals').addEventListener('input', render);
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Range Check AIR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 70px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input, select, textarea {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  textarea {
+    resize: vertical;
+    min-height: 60px;
+    line-height: 1.5;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+
+  /* --- Concept callouts --- */
+  .concept {
+    background: var(--surface2);
+    border-left: 3px solid var(--purple);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .concept .concept-title {
+    font-weight: 700;
+    color: var(--purple);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 3px;
+  }
+
+  .concept p { color: var(--text-dim); }
+  .concept strong { color: var(--text); }
+
+  /* --- Badges --- */
+  .badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+
+  .badge-send { background: var(--cyan-dim); color: var(--cyan); }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); }
+  .badge-prep { background: var(--purple-dim); color: var(--purple); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 24px 0 8px;
+  }
+
+  .main h2:first-child { margin-top: 0; }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  /* --- Tables side by side --- */
+  .tables-row {
+    display: grid;
+    grid-template-columns: 1fr 60px 1fr;
+    gap: 0;
+    align-items: start;
+  }
+
+  .table-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .table-panel h4 {
+    font-size: 11px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  th {
+    text-align: center;
+    padding: 6px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .col-dim { color: var(--text-dim); }
+  .col-prep { color: var(--purple); font-weight: 600; }
+  .col-main { color: var(--text); font-weight: 600; }
+
+  .mult-zero { color: var(--border); }
+  .mult-pos { color: var(--green); font-weight: 700; }
+  .mult-high { color: var(--yellow); font-weight: 700; }
+
+  .row-used { background: rgba(74, 222, 128, 0.04); }
+
+  .val-oor { color: var(--red); font-weight: 700; }
+
+  .arrow-send { color: var(--cyan); font-size: 11px; }
+  .arrow-recv { color: var(--orange); font-size: 11px; }
+
+  /* --- Bus column --- */
+  .bus-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 40px;
+  }
+
+  .bus-line {
+    width: 3px;
+    flex: 1;
+    min-height: 80px;
+    background: var(--purple-dim);
+    border-radius: 2px;
+  }
+
+  .bus-label {
+    font-size: 9px;
+    color: var(--purple);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    writing-mode: vertical-lr;
+    transform: rotate(180deg);
+  }
+
+  /* --- Balance result --- */
+  .balance-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+
+  .balance-box h4 {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .balance-detail {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.8;
+    margin-bottom: 12px;
+  }
+
+  .balance-detail .ok { color: var(--green); }
+  .balance-detail .bad { color: var(--red); }
+
+  .cumsum {
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    padding: 14px;
+    border-radius: 6px;
+  }
+
+  .cumsum.pass { background: var(--green-dim); color: var(--green); }
+  .cumsum.fail { background: var(--red-dim); color: var(--red); }
+
+  .cumsum .sub {
+    font-size: 11px;
+    font-weight: 400;
+    margin-top: 4px;
+    opacity: 0.8;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    .tables-row { grid-template-columns: 1fr; }
+    .bus-col { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Range Check AIR</h1>
+    <div class="intro">
+      A <strong>range check</strong> proves a value lies in [0, max).
+      This is a <strong>two-AIR system</strong>: a Sender AIR holds values to check,
+      and a Range Checker AIR holds a fixed <strong>preprocessed lookup table</strong> of all valid values.
+      They communicate via a <strong>bus</strong> using the LogUp protocol.
+    </div>
+
+    <div class="concept">
+      <div class="concept-title">New: Preprocessed Trace</div>
+      <p>
+        The Range Checker has a <strong>preprocessed column</strong> fixed by the verifying key.
+        It contains [0, 1, ..., max-1]. The prover cannot change it.
+      </p>
+    </div>
+
+    <div class="concept">
+      <div class="concept-title">New: Bus as constraint mechanism</div>
+      <p>
+        This AIR has <strong>zero polynomial constraints</strong>.
+        The range check is enforced <em>entirely</em> through the bus.
+        The Sender puts each value on the bus.
+        The Checker absorbs values using its preprocessed table.
+        If a sent value doesn't appear in the table, no row can absorb it,
+        so the <strong>cumulative sum cannot reach zero</strong> &mdash;
+        the proof is rejected. The bus balance <em>is</em> the constraint.
+      </p>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>range_max</label>
+        <select id="inp-max">
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+        </select>
+      </div>
+      <div class="control-row" style="align-items:start">
+        <label style="margin-top:6px">values</label>
+        <textarea id="inp-vals">0, 3, 3, 5, 7, 2, 1, 0</textarea>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+        Comma-separated values to range-check.
+        Try adding a value &ge; range_max to see the bus fail.
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Sender AIR <span class="badge badge-send">sends</span></div>
+      <div class="stat-row"><span class="label">Preprocessed</span><span class="val">none</span></div>
+      <div class="stat-row"><span class="label">Main trace</span><span class="val">1 col (val)</span></div>
+      <div class="stat-row"><span class="label">Poly constraints</span><span class="val">none</span></div>
+      <div class="stat-row"><span class="label">Interaction</span><span class="val">send(val), count=1</span></div>
+      <div class="stat-row"><span class="label">Enforced by</span><span class="val" style="color:var(--purple)">bus balance</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Checker AIR <span class="badge badge-recv">receives</span> <span class="badge badge-prep">preprocessed</span></div>
+      <div class="stat-row"><span class="label">Preprocessed</span><span class="val">1 col (counter)</span></div>
+      <div class="stat-row"><span class="label">Main trace</span><span class="val">1 col (mult)</span></div>
+      <div class="stat-row"><span class="label">Poly constraints</span><span class="val">none</span></div>
+      <div class="stat-row"><span class="label">Interaction</span><span class="val">recv(counter), count=mult</span></div>
+      <div class="stat-row"><span class="label">Enforced by</span><span class="val" style="color:var(--purple)">bus balance</span></div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Preprocessed Trace (fixed by verifying key)</h2>
+    <div class="hint">
+      This table is <strong style="color:var(--purple)">not created by the prover</strong>.
+      It is fixed when the circuit is compiled and committed in the verifying key.
+      The prover cannot modify it. It contains every valid value in [0, range_max).
+    </div>
+    <div class="table-panel" style="max-width:300px;margin-bottom:24px">
+      <h4><span class="badge badge-prep">preprocessed</span> Lookup Table</h4>
+      <table><thead><tr>
+        <th>Row</th><th>counter</th>
+      </tr></thead><tbody id="prep-body"></tbody></table>
+    </div>
+
+    <h2>Execution Traces</h2>
+    <div class="hint">
+      The Sender's main trace holds values to check. The Checker's main trace holds
+      multiplicity counts &mdash; how many times each preprocessed row was looked up.
+      The bus carries values between them.
+    </div>
+
+    <div class="tables-row">
+      <div class="table-panel">
+        <h4><span class="badge badge-send">send</span> Sender AIR</h4>
+        <table><thead><tr>
+          <th>Row</th><th>val (main)</th><th>Bus</th>
+        </tr></thead><tbody id="sender-body"></tbody></table>
+      </div>
+
+      <div class="bus-col">
+        <div class="bus-label">Bus</div>
+        <div class="bus-line"></div>
+      </div>
+
+      <div class="table-panel">
+        <h4><span class="badge badge-recv">recv</span> Range Checker AIR</h4>
+        <table><thead><tr>
+          <th>Row</th><th>counter <span class="badge badge-prep" style="font-size:8px">prep</span></th><th>mult (main)</th><th>Bus</th>
+        </tr></thead><tbody id="checker-body"></tbody></table>
+      </div>
+    </div>
+
+    <div class="balance-box">
+      <h4>Bus Balance (LogUp Check)</h4>
+      <div class="balance-detail" id="balance-detail"></div>
+      <div id="cumsum-result" class="cumsum"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function parseValues(str) {
+  return str.split(/[,\s]+/)
+    .map(s => s.trim())
+    .filter(s => s !== '')
+    .map(s => parseInt(s))
+    .filter(n => !isNaN(n) && n >= 0);
+}
+
+function render() {
+  const rangeMax = parseInt(document.getElementById('inp-max').value);
+  const values = parseValues(document.getElementById('inp-vals').value);
+
+  // Multiplicity table
+  const mult = new Array(rangeMax).fill(0);
+  const outOfRange = [];
+  for (const v of values) {
+    if (v >= 0 && v < rangeMax) mult[v]++;
+    else outOfRange.push(v);
+  }
+
+  // Preprocessed table
+  let prepHtml = '';
+  for (let i = 0; i < rangeMax; i++) {
+    prepHtml += `<tr><td class="col-dim">${i}</td><td class="col-prep">${i}</td></tr>`;
+  }
+  document.getElementById('prep-body').innerHTML = prepHtml;
+
+  // Sender table
+  let senderHtml = '';
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    const oor = v >= rangeMax;
+    senderHtml += `<tr>
+      <td class="col-dim">${i}</td>
+      <td class="col-main${oor ? ' val-oor' : ''}">${v}${oor ? ' <span style="font-size:9px">OOR</span>' : ''}</td>
+      <td><span class="arrow-send">&rarr; send(${v})</span></td>
+    </tr>`;
+  }
+  if (values.length === 0) {
+    senderHtml = '<tr><td colspan="3" style="color:var(--text-dim);padding:12px">no values</td></tr>';
+  }
+  document.getElementById('sender-body').innerHTML = senderHtml;
+
+  // Checker table
+  let checkerHtml = '';
+  for (let i = 0; i < rangeMax; i++) {
+    const m = mult[i];
+    const rowClass = m > 0 ? ' class="row-used"' : '';
+    const multClass = m === 0 ? 'mult-zero' : m > 1 ? 'mult-high' : 'mult-pos';
+    const busStr = m > 0
+      ? `<span class="arrow-recv">&larr; recv(${i})&times;${m}</span>`
+      : '<span style="color:var(--border)">&mdash;</span>';
+    checkerHtml += `<tr${rowClass}>
+      <td class="col-dim">${i}</td>
+      <td class="col-prep">${i}</td>
+      <td class="${multClass}">${m}</td>
+      <td>${busStr}</td>
+    </tr>`;
+  }
+  document.getElementById('checker-body').innerHTML = checkerHtml;
+
+  // Balance check
+  const sendCounts = {};
+  for (const v of values) sendCounts[v] = (sendCounts[v] || 0) + 1;
+
+  let balanced = true;
+  let detailHtml = '';
+  const allVals = new Set([...Object.keys(sendCounts).map(Number), ...Array.from({length: rangeMax}, (_, i) => i)]);
+  const sorted = [...allVals].sort((a, b) => a - b);
+
+  for (const v of sorted) {
+    const sent = sendCounts[v] || 0;
+    const received = v >= 0 && v < rangeMax ? mult[v] : 0;
+    if (sent === 0 && received === 0) continue;
+
+    const inRange = v >= 0 && v < rangeMax;
+    let status;
+    if (!inRange) {
+      status = '<span class="bad">no table entry</span>';
+      balanced = false;
+    } else if (sent === received) {
+      status = '<span class="ok">balanced</span>';
+    } else {
+      status = `<span class="bad">sent ${sent} &ne; recv ${received}</span>`;
+      balanced = false;
+    }
+    detailHtml += `v=${v}: sent=${sent}, recv=${received} &mdash; ${status}<br>`;
+  }
+
+  if (values.length === 0) {
+    detailHtml = 'No values to check.';
+    balanced = true;
+  }
+
+  document.getElementById('balance-detail').innerHTML = detailHtml;
+
+  const cumsumEl = document.getElementById('cumsum-result');
+  if (balanced) {
+    cumsumEl.className = 'cumsum pass';
+    cumsumEl.innerHTML = `Cumulative sum = 0<div class="sub">All values in [0, ${rangeMax}). Every send matched by a receive.</div>`;
+  } else {
+    cumsumEl.className = 'cumsum fail';
+    const reason = outOfRange.length > 0
+      ? `Values out of range: ${[...new Set(outOfRange)].join(', ')}. No preprocessed row to absorb them.`
+      : 'Send/receive counts do not match.';
+    cumsumEl.innerHTML = `Cumulative sum &ne; 0<div class="sub">${reason}</div>`;
+  }
+}
+
+document.getElementById('inp-max').addEventListener('change', render);
+document.getElementById('inp-vals').addEventListener('input', render);
+
+render();
+</script>
+</body>
+</html>

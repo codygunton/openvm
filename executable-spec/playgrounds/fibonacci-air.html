@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fibonacci AIR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 50px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-last { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  .pv-tag {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+
+  .pv-a { background: var(--green-dim); color: var(--green); }
+  .pv-b { background: var(--purple); color: #1a1d27; }
+  .pv-x { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Fibonacci AIR</h1>
+    <div class="intro">
+      An <strong>AIR</strong> (Algebraic Intermediate Representation) is a set of polynomial constraints over an execution trace.
+      The trace is a matrix where each row is a computation step.
+      <strong>Selectors</strong> control which rows a constraint applies to.
+      If every constraint evaluates to zero on every row, the trace is valid.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>a</label>
+        <input type="number" id="inp-a" value="0" min="0">
+      </div>
+      <div class="control-row">
+        <label>b</label>
+        <input type="number" id="inp-b" value="1" min="0">
+      </div>
+      <div class="control-row">
+        <label>x</label>
+        <input type="number" id="inp-x" value="" min="0" placeholder="auto">
+      </div>
+      <div class="control-row">
+        <label>rows</label>
+        <select id="inp-rows">
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+          <option value="32">32</option>
+        </select>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+        x = claimed result. Leave blank to auto-compute.
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Trace width</span><span class="val">2 columns (left, right)</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">5 (max degree 2)</span></div>
+      <div class="stat-row"><span class="label">Public values</span><span class="val dynamic" id="pv-detail">a=0, b=1, x=21</span></div>
+      <div class="stat-row"><span class="label">Quotient degree</span><span class="val">2</span></div>
+      <div class="stat-row"><span class="label">Interactions</span><span class="val">none</span></div>
+      <div class="stat-row"><span class="label">Preprocessed</span><span class="val">none</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">First row: left = a</span>
+          <span class="c-formula">is_first_row &times; (local[0] &minus; pv[0])</span>
+          <span class="c-sel sel-first">first row</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">First row: right = b</span>
+          <span class="c-formula">is_first_row &times; (local[1] &minus; pv[1])</span>
+          <span class="c-sel sel-first">first row</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Next left = curr right</span>
+          <span class="c-formula">is_transition &times; (next[0] &minus; local[1])</span>
+          <span class="c-sel sel-trans">transitions</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">Next right = left + right</span>
+          <span class="c-formula">is_transition &times; (next[1] &minus; local[0] &minus; local[1])</span>
+          <span class="c-sel sel-trans">transitions</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">Last row: right = x</span>
+          <span class="c-formula">is_last_row &times; (local[1] &minus; pv[2])</span>
+          <span class="c-sel sel-last">last row</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Execution Trace &amp; Constraint Evaluation</h2>
+    <div class="hint">
+      Edit any trace cell to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="d">&mdash;</span> = selector off,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+    <div class="trace-wrapper">
+      <table id="main-table"></table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+
+let inputA = 0, inputB = 1, numRows = 8;
+let cleanTrace = [], PV = [];
+// editedTrace holds the actual values shown in the table (editable by user)
+let editedTrace = [];
+
+function mod(x, m) { return ((x % m) + m) % m; }
+
+function computeCleanTrace() {
+  inputA = parseInt(document.getElementById('inp-a').value) || 0;
+  inputB = parseInt(document.getElementById('inp-b').value) || 0;
+  numRows = parseInt(document.getElementById('inp-rows').value);
+
+  cleanTrace = [[mod(inputA, P), mod(inputB, P)]];
+  for (let i = 1; i < numRows; i++) {
+    const [l, r] = cleanTrace[i-1];
+    cleanTrace.push([r, mod(l + r, P)]);
+  }
+}
+
+function recompute() {
+  computeCleanTrace();
+  // Reset editedTrace to match cleanTrace
+  editedTrace = cleanTrace.map(r => [...r]);
+  updatePV();
+  render();
+}
+
+function updatePV() {
+  const xInput = document.getElementById('inp-x').value.trim();
+  const autoX = cleanTrace[numRows - 1][1];
+  const xVal = xInput === '' ? autoX : mod(parseInt(xInput) || 0, P);
+  PV = [mod(inputA, P), mod(inputB, P), xVal];
+  const xLabel = xInput === '' ? `x=${xVal}` : `x=${xVal}${xVal !== autoX ? ' (override)' : ''}`;
+  document.getElementById('pv-detail').textContent = `a=${PV[0]}, b=${PV[1]}, ${xLabel}`;
+}
+
+function resetTrace() {
+  computeCleanTrace();
+  editedTrace = cleanTrace.map(r => [...r]);
+  render();
+}
+
+function onCellEdit(row, col, value) {
+  editedTrace[row][col] = mod(parseInt(value) || 0, P);
+  render();
+}
+
+function evalRow(trace, row) {
+  const n = trace.length;
+  const local = trace[row];
+  const next = row < n - 1 ? trace[row + 1] : [0, 0];
+  const isFirst = row === 0 ? 1 : 0;
+  const isLast  = row === n - 1 ? 1 : 0;
+  const isTrans = row < n - 1 ? 1 : 0;
+  return {
+    selectors: [isFirst, isLast, isTrans],
+    constraints: [
+      mod(isFirst * mod(local[0] - PV[0], P), P),
+      mod(isFirst * mod(local[1] - PV[1], P), P),
+      mod(isTrans * mod(next[0] - local[1], P), P),
+      mod(isTrans * mod(next[1] - local[0] - local[1], P), P),
+      mod(isLast  * mod(local[1] - PV[2], P), P),
+    ]
+  };
+}
+
+function hasEdits() {
+  for (let i = 0; i < numRows; i++) {
+    for (let c = 0; c < 2; c++) {
+      if (editedTrace[i][c] !== cleanTrace[i][c]) return true;
+    }
+  }
+  return false;
+}
+
+function render() {
+  const trace = editedTrace;
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
+
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Trace (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="3">Selectors</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="5">Constraints (= 0 if valid)</th>
+    </tr>
+    <tr>
+      <th>Row</th>
+      <th class="col-sep"></th>
+      <th>Left</th><th>Right</th>
+      <th class="col-sep"></th>
+      <th title="is_first_row">1st</th><th title="is_last_row">Last</th><th title="is_transition">Trans</th>
+      <th class="col-sep"></th>
+      <th>C1</th><th>C2</th><th>C3</th><th>C4</th><th>C5</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < numRows; i++) {
+    const { selectors, constraints } = evalRow(trace, i);
+    const [isFirst, isLast, isTrans] = selectors;
+    const hasViolation = constraints.some(c => c !== 0);
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${i}</td><td class="col-sep"></td>`;
+
+    for (let col = 0; col < 2; col++) {
+      const isModified = trace[i][col] !== cleanTrace[i][col];
+      let tag = '';
+      if (i === 0 && col === 0) tag = '<span class="pv-tag pv-a">a</span>';
+      if (i === 0 && col === 1) tag = '<span class="pv-tag pv-b">b</span>';
+      if (i === numRows - 1 && col === 1) tag = '<span class="pv-tag pv-x">x</span>';
+      html += `<td class="col-trace"><input type="number" class="cell-input${isModified ? ' modified' : ''}" value="${trace[i][col]}" data-row="${i}" data-col="${col}" onchange="onCellEdit(${i},${col},this.value)">${tag}</td>`;
+    }
+
+    html += `<td class="col-sep"></td>`;
+    for (const s of [isFirst, isLast, isTrans])
+      html += `<td class="col-sel ${s ? 'sel-on' : 'sel-off'}">${s}</td>`;
+
+    html += `<td class="col-sep"></td>`;
+    const activeMap = [isFirst, isFirst, isTrans, isTrans, isLast];
+    for (let ci = 0; ci < 5; ci++) {
+      const v = constraints[ci], active = activeMap[ci];
+      if (!active) html += `<td class="col-constraint c-inactive">&mdash;</td>`;
+      else if (v === 0) html += `<td class="col-constraint c-pass">0</td>`;
+      else html += `<td class="col-constraint c-fail">${v}</td>`;
+    }
+    html += `</tr>`;
+  }
+
+  html += '</tbody>';
+  document.getElementById('main-table').innerHTML = html;
+}
+
+document.getElementById('inp-a').addEventListener('input', recompute);
+document.getElementById('inp-b').addEventListener('input', recompute);
+document.getElementById('inp-x').addEventListener('input', () => { updatePV(); render(); });
+document.getElementById('inp-rows').addEventListener('change', recompute);
+
+recompute();
+</script>
+</body>
+</html>
