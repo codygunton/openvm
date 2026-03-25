@@ -118,6 +118,22 @@
     border-color: var(--accent);
   }
 
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
   /* --- Stats --- */
   .stat-row {
     display: flex;
@@ -282,6 +298,43 @@
     transform: rotate(180deg);
   }
 
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: inherit;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 30px;
+    max-width: 60px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow) !important;
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
   /* --- Balance result --- */
   .balance-box {
     background: var(--surface);
@@ -382,9 +435,10 @@
         <textarea id="inp-vals">0, 3, 3, 5, 7, 2, 1, 0</textarea>
       </div>
       <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
-        Comma-separated values to range-check.
-        Try adding a value &ge; range_max to see the bus fail.
+        Comma-separated values for the sender.
+        Edit cells directly in the tables below.
       </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset traces to valid</button>
     </div>
 
     <div class="section">
@@ -423,9 +477,10 @@
 
     <h2>Execution Traces</h2>
     <div class="hint">
-      The Sender's main trace holds values to check. The Checker's main trace holds
-      multiplicity counts &mdash; how many times each preprocessed row was looked up.
-      The bus carries values between them.
+      Edit <strong style="color:var(--text)">val</strong> cells in the Sender
+      or <strong style="color:var(--text)">mult</strong> cells in the Checker
+      to see how the bus balance changes.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
     </div>
 
     <div class="tables-row">
@@ -459,6 +514,12 @@
 </div>
 
 <script>
+let rangeMax = 8;
+let cleanSenderVals = [];
+let cleanCheckerMults = [];
+let editedSenderVals = [];
+let editedCheckerMults = [];
+
 function parseValues(str) {
   return str.split(/[,\s]+/)
     .map(s => s.trim())
@@ -467,17 +528,57 @@ function parseValues(str) {
     .filter(n => !isNaN(n) && n >= 0);
 }
 
-function render() {
-  const rangeMax = parseInt(document.getElementById('inp-max').value);
-  const values = parseValues(document.getElementById('inp-vals').value);
+function computeClean() {
+  rangeMax = parseInt(document.getElementById('inp-max').value);
+  cleanSenderVals = parseValues(document.getElementById('inp-vals').value);
 
-  // Multiplicity table
-  const mult = new Array(rangeMax).fill(0);
-  const outOfRange = [];
-  for (const v of values) {
-    if (v >= 0 && v < rangeMax) mult[v]++;
-    else outOfRange.push(v);
+  cleanCheckerMults = new Array(rangeMax).fill(0);
+  for (const v of cleanSenderVals) {
+    if (v >= 0 && v < rangeMax) cleanCheckerMults[v]++;
   }
+}
+
+function recompute() {
+  computeClean();
+  editedSenderVals = [...cleanSenderVals];
+  editedCheckerMults = [...cleanCheckerMults];
+  render();
+}
+
+function resetTrace() {
+  computeClean();
+  editedSenderVals = [...cleanSenderVals];
+  editedCheckerMults = [...cleanCheckerMults];
+  render();
+}
+
+function onSenderEdit(row, value) {
+  editedSenderVals[row] = Math.max(0, parseInt(value) || 0);
+  render();
+}
+
+function onCheckerEdit(row, value) {
+  editedCheckerMults[row] = Math.max(0, parseInt(value) || 0);
+  render();
+}
+
+function hasEdits() {
+  if (editedSenderVals.length !== cleanSenderVals.length) return true;
+  for (let i = 0; i < editedSenderVals.length; i++) {
+    if (editedSenderVals[i] !== cleanSenderVals[i]) return true;
+  }
+  for (let i = 0; i < rangeMax; i++) {
+    if (editedCheckerMults[i] !== cleanCheckerMults[i]) return true;
+  }
+  return false;
+}
+
+function render() {
+  const values = editedSenderVals;
+  const mult = editedCheckerMults;
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
 
   // Preprocessed table
   let prepHtml = '';
@@ -491,9 +592,10 @@ function render() {
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     const oor = v >= rangeMax;
+    const isModified = v !== cleanSenderVals[i];
     senderHtml += `<tr>
       <td class="col-dim">${i}</td>
-      <td class="col-main${oor ? ' val-oor' : ''}">${v}${oor ? ' <span style="font-size:9px">OOR</span>' : ''}</td>
+      <td class="col-main${oor ? ' val-oor' : ''}"><input type="number" class="cell-input${isModified ? ' modified' : ''}${oor ? ' val-oor' : ''}" value="${v}" min="0" onchange="onSenderEdit(${i},this.value)" style="${oor ? 'color:var(--red);font-weight:700' : ''}">${oor ? ' <span style="font-size:9px;color:var(--red)">OOR</span>' : ''}</td>
       <td><span class="arrow-send">&rarr; send(${v})</span></td>
     </tr>`;
   }
@@ -506,37 +608,42 @@ function render() {
   let checkerHtml = '';
   for (let i = 0; i < rangeMax; i++) {
     const m = mult[i];
+    const isModified = m !== cleanCheckerMults[i];
     const rowClass = m > 0 ? ' class="row-used"' : '';
-    const multClass = m === 0 ? 'mult-zero' : m > 1 ? 'mult-high' : 'mult-pos';
     const busStr = m > 0
       ? `<span class="arrow-recv">&larr; recv(${i})&times;${m}</span>`
       : '<span style="color:var(--border)">&mdash;</span>';
     checkerHtml += `<tr${rowClass}>
       <td class="col-dim">${i}</td>
       <td class="col-prep">${i}</td>
-      <td class="${multClass}">${m}</td>
+      <td><input type="number" class="cell-input${isModified ? ' modified' : ''}" value="${m}" min="0" onchange="onCheckerEdit(${i},this.value)" style="color:${m === 0 ? 'var(--border)' : m > 1 ? 'var(--yellow)' : 'var(--green)'};font-weight:700"></td>
       <td>${busStr}</td>
     </tr>`;
   }
   document.getElementById('checker-body').innerHTML = checkerHtml;
 
-  // Balance check
+  // Balance check: what was actually sent vs received
   const sendCounts = {};
   for (const v of values) sendCounts[v] = (sendCounts[v] || 0) + 1;
 
+  const recvCounts = {};
+  for (let i = 0; i < rangeMax; i++) {
+    if (mult[i] > 0) recvCounts[i] = mult[i];
+  }
+
   let balanced = true;
   let detailHtml = '';
-  const allVals = new Set([...Object.keys(sendCounts).map(Number), ...Array.from({length: rangeMax}, (_, i) => i)]);
+  const allVals = new Set([...Object.keys(sendCounts).map(Number), ...Object.keys(recvCounts).map(Number)]);
   const sorted = [...allVals].sort((a, b) => a - b);
 
   for (const v of sorted) {
     const sent = sendCounts[v] || 0;
-    const received = v >= 0 && v < rangeMax ? mult[v] : 0;
+    const received = recvCounts[v] || 0;
     if (sent === 0 && received === 0) continue;
 
     const inRange = v >= 0 && v < rangeMax;
     let status;
-    if (!inRange) {
+    if (!inRange && sent > 0) {
       status = '<span class="bad">no table entry</span>';
       balanced = false;
     } else if (sent === received) {
@@ -548,7 +655,7 @@ function render() {
     detailHtml += `v=${v}: sent=${sent}, recv=${received} &mdash; ${status}<br>`;
   }
 
-  if (values.length === 0) {
+  if (values.length === 0 && Object.keys(recvCounts).length === 0) {
     detailHtml = 'No values to check.';
     balanced = true;
   }
@@ -558,20 +665,24 @@ function render() {
   const cumsumEl = document.getElementById('cumsum-result');
   if (balanced) {
     cumsumEl.className = 'cumsum pass';
-    cumsumEl.innerHTML = `Cumulative sum = 0<div class="sub">All values in [0, ${rangeMax}). Every send matched by a receive.</div>`;
+    cumsumEl.innerHTML = `Cumulative sum = 0<div class="sub">Every send matched by a receive. Bus interactions balance.</div>`;
   } else {
     cumsumEl.className = 'cumsum fail';
-    const reason = outOfRange.length > 0
-      ? `Values out of range: ${[...new Set(outOfRange)].join(', ')}. No preprocessed row to absorb them.`
-      : 'Send/receive counts do not match.';
+    const oor = values.filter(v => v >= rangeMax);
+    let reason;
+    if (oor.length > 0) {
+      reason = `Values out of range: ${[...new Set(oor)].join(', ')}. No preprocessed row to absorb them.`;
+    } else {
+      reason = 'Send/receive counts do not match. Edit cells to fix or click Reset.';
+    }
     cumsumEl.innerHTML = `Cumulative sum &ne; 0<div class="sub">${reason}</div>`;
   }
 }
 
-document.getElementById('inp-max').addEventListener('change', render);
-document.getElementById('inp-vals').addEventListener('input', render);
+document.getElementById('inp-max').addEventListener('change', recompute);
+document.getElementById('inp-vals').addEventListener('input', recompute);
 
-render();
+recompute();
 </script>
 </body>
 </html>

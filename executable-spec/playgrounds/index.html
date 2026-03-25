@@ -15,9 +15,6 @@
     --text: #e1e4ed;
     --text-dim: #8b8fa7;
     --accent: #6c8cff;
-    --green: #4ade80;
-    --yellow: #facc15;
-    --purple: #c084fc;
     --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   }
 
@@ -91,24 +88,6 @@
     line-height: 1.6;
   }
 
-  .card .tags {
-    margin-top: 10px;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .tag {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 600;
-  }
-
-  .tag-green { background: #16432e; color: var(--green); }
-  .tag-yellow { background: #443a10; color: var(--yellow); }
-  .tag-purple { background: #2d1a4e; color: var(--purple); }
-  .tag-blue { background: #1a2d5e; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -126,11 +105,6 @@
       The simplest AIR: two witness columns, five polynomial constraints,
       three selectors. Edit any trace cell to see which constraints break and why.
     </p>
-    <div class="tags">
-      <span class="tag tag-green">beginner</span>
-      <span class="tag tag-blue">2 witness cols</span>
-      <span class="tag tag-blue">5 constraints</span>
-    </div>
   </a>
 
   <a class="card" href="range-check-air.html">
@@ -140,11 +114,6 @@
       Two AIRs (Sender + Checker) communicate through a shared bus
       to prove values lie in a range.
     </p>
-    <div class="tags">
-      <span class="tag tag-yellow">intermediate</span>
-      <span class="tag tag-blue">preprocessed trace</span>
-      <span class="tag tag-blue">bus interactions</span>
-    </div>
   </a>
 
   <a class="card" href="logup-protocol.html">
@@ -154,11 +123,6 @@
       after-challenge trace columns, and the cross-AIR cumulative sum check
       that ties it all together.
     </p>
-    <div class="tags">
-      <span class="tag tag-purple">advanced</span>
-      <span class="tag tag-blue">after-challenge trace</span>
-      <span class="tag tag-blue">cross-AIR check</span>
-    </div>
   </a>
 </div>
 </body>

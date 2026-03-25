@@ -83,6 +83,14 @@
   }
   button:hover { background: var(--accent); color: var(--bg); }
 
+  .reset-btn {
+    background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim);
+    font-family: var(--mono); font-size: 11px; padding: 5px 12px; border-radius: 4px;
+    cursor: pointer; margin-top: 6px;
+  }
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
   .stat-row { display: flex; justify-content: space-between; font-size: 11px; padding: 4px 0; border-bottom: 1px solid var(--border); }
   .stat-row .label { color: var(--text-dim); }
   .stat-row .val { color: var(--text); font-weight: 600; }
@@ -175,6 +183,44 @@
   .mult-pos { color: var(--green); font-weight: 700; }
   .row-zero td:not(.col-sep):not(.c-pass):not(.c-inactive) { opacity: 0.45; }
 
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: inherit;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow) !important;
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
   /* --- Cumulative sum result --- */
   .cumsum-box {
     background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
@@ -253,8 +299,6 @@
       </div>
       <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">
         From Fiat-Shamir in a real proof.
-        Try different values &mdash; C1&ndash;C3 always hold,
-        C4 fails only when multisets mismatch.
       </div>
     </div>
 
@@ -273,9 +317,9 @@
         <textarea id="inp-vals">0, 3, 3, 5, 7, 2, 1, 0</textarea>
       </div>
       <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
-        Range-check scenario. Try a value &ge; range_max
-        to see C4 fail.
+        Edit cells directly in the tables below.
       </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset traces to valid</button>
     </div>
 
     <div class="section">
@@ -344,7 +388,6 @@
       <div class="stat-row"><span class="label">perm columns</span><span class="val">FF4 in real protocol</span></div>
       <div class="stat-row"><span class="label">This demo</span><span class="val">base field for clarity</span></div>
       <div class="stat-row"><span class="label">Denom formula</span><span class="val" style="color:var(--yellow)">&alpha; + msg + &beta;</span></div>
-      <div class="stat-row"><span class="label">General denom</span><span class="val" style="font-size:9px;color:var(--yellow)">&alpha;+m&#x2080;+&beta;m&#x2081;+&hellip;+&beta;&#x1D4F;(b+1)</span></div>
     </div>
   </div>
 
@@ -365,10 +408,10 @@
 
     <h2>Sender AIR <span class="badge badge-send">send, count = +1</span></h2>
     <div class="hint">
-      Columns are exactly the witness polynomials: <strong>main[0]</strong> = val,
-      <strong>perm[0]</strong> = chunk&#x2080;, <strong>perm[1]</strong> = &phi;.
+      Edit any cell to see which constraints break.
       <span class="g">0</span> = constraint satisfied,
       <span class="d">&mdash;</span> = selector off.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
     </div>
     <div class="trace-wrapper">
       <table id="sender-table"></table>
@@ -376,10 +419,8 @@
 
     <h2>Checker AIR <span class="badge badge-recv">recv, count = &minus;mult</span></h2>
     <div class="hint">
-      <strong>prep[0]</strong> = counter (fixed by VK),
-      <strong>main[0]</strong> = mult,
-      <strong>perm[0]</strong> = chunk&#x2080;, <strong>perm[1]</strong> = &phi;.
-      Rows with mult=0 are dimmed.
+      <strong>prep[0]</strong> = counter (fixed by VK, not editable).
+      Edit <strong>main[0]</strong> = mult, <strong>perm[0]</strong> = chunk&#x2080;, <strong>perm[1]</strong> = &phi;.
     </div>
     <div class="trace-wrapper">
       <table id="checker-table"></table>
@@ -392,12 +433,11 @@
     </div>
 
     <div class="note-box">
-      <strong>Why do C1&ndash;C3 always pass?</strong>
+      <strong>Why do C1&ndash;C3 always pass with valid traces?</strong>
       The prover sets perm[0] = count / (&alpha; + msg + &beta;) (satisfying C1)
       and perm[1] as a prefix sum of perm[0] (satisfying C2, C3).
-      These are honest computations. The soundness is in C4: the prover
-      cannot make &Sigma;&phi;[last] = 0 unless the multisets match.
-      Schwartz-Zippel guarantees this over random &alpha;, &beta;.
+      Try editing a perm column to see C1&ndash;C3 fail.
+      Try editing val or mult to see C4 fail (after resetting perm columns).
       <br><br>
       <strong>Note:</strong> The real protocol uses <strong>FF4</strong>
       (degree-4 extension) for perm columns and challenges.
@@ -430,11 +470,6 @@ function fmtFull(n) {
   return mod(n).toString();
 }
 
-function valCell(n, cls) {
-  if (n === null) return `<td class="${cls}">\u2014</td>`;
-  return `<td class="${cls}">${fmtFull(n)}</td>`;
-}
-
 function constraintCell(value, active) {
   if (!active) return '<td class="col-constraint c-inactive">\u2014</td>';
   const v = mod(value);
@@ -447,37 +482,141 @@ function parseValues(str) {
     .map(s => parseInt(s)).filter(n => !isNaN(n) && n >= 0);
 }
 
-function render() {
-  const alpha = mod(BigInt(document.getElementById('inp-alpha').value.trim() || '7'));
-  const beta = mod(BigInt(document.getElementById('inp-beta').value.trim() || '3'));
-  const rangeMax = parseInt(document.getElementById('inp-max').value);
+// Clean state (computed from sidebar params)
+let rangeMax = 8;
+let cleanSenderVals = [];
+let cleanSenderChunks = [];
+let cleanSenderPhis = [];
+let cleanCheckerMults = [];
+let cleanCheckerChunks = [];
+let cleanCheckerPhis = [];
+
+// Edited state (user-modifiable)
+let editedSenderVals = [];
+let editedSenderChunks = [];
+let editedSenderPhis = [];
+let editedCheckerMults = [];
+let editedCheckerChunks = [];
+let editedCheckerPhis = [];
+
+function getAlpha() { return mod(BigInt(document.getElementById('inp-alpha').value.trim() || '7')); }
+function getBeta() { return mod(BigInt(document.getElementById('inp-beta').value.trim() || '3')); }
+
+function computeClean() {
+  const alpha = getAlpha();
+  const beta = getBeta();
+  rangeMax = parseInt(document.getElementById('inp-max').value);
   const values = parseValues(document.getElementById('inp-vals').value);
 
-  // Multiplicity table
-  const mult = new Array(rangeMax).fill(0);
-  for (const v of values) { if (v >= 0 && v < rangeMax) mult[v]++; }
-
-  // ========== SENDER ==========
-  const sChunks = [];  // perm[0]
-  const sPhis = [];    // perm[1]
+  // Sender
+  cleanSenderVals = values;
+  cleanSenderChunks = [];
+  cleanSenderPhis = [];
   let sPhi = 0n;
-
   for (let i = 0; i < values.length; i++) {
     const denom = mod(alpha + BigInt(values[i]) + beta);
     const inv = modInv(denom);
-    const chunk = inv !== null ? inv : 0n; // count=+1, so perm[0] = 1/(α+val+β)
+    const chunk = inv !== null ? inv : 0n;
     sPhi = mod(sPhi + chunk);
-    sChunks.push(chunk);
-    sPhis.push(sPhi);
+    cleanSenderChunks.push(chunk);
+    cleanSenderPhis.push(sPhi);
   }
 
+  // Checker
+  cleanCheckerMults = new Array(rangeMax).fill(0);
+  for (const v of values) { if (v >= 0 && v < rangeMax) cleanCheckerMults[v]++; }
+
+  cleanCheckerChunks = [];
+  cleanCheckerPhis = [];
+  let cPhi = 0n;
+  for (let i = 0; i < rangeMax; i++) {
+    const denom = mod(alpha + BigInt(i) + beta);
+    const inv = modInv(denom);
+    const m = cleanCheckerMults[i];
+    const chunk = (inv !== null && m > 0) ? mod(-BigInt(m) * inv) : 0n;
+    cPhi = mod(cPhi + chunk);
+    cleanCheckerChunks.push(chunk);
+    cleanCheckerPhis.push(cPhi);
+  }
+}
+
+function copyCleanToEdited() {
+  editedSenderVals = [...cleanSenderVals];
+  editedSenderChunks = [...cleanSenderChunks];
+  editedSenderPhis = [...cleanSenderPhis];
+  editedCheckerMults = [...cleanCheckerMults];
+  editedCheckerChunks = [...cleanCheckerChunks];
+  editedCheckerPhis = [...cleanCheckerPhis];
+}
+
+function recompute() {
+  computeClean();
+  copyCleanToEdited();
+  render();
+}
+
+function resetTrace() {
+  computeClean();
+  copyCleanToEdited();
+  render();
+}
+
+// Edit handlers
+function onSenderEdit(row, col, value) {
+  const v = BigInt(value || '0');
+  if (col === 'val') editedSenderVals[row] = Math.max(0, parseInt(value) || 0);
+  else if (col === 'chunk') editedSenderChunks[row] = mod(v);
+  else if (col === 'phi') editedSenderPhis[row] = mod(v);
+  render();
+}
+
+function onCheckerEdit(row, col, value) {
+  const v = BigInt(value || '0');
+  if (col === 'mult') editedCheckerMults[row] = Math.max(0, parseInt(value) || 0);
+  else if (col === 'chunk') editedCheckerChunks[row] = mod(v);
+  else if (col === 'phi') editedCheckerPhis[row] = mod(v);
+  render();
+}
+
+function hasEdits() {
+  for (let i = 0; i < editedSenderVals.length; i++) {
+    if (editedSenderVals[i] !== cleanSenderVals[i]) return true;
+    if (editedSenderChunks[i] !== cleanSenderChunks[i]) return true;
+    if (editedSenderPhis[i] !== cleanSenderPhis[i]) return true;
+  }
+  for (let i = 0; i < rangeMax; i++) {
+    if (editedCheckerMults[i] !== cleanCheckerMults[i]) return true;
+    if (editedCheckerChunks[i] !== cleanCheckerChunks[i]) return true;
+    if (editedCheckerPhis[i] !== cleanCheckerPhis[i]) return true;
+  }
+  return false;
+}
+
+function cellInput(value, isModified, colorStyle, onChange) {
+  return `<input type="number" class="cell-input${isModified ? ' modified' : ''}" value="${value}" onchange="${onChange}" style="${isModified ? '' : colorStyle}">`;
+}
+
+function render() {
+  const alpha = getAlpha();
+  const beta = getBeta();
+  const edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  const sVals = editedSenderVals;
+  const sChunks = editedSenderChunks;
+  const sPhis = editedSenderPhis;
+  const cMults = editedCheckerMults;
+  const cChunks = editedCheckerChunks;
+  const cPhis = editedCheckerPhis;
+
+  // ========== SENDER ==========
   let sHtml = `<thead>
     <tr>
       <th class="group-header" colspan="1"></th>
       <th class="col-sep"></th>
-      <th class="group-header" colspan="1" style="color:var(--text)">Main Trace</th>
+      <th class="group-header" colspan="1" style="color:var(--text)">Main</th>
       <th class="col-sep"></th>
-      <th class="group-header" colspan="2" style="color:var(--green)">After-Challenge Trace</th>
+      <th class="group-header" colspan="2" style="color:var(--green)">After-Challenge</th>
       <th class="col-sep"></th>
       <th class="group-header" colspan="2">Selectors</th>
       <th class="col-sep"></th>
@@ -488,8 +627,8 @@ function render() {
       <th class="col-sep"></th>
       <th title="main[0]">val</th>
       <th class="col-sep"></th>
-      <th title="perm[0]: count / (α + val + β)">chunk&#x2080;</th>
-      <th title="perm[1]: prefix sum of chunk₀">&phi;</th>
+      <th title="perm[0]">chunk&#x2080;</th>
+      <th title="perm[1]">&phi;</th>
       <th class="col-sep"></th>
       <th title="is_first_row">1st</th>
       <th title="is_transition">Tr</th>
@@ -500,30 +639,28 @@ function render() {
     </tr>
   </thead><tbody>`;
 
-  for (let i = 0; i < values.length; i++) {
+  for (let i = 0; i < sVals.length; i++) {
     const isFirst = i === 0 ? 1 : 0;
-    const isTrans = i < values.length - 1 ? 1 : 0;
-    const denom = mod(alpha + BigInt(values[i]) + beta);
+    const isTrans = i < sVals.length - 1 ? 1 : 0;
+    const denom = mod(alpha + BigInt(sVals[i]) + beta);
 
-    // C1: chunk₀ × (α + val + β) − 1 = 0
     const c1 = mod(sChunks[i] * denom - 1n);
-
-    // C2: is_first × (φ − chunk₀) = 0
     const c2 = mod(BigInt(isFirst) * mod(sPhis[i] - sChunks[i]));
-
-    // C3: is_trans × (φ_next − φ − chunk₀_next) = 0
     let c3 = 0n;
-    if (isTrans) {
-      c3 = mod(sPhis[i + 1] - sPhis[i] - sChunks[i + 1]);
-    }
+    if (isTrans) c3 = mod(sPhis[i + 1] - sPhis[i] - sChunks[i + 1]);
 
-    sHtml += '<tr>';
+    const hasViolation = mod(c1) !== 0n || (isFirst && mod(c2) !== 0n) || (isTrans && mod(c3) !== 0n);
+    const valMod = sVals[i] !== cleanSenderVals[i];
+    const chunkMod = sChunks[i] !== cleanSenderChunks[i];
+    const phiMod = sPhis[i] !== cleanSenderPhis[i];
+
+    sHtml += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
     sHtml += `<td class="col-dim">${i}</td>`;
     sHtml += '<td class="col-sep"></td>';
-    sHtml += `<td class="col-main">${values[i]}</td>`;
+    sHtml += `<td class="col-main">${cellInput(sVals[i], valMod, 'color:var(--text)', `onSenderEdit(${i},'val',this.value)`)}</td>`;
     sHtml += '<td class="col-sep"></td>';
-    sHtml += valCell(sChunks[i], 'col-perm0');
-    sHtml += valCell(sPhis[i], 'col-perm1');
+    sHtml += `<td class="col-perm0">${cellInput(fmtFull(sChunks[i]), chunkMod, 'color:var(--cyan)', `onSenderEdit(${i},'chunk',this.value)`)}</td>`;
+    sHtml += `<td class="col-perm1">${cellInput(fmtFull(sPhis[i]), phiMod, 'color:var(--green)', `onSenderEdit(${i},'phi',this.value)`)}</td>`;
     sHtml += '<td class="col-sep"></td>';
     sHtml += `<td class="col-sel ${isFirst ? 'sel-on' : 'sel-off'}">${isFirst}</td>`;
     sHtml += `<td class="col-sel ${isTrans ? 'sel-on' : 'sel-off'}">${isTrans}</td>`;
@@ -534,36 +671,21 @@ function render() {
     sHtml += '</tr>';
   }
 
-  if (values.length === 0) {
+  if (sVals.length === 0) {
     sHtml += '<tr><td colspan="12" style="color:var(--text-dim);padding:12px">no values</td></tr>';
   }
 
   sHtml += '</tbody>';
   document.getElementById('sender-table').innerHTML = sHtml;
 
-  const senderPhiLast = values.length > 0 ? sPhis[values.length - 1] : 0n;
+  const senderPhiLast = sVals.length > 0 ? sPhis[sVals.length - 1] : 0n;
 
   // ========== CHECKER ==========
-  const cChunks = [];  // perm[0]
-  const cPhis = [];    // perm[1]
-  let cPhi = 0n;
-
-  for (let i = 0; i < rangeMax; i++) {
-    const denom = mod(alpha + BigInt(i) + beta);
-    const inv = modInv(denom);
-    const m = mult[i];
-    // count = −mult for receives, so perm[0] = (−mult) / (α + counter + β)
-    const chunk = (inv !== null && m > 0) ? mod(-BigInt(m) * inv) : 0n;
-    cPhi = mod(cPhi + chunk);
-    cChunks.push(chunk);
-    cPhis.push(cPhi);
-  }
-
   let cHtml = `<thead>
     <tr>
       <th class="group-header" colspan="1"></th>
       <th class="col-sep"></th>
-      <th class="group-header" colspan="1" style="color:var(--purple)">Preprocessed</th>
+      <th class="group-header" colspan="1" style="color:var(--purple)">Prep</th>
       <th class="group-header" colspan="1" style="color:var(--text)">Main</th>
       <th class="col-sep"></th>
       <th class="group-header" colspan="2" style="color:var(--green)">After-Challenge</th>
@@ -578,8 +700,8 @@ function render() {
       <th title="prep[0]">counter</th>
       <th title="main[0]">mult</th>
       <th class="col-sep"></th>
-      <th title="perm[0]: (−mult) / (α + counter + β)">chunk&#x2080;</th>
-      <th title="perm[1]: prefix sum of chunk₀">&phi;</th>
+      <th title="perm[0]">chunk&#x2080;</th>
+      <th title="perm[1]">&phi;</th>
       <th class="col-sep"></th>
       <th title="is_first_row">1st</th>
       <th title="is_transition">Tr</th>
@@ -593,36 +715,28 @@ function render() {
   for (let i = 0; i < rangeMax; i++) {
     const isFirst = i === 0 ? 1 : 0;
     const isTrans = i < rangeMax - 1 ? 1 : 0;
-    const m = mult[i];
-    const isZero = m === 0;
+    const m = cMults[i];
+    const isZero = m === 0 && cMults[i] === cleanCheckerMults[i];
     const denom = mod(alpha + BigInt(i) + beta);
 
-    // C1: chunk₀ × (α + counter + β) + mult = 0
     const c1 = mod(cChunks[i] * denom + BigInt(m));
-
-    // C2: is_first × (φ − chunk₀) = 0
     const c2 = mod(BigInt(isFirst) * mod(cPhis[i] - cChunks[i]));
-
-    // C3: is_trans × (φ_next − φ − chunk₀_next) = 0
     let c3 = 0n;
-    if (isTrans) {
-      c3 = mod(cPhis[i + 1] - cPhis[i] - cChunks[i + 1]);
-    }
+    if (isTrans) c3 = mod(cPhis[i + 1] - cPhis[i] - cChunks[i + 1]);
 
-    const multClass = isZero ? 'mult-zero' : 'mult-pos';
+    const hasViolation = mod(c1) !== 0n || (isFirst && mod(c2) !== 0n) || (isTrans && mod(c3) !== 0n);
+    const multMod = cMults[i] !== cleanCheckerMults[i];
+    const chunkMod = cChunks[i] !== cleanCheckerChunks[i];
+    const phiMod = cPhis[i] !== cleanCheckerPhis[i];
 
-    cHtml += `<tr${isZero ? ' class="row-zero"' : ''}>`;
+    cHtml += `<tr${hasViolation ? ' class="affected-row"' : ''}${isZero && !hasViolation ? ' class="row-zero"' : ''}>`;
     cHtml += `<td class="col-dim">${i}</td>`;
     cHtml += '<td class="col-sep"></td>';
     cHtml += `<td class="col-prep">${i}</td>`;
-    cHtml += `<td class="${multClass}">${m}</td>`;
+    cHtml += `<td>${cellInput(m, multMod, `color:${m === 0 ? 'var(--border)' : 'var(--green)'};font-weight:700`, `onCheckerEdit(${i},'mult',this.value)`)}</td>`;
     cHtml += '<td class="col-sep"></td>';
-    if (isZero) {
-      cHtml += '<td class="col-perm0" style="color:var(--border)">0</td>';
-    } else {
-      cHtml += valCell(cChunks[i], 'col-perm0');
-    }
-    cHtml += valCell(cPhis[i], 'col-perm1');
+    cHtml += `<td class="col-perm0">${cellInput(fmtFull(cChunks[i]), chunkMod, 'color:var(--cyan)', `onCheckerEdit(${i},'chunk',this.value)`)}</td>`;
+    cHtml += `<td class="col-perm1">${cellInput(fmtFull(cPhis[i]), phiMod, 'color:var(--green)', `onCheckerEdit(${i},'phi',this.value)`)}</td>`;
     cHtml += '<td class="col-sep"></td>';
     cHtml += `<td class="col-sel ${isFirst ? 'sel-on' : 'sel-off'}">${isFirst}</td>`;
     cHtml += `<td class="col-sel ${isTrans ? 'sel-on' : 'sel-off'}">${isTrans}</td>`;
@@ -655,11 +769,7 @@ function render() {
     el.innerHTML = 'C4: cumulative_sum = 0<div class="sub">All sends matched by receives. Bus interactions balance.</div>';
   } else {
     el.className = 'cumsum fail';
-    const oor = values.filter(v => v >= rangeMax);
-    const reason = oor.length > 0
-      ? `Values out of range: [${[...new Set(oor)].join(', ')}]. No checker row can absorb them.`
-      : 'Send/receive multisets do not match.';
-    el.innerHTML = `C4: cumulative_sum &ne; 0<div class="sub">${reason}</div>`;
+    el.innerHTML = `C4: cumulative_sum &ne; 0<div class="sub">Send/receive multisets do not match at these challenge values.</div>`;
   }
 }
 
@@ -667,16 +777,16 @@ document.getElementById('btn-random').addEventListener('click', () => {
   const rand = () => Math.floor(Math.random() * 999999) + 1;
   document.getElementById('inp-alpha').value = rand();
   document.getElementById('inp-beta').value = rand();
-  render();
+  recompute();
 });
 
 for (const id of ['inp-alpha', 'inp-beta']) {
-  document.getElementById(id).addEventListener('input', render);
+  document.getElementById(id).addEventListener('input', recompute);
 }
-document.getElementById('inp-max').addEventListener('change', render);
-document.getElementById('inp-vals').addEventListener('input', render);
+document.getElementById('inp-max').addEventListener('change', recompute);
+document.getElementById('inp-vals').addEventListener('input', recompute);
 
-render();
+recompute();
 </script>
 </body>
 </html>
