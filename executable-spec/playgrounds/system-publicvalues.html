@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System: Public Values</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout.key-insight { border-left-color: var(--green); }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout.key-insight .callout-title { color: var(--green); }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body strong { color: var(--text); }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 100px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id { color: var(--accent); font-weight: 700; }
+  .constraint-list .c-desc { color: var(--text); }
+  .constraint-list .c-formula { color: var(--text-dim); display: block; font-size: 10px; margin-top: 2px; }
+  .constraint-list .c-sel { font-size: 9px; display: inline-block; padding: 1px 5px; border-radius: 3px; margin-top: 3px; }
+
+  .sel-bool { background: var(--purple-dim); color: var(--purple); }
+  .sel-valid { background: var(--green-dim); color: var(--green); }
+  .sel-bus { background: var(--orange-dim); color: var(--orange); }
+
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section { margin-bottom: 32px; }
+
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover { border-color: var(--border); background: var(--surface2); }
+  .cell-input:focus { outline: none; border-color: var(--accent); background: var(--surface2); }
+  .cell-input.modified { color: var(--yellow); border-color: var(--yellow-dim); background: var(--yellow-dim); }
+  .cell-input.modified:focus { border-color: var(--yellow); }
+
+  /* --- PV array display --- */
+  .pv-array {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .pv-slot {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    text-align: center;
+    min-width: 80px;
+    transition: border-color 0.15s;
+  }
+
+  .pv-slot.assigned {
+    border-color: var(--green);
+  }
+
+  .pv-slot.mismatch {
+    border-color: var(--red);
+    background: var(--red-dim);
+  }
+
+  .pv-slot .pv-idx {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+
+  .pv-slot .pv-val {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  .pv-slot.assigned .pv-val { color: var(--green); }
+  .pv-slot.mismatch .pv-val { color: var(--red); }
+
+  .balance-ok {
+    color: var(--green);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--green-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .balance-fail {
+    color: var(--red);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--red-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>System: Public Values</h1>
+    <div class="intro">
+      The <strong>PublicValuesCoreAir</strong> handles the <strong>PUBLISH</strong> instruction &mdash;
+      it reads a value from memory and commits it to a specific slot in the proof's public values array.
+      The constraint system verifies that each published value matches the corresponding public value
+      that the verifier will see. Used in <strong>single-segment proofs</strong> (not continuations).
+    </div>
+
+    <div class="section">
+      <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Proof Outputs</div>
+        <div class="callout-body">
+          Public values are the <strong>only data the verifier sees</strong> besides the proof itself.
+          They form the bridge between the private computation and the public claim.
+          The PUBLISH instruction lets the guest program declare: "the value at memory address X
+          should be visible as public_values[i]."
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Encoder-Based Selectors</div>
+        <div class="callout-body">
+          Instead of N one-hot columns to select which public value slot,
+          the AIR uses a <strong>multivariate Lagrange encoder</strong> that compresses
+          N selectors into ~log(N) columns. The encoder variables satisfy range constraints
+          and their Lagrange evaluation selects exactly one slot.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>Num PV Slots</label>
+        <select id="inp-slots">
+          <option value="2">2 slots</option>
+          <option value="3" selected>3 slots</option>
+          <option value="4">4 slots</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <label>Start PC</label>
+        <input type="number" id="inp-pc" value="0" min="0" step="4">
+      </div>
+      <div class="control-row">
+        <label>Start TS</label>
+        <input type="number" id="inp-ts" value="100" min="0">
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Core witness columns</span><span class="val">3 + encoder_width</span></div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">is_valid, value, index</span></div>
+      <div class="stat-row"><span class="label">Adapter</span><span class="val">NativeAdapter (2R, 0W)</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">3 (Exec, Prog, Mem)</span></div>
+      <div class="stat-row"><span class="label">Public values</span><span class="val dynamic" id="stat-npv">3</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">is_valid is boolean</span>
+          <span class="c-formula">is_valid * (is_valid - 1) == 0</span>
+          <span class="c-sel sel-bool">boolean</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">index matches encoder</span>
+          <span class="c-formula">index == decoded_index(encoder_vars)</span>
+          <span class="c-sel sel-valid">when is_valid</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">value matches public_values[index]</span>
+          <span class="c-formula">value == public_values[index]</span>
+          <span class="c-sel sel-valid">when is_valid</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">encoder variables in valid range</span>
+          <span class="c-formula">each var &in; {0, ..., max_degree}</span>
+          <span class="c-sel sel-valid">when is_valid</span>
+        </li>
+        <li>
+          <span class="c-id">E1</span> <span class="c-desc">ExecutionBridge</span>
+          <span class="c-formula">execute_and_increment_pc(PUBLISH, pc, ts)</span>
+          <span class="c-sel sel-bus">exec bus</span>
+        </li>
+        <li>
+          <span class="c-id">E2</span> <span class="c-desc">Memory reads (value + index)</span>
+          <span class="c-formula">2 reads via NativeAdapter</span>
+          <span class="c-sel sel-bus">memory bus</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <div class="main-section">
+      <h2>Public Values Array</h2>
+      <div class="hint">
+        The proof's public values as the verifier sees them. Each PUBLISH instruction writes
+        to one slot. Green border = assigned by a trace row. Red = value mismatch with trace.
+      </div>
+      <div class="pv-array" id="pv-array"></div>
+    </div>
+
+    <div class="main-section">
+      <h2>Trace Table (PublicValuesCols)</h2>
+      <div class="hint">
+        Each row is one PUBLISH instruction. Edit <strong>value</strong> or <strong>index</strong>
+        to break constraints.
+        <span class="g">0</span> = satisfied,
+        <span style="color:var(--border)">&mdash;</span> = selector inactive,
+        <span class="r">nonzero</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="trace-wrapper">
+        <table id="trace-table"></table>
+      </div>
+    </div>
+
+    <div class="main-section">
+      <h2>Constraint Evaluation</h2>
+      <div class="hint">
+        C3 is the critical constraint: each row's value must equal public_values[index].
+        If a row's value doesn't match the public value at its index, the proof is invalid.
+      </div>
+      <div class="trace-wrapper">
+        <table id="constraint-table"></table>
+      </div>
+      <div id="constraint-result"></div>
+    </div>
+
+    <div class="main-section">
+      <h2>Bus Interactions</h2>
+      <div class="hint">
+        The adapter reads two operands from memory: the value to publish and the index.
+        The execution bus advances PC by 4. The program bus verifies the PUBLISH opcode.
+      </div>
+      <div class="trace-wrapper">
+        <table id="bus-table"></table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// Constants
+// ============================================================
+var DEFAULT_PC_STEP = 4;
+var TS_DELTA = 2; // NativeAdapter does 2 reads
+
+// Example public values (what the verifier sees)
+var EXAMPLE_VALUES = [42, 100, 255, 1000];
+
+// ============================================================
+// State
+// ============================================================
+var numSlots, startPc, startTs;
+var publicValues = [];
+var cleanRows = [];
+var editedRows = [];
+
+function buildPublicValues() {
+  publicValues = [];
+  for (var i = 0; i < numSlots; i++) {
+    publicValues.push(EXAMPLE_VALUES[i] || (i + 1) * 10);
+  }
+}
+
+function buildCleanRows() {
+  var rows = [];
+  // One PUBLISH per slot
+  for (var i = 0; i < numSlots; i++) {
+    rows.push({
+      is_valid: 1,
+      value: publicValues[i],
+      index: i,
+      pc: startPc + i * DEFAULT_PC_STEP,
+      timestamp: startTs + i * TS_DELTA
+    });
+  }
+  return rows;
+}
+
+function deepCopy(rows) {
+  return rows.map(function(r) {
+    return { is_valid: r.is_valid, value: r.value, index: r.index, pc: r.pc, timestamp: r.timestamp };
+  });
+}
+
+function recompute() {
+  numSlots = parseInt(document.getElementById('inp-slots').value) || 3;
+  startPc = parseInt(document.getElementById('inp-pc').value) || 0;
+  startTs = parseInt(document.getElementById('inp-ts').value) || 100;
+
+  document.getElementById('stat-npv').textContent = numSlots;
+
+  buildPublicValues();
+  cleanRows = buildCleanRows();
+  editedRows = deepCopy(cleanRows);
+  render();
+}
+
+function resetTrace() {
+  buildPublicValues();
+  cleanRows = buildCleanRows();
+  editedRows = deepCopy(cleanRows);
+  render();
+}
+
+function onCellEdit(rowIdx, field, value) {
+  editedRows[rowIdx][field] = parseInt(value) || 0;
+  render();
+}
+
+function hasEdits() {
+  for (var i = 0; i < editedRows.length; i++) {
+    var e = editedRows[i], c = cleanRows[i];
+    if (e.is_valid !== c.is_valid || e.value !== c.value || e.index !== c.index ||
+        e.pc !== c.pc || e.timestamp !== c.timestamp) return true;
+  }
+  return false;
+}
+
+// ============================================================
+// Constraint evaluation
+// ============================================================
+function evalConstraints() {
+  var results = [];
+  for (var i = 0; i < editedRows.length; i++) {
+    var r = editedRows[i];
+    var c = {};
+
+    // C1: is_valid boolean
+    c.c1 = r.is_valid * (r.is_valid - 1);
+
+    // C2: index in valid range (simplified: check 0 <= index < numSlots)
+    c.c2_active = r.is_valid;
+    c.c2 = (r.is_valid && (r.index < 0 || r.index >= numSlots)) ? r.index : 0;
+
+    // C3: value == public_values[index]
+    c.c3_active = r.is_valid;
+    if (r.is_valid && r.index >= 0 && r.index < numSlots) {
+      c.c3 = r.value - publicValues[r.index];
+    } else if (r.is_valid) {
+      c.c3 = r.value; // invalid index, can't match
+    } else {
+      c.c3 = 0;
+    }
+
+    results.push(c);
+  }
+  return results;
+}
+
+// ============================================================
+// Render
+// ============================================================
+function render() {
+  document.getElementById('btn-reset').classList.toggle('has-edits', hasEdits());
+  renderPvArray();
+  renderTraceTable();
+  renderConstraintTable();
+  renderBusTable();
+}
+
+function renderPvArray() {
+  var html = '';
+  // Track which slots are assigned and by which row
+  var assigned = {};
+  for (var i = 0; i < editedRows.length; i++) {
+    var r = editedRows[i];
+    if (r.is_valid && r.index >= 0 && r.index < numSlots) {
+      assigned[r.index] = { value: r.value, row: i };
+    }
+  }
+
+  for (var s = 0; s < numSlots; s++) {
+    var cls = 'pv-slot';
+    var displayVal = publicValues[s];
+
+    if (assigned[s] !== undefined) {
+      if (assigned[s].value === publicValues[s]) {
+        cls += ' assigned';
+      } else {
+        cls += ' mismatch';
+      }
+    }
+
+    html += '<div class="' + cls + '">';
+    html += '<div class="pv-idx">pv[' + s + ']</div>';
+    html += '<div class="pv-val">' + displayVal + '</div>';
+    if (assigned[s] !== undefined && assigned[s].value !== publicValues[s]) {
+      html += '<div style="font-size:10px;color:var(--red);margin-top:4px">trace says ' + assigned[s].value + '</div>';
+    }
+    html += '</div>';
+  }
+
+  document.getElementById('pv-array').innerHTML = html;
+}
+
+function cellHtml(rowIdx, field, value, clean, width) {
+  var mod = (value !== clean) ? ' modified' : '';
+  return '<input type="number" class="cell-input' + mod + '" value="' + value +
+    '" onchange="onCellEdit(' + rowIdx + ',\'' + field + '\',this.value)" style="width:' + (width || 50) + 'px">';
+}
+
+function renderTraceTable() {
+  var constraints = evalConstraints();
+  var html = '<thead>';
+  html += '<tr>';
+  html += '<th class="group-header" colspan="1"></th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="3">PublicValuesCols (editable)</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="2">Adapter State</th>';
+  html += '</tr>';
+  html += '<tr>';
+  html += '<th>Row</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>is_valid</th><th>value</th><th>index</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>pc</th><th>timestamp</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < editedRows.length; i++) {
+    var r = editedRows[i], cl = cleanRows[i], cr = constraints[i];
+    var anyFail = cr.c1 || cr.c2 || cr.c3;
+
+    html += '<tr' + (anyFail ? ' class="affected-row"' : '') + '>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    html += '<td class="col-trace">' + cellHtml(i, 'is_valid', r.is_valid, cl.is_valid, 40) + '</td>';
+    html += '<td class="col-trace">' + cellHtml(i, 'value', r.value, cl.value, 60) + '</td>';
+    html += '<td class="col-trace">' + cellHtml(i, 'index', r.index, cl.index, 40) + '</td>';
+
+    html += '<td class="col-sep"></td>';
+
+    html += '<td class="col-trace">' + cellHtml(i, 'pc', r.pc, cl.pc, 60) + '</td>';
+    html += '<td class="col-trace">' + cellHtml(i, 'timestamp', r.timestamp, cl.timestamp, 60) + '</td>';
+
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('trace-table').innerHTML = html;
+}
+
+function cval(val, active) {
+  if (!active) return '<td class="c-inactive">&mdash;</td>';
+  if (val === 0) return '<td class="c-pass">0</td>';
+  return '<td class="c-fail">' + val + '</td>';
+}
+
+function renderConstraintTable() {
+  var constraints = evalConstraints();
+  var html = '<thead><tr>';
+  html += '<th>Row</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>C1 (bool)</th>';
+  html += '<th>C2 (index range)</th>';
+  html += '<th>C3 (value match)</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < constraints.length; i++) {
+    var cr = constraints[i];
+    var anyFail = cr.c1 || cr.c2 || cr.c3;
+
+    html += '<tr' + (anyFail ? ' class="affected-row"' : '') + '>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    html += cval(cr.c1, true);
+    html += cval(cr.c2, cr.c2_active);
+    html += cval(cr.c3, cr.c3_active);
+
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('constraint-table').innerHTML = html;
+
+  // Summary
+  var allOk = constraints.every(function(cr) { return !cr.c1 && !cr.c2 && !cr.c3; });
+  var resultDiv = document.getElementById('constraint-result');
+  if (allOk) {
+    resultDiv.innerHTML = '<div class="balance-ok">All constraints satisfied. Every PUBLISH row\'s value matches public_values[index].</div>';
+  } else {
+    var failCount = constraints.filter(function(cr) { return cr.c1 || cr.c2 || cr.c3; }).length;
+    resultDiv.innerHTML = '<div class="balance-fail">CONSTRAINT VIOLATION: ' + failCount + ' row(s) with mismatched public values or invalid flags.</div>';
+  }
+}
+
+function renderBusTable() {
+  var html = '<thead><tr>';
+  html += '<th>Row</th>';
+  html += '<th>Bus</th>';
+  html += '<th>Direction</th>';
+  html += '<th>Key</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < editedRows.length; i++) {
+    var r = editedRows[i];
+    if (!r.is_valid) continue;
+
+    // Execution bus
+    html += '<tr>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td><span style="color:var(--accent)">ExecutionBus</span></td>';
+    html += '<td><span style="color:var(--green);font-size:10px">SEND</span></td>';
+    html += '<td style="font-size:11px">(pc=' + r.pc + ', ts=' + r.timestamp + ', opcode=PUBLISH)</td>';
+    html += '</tr>';
+
+    // Program bus
+    html += '<tr>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td><span style="color:var(--purple)">ProgramBus</span></td>';
+    html += '<td><span style="color:var(--orange);font-size:10px">RECV</span></td>';
+    html += '<td style="font-size:11px">(pc=' + r.pc + ', PUBLISH)</td>';
+    html += '</tr>';
+
+    // Memory read: value
+    html += '<tr>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td><span style="color:var(--green)">MemoryBus</span></td>';
+    html += '<td><span style="color:var(--orange);font-size:10px">READ</span></td>';
+    html += '<td style="font-size:11px">operand_b &rarr; value=' + r.value + ' @ ts=' + r.timestamp + '</td>';
+    html += '</tr>';
+
+    // Memory read: index
+    html += '<tr>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td><span style="color:var(--green)">MemoryBus</span></td>';
+    html += '<td><span style="color:var(--orange);font-size:10px">READ</span></td>';
+    html += '<td style="font-size:11px">operand_c &rarr; index=' + r.index + ' @ ts=' + (r.timestamp + 1) + '</td>';
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('bus-table').innerHTML = html;
+}
+
+// ============================================================
+// Event listeners
+// ============================================================
+document.getElementById('inp-slots').addEventListener('change', recompute);
+document.getElementById('inp-pc').addEventListener('input', recompute);
+document.getElementById('inp-ts').addEventListener('input', recompute);
+
+// ============================================================
+// Init
+// ============================================================
+recompute();
+</script>
+</body>
+</html>

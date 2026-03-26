@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System: Hint Store</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout.key-insight { border-left-color: var(--green); }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout.key-insight .callout-title { color: var(--green); }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body strong { color: var(--text); }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 90px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .radio-group label:hover { border-color: var(--accent-dim); }
+  .radio-group input[type="radio"] { display: none; }
+  .radio-group input[type="radio"]:checked + span { color: var(--accent); font-weight: 700; }
+  .radio-group label:has(input:checked) { border-color: var(--accent); background: var(--accent-dim); }
+
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id { color: var(--accent); font-weight: 700; }
+  .constraint-list .c-desc { color: var(--text); }
+  .constraint-list .c-formula { color: var(--text-dim); display: block; font-size: 10px; margin-top: 2px; }
+  .constraint-list .c-sel { font-size: 9px; display: inline-block; padding: 1px 5px; border-radius: 3px; margin-top: 3px; }
+
+  .sel-bool { background: var(--purple-dim); color: var(--purple); }
+  .sel-start { background: var(--accent-dim); color: var(--accent); }
+  .sel-valid { background: var(--green-dim); color: var(--green); }
+  .sel-end { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-trans { background: var(--cyan-dim); color: var(--cyan); }
+  .sel-bus { background: var(--orange-dim); color: var(--orange); }
+
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section { margin-bottom: 32px; }
+
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+  .col-derived { color: var(--text-dim); font-size: 11px; }
+  .col-constraint { min-width: 40px; }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover { border-color: var(--border); background: var(--surface2); }
+  .cell-input:focus { outline: none; border-color: var(--accent); background: var(--surface2); }
+  .cell-input.modified { color: var(--yellow); border-color: var(--yellow-dim); background: var(--yellow-dim); }
+  .cell-input.modified:focus { border-color: var(--yellow); }
+
+  .balance-ok {
+    color: var(--green);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--green-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .balance-fail {
+    color: var(--red);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--red-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>System: Hint Store</h1>
+    <div class="intro">
+      The <strong>Rv32HintStoreAir</strong> writes external data (hints) into VM memory.
+      It has two modes: <strong>HINT_STOREW</strong> writes a single 4-byte word,
+      and <strong>HINT_BUFFER</strong> writes N consecutive words as a multi-row instruction.
+      Each trace row writes one word. The hint data itself is <strong>unconstrained</strong> &mdash;
+      any value can be written.
+    </div>
+
+    <div class="section">
+      <div class="callout key-insight">
+        <div class="callout-title">Key Insight: Multi-Row Instructions</div>
+        <div class="callout-body">
+          HINT_BUFFER is the only RV32IM instruction that spans <strong>multiple trace rows</strong>.
+          Each row writes one word, with <strong>rem_words</strong> counting down and
+          <strong>mem_ptr</strong> incrementing by 4. The execution bus interaction happens only
+          on the <strong>first row</strong> of the sequence.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Unconstrained Data</div>
+        <div class="callout-body">
+          The 4-byte <strong>data</strong> columns are written to memory but have
+          <strong>no arithmetic constraints</strong> &mdash; any value is valid. The only checks are
+          that each byte is in <strong>[0, 256)</strong> via the BitwiseOpLookup bus.
+          This is safe because hints are inputs the prover provides; the program logic
+          must validate them independently.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Mode</div>
+      <div class="radio-group" id="mode-group">
+        <label><input type="radio" name="mode" value="single" checked><span>HINT_STOREW (1 word)</span></label>
+        <label><input type="radio" name="mode" value="buffer"><span>HINT_BUFFER (N words)</span></label>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>Start PC</label>
+        <input type="number" id="inp-pc" value="0" min="0" step="4">
+      </div>
+      <div class="control-row">
+        <label>Start TS</label>
+        <input type="number" id="inp-ts" value="100" min="0">
+      </div>
+      <div class="control-row">
+        <label>mem_ptr</label>
+        <input type="number" id="inp-memptr" value="1024" min="0">
+      </div>
+      <div class="control-row" id="numwords-row">
+        <label>num_words</label>
+        <input type="number" id="inp-numwords" value="3" min="1" max="8">
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Witness columns</span><span class="val" id="stat-cols">11</span></div>
+      <div class="stat-row"><span class="label">Rows per instruction</span><span class="val dynamic" id="stat-rows">1</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">4 types</span></div>
+      <div class="stat-row"><span class="label">Buses</span><span class="val">Exec, Prog, Mem, Bitwise</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">is_single, is_buffer, is_buffer_start boolean</span>
+          <span class="c-formula">x * (x - 1) == 0 for each flag</span>
+          <span class="c-sel sel-bool">boolean</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">is_single + is_buffer &le; 1</span>
+          <span class="c-formula">(is_single + is_buffer) * (is_single + is_buffer - 1) == 0</span>
+          <span class="c-sel sel-bool">boolean</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">is_buffer_start implies is_buffer</span>
+          <span class="c-formula">is_buffer_start * (1 - is_buffer) == 0</span>
+          <span class="c-sel sel-bool">boolean</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">Single-word rows always end</span>
+          <span class="c-formula">is_single == 1 &rArr; is_end == 1</span>
+          <span class="c-sel sel-start">when is_single</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">Last row: rem_words == 1</span>
+          <span class="c-formula">is_valid * is_end * (rem_words - 1) == 0</span>
+          <span class="c-sel sel-end">when is_end</span>
+        </li>
+        <li>
+          <span class="c-id">C6</span> <span class="c-desc">Buffer transition: rem_words decrements</span>
+          <span class="c-formula">next.rem_words == rem_words - 1</span>
+          <span class="c-sel sel-trans">transition (not end)</span>
+        </li>
+        <li>
+          <span class="c-id">C7</span> <span class="c-desc">Buffer transition: mem_ptr increments by 4</span>
+          <span class="c-formula">next.mem_ptr == mem_ptr + 4</span>
+          <span class="c-sel sel-trans">transition (not end)</span>
+        </li>
+        <li>
+          <span class="c-id">C8</span> <span class="c-desc">Buffer transition: timestamp increments by 3</span>
+          <span class="c-formula">next.timestamp == timestamp + 3</span>
+          <span class="c-sel sel-trans">transition (not end)</span>
+        </li>
+        <li>
+          <span class="c-id">B1</span> <span class="c-desc">Byte range checks via BitwiseOpLookup</span>
+          <span class="c-formula">data[i] &in; [0, 256) for each byte</span>
+          <span class="c-sel sel-bus">bitwise bus</span>
+        </li>
+        <li>
+          <span class="c-id">E1</span> <span class="c-desc">ExecutionBridge (on first row only)</span>
+          <span class="c-formula">execute_and_increment_pc(opcode, pc, ts)</span>
+          <span class="c-sel sel-bus">exec bus</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <div class="main-section">
+      <h2>Trace Table</h2>
+      <div class="hint">
+        Each row writes one 4-byte word to memory. Edit any cell to break constraints.
+        <span class="g">0</span> = satisfied,
+        <span style="color:var(--border)">&mdash;</span> = selector inactive,
+        <span class="r">nonzero</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="trace-wrapper">
+        <table id="trace-table"></table>
+      </div>
+    </div>
+
+    <div class="main-section">
+      <h2>Constraint Evaluation</h2>
+      <div class="hint">
+        Transition constraints (C6-C8) only apply between consecutive buffer rows.
+        The end constraint (C5) checks that the last row has rem_words == 1.
+      </div>
+      <div class="trace-wrapper">
+        <table id="constraint-table"></table>
+      </div>
+      <div id="constraint-result"></div>
+    </div>
+
+    <div class="main-section">
+      <h2>Bus Interactions</h2>
+      <div class="hint">
+        Memory reads happen on the first row; data writes happen on every valid row.
+        The execution bus interaction fires once per instruction (first row only).
+      </div>
+      <div class="trace-wrapper">
+        <table id="bus-table"></table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// Constants
+// ============================================================
+var DEFAULT_PC_STEP = 4;
+var TS_PER_ROW = 3; // read mem_ptr, read num_words, write data
+
+// ============================================================
+// State
+// ============================================================
+var mode, startPc, startTs, memPtr, numWords;
+var cleanRows = [];
+var editedRows = [];
+
+function getMode() {
+  return document.querySelector('input[name="mode"]:checked').value;
+}
+
+function buildCleanRows() {
+  var rows = [];
+  var n = (mode === 'single') ? 1 : numWords;
+  for (var i = 0; i < n; i++) {
+    rows.push({
+      is_single: mode === 'single' ? 1 : 0,
+      is_buffer: mode === 'buffer' ? 1 : 0,
+      is_buffer_start: (mode === 'buffer' && i === 0) ? 1 : 0,
+      rem_words: n - i,
+      mem_ptr: memPtr + i * 4,
+      timestamp: startTs + i * TS_PER_ROW,
+      pc: startPc,
+      data: [0x41 + i, 0x42 + i, 0x43 + i, 0x44 + i] // example hint bytes
+    });
+  }
+  return rows;
+}
+
+function deepCopyRows(rows) {
+  return rows.map(function(r) {
+    return {
+      is_single: r.is_single,
+      is_buffer: r.is_buffer,
+      is_buffer_start: r.is_buffer_start,
+      rem_words: r.rem_words,
+      mem_ptr: r.mem_ptr,
+      timestamp: r.timestamp,
+      pc: r.pc,
+      data: r.data.slice()
+    };
+  });
+}
+
+function recompute() {
+  mode = getMode();
+  startPc = parseInt(document.getElementById('inp-pc').value) || 0;
+  startTs = parseInt(document.getElementById('inp-ts').value) || 100;
+  memPtr = parseInt(document.getElementById('inp-memptr').value) || 1024;
+  numWords = parseInt(document.getElementById('inp-numwords').value) || 3;
+  if (numWords < 1) numWords = 1;
+  if (numWords > 8) numWords = 8;
+
+  document.getElementById('numwords-row').style.display = (mode === 'buffer') ? 'flex' : 'none';
+  document.getElementById('stat-rows').textContent = (mode === 'single') ? '1' : numWords;
+
+  cleanRows = buildCleanRows();
+  editedRows = deepCopyRows(cleanRows);
+  render();
+}
+
+function resetTrace() {
+  cleanRows = buildCleanRows();
+  editedRows = deepCopyRows(cleanRows);
+  render();
+}
+
+function onCellEdit(rowIdx, field, value) {
+  var v = parseInt(value) || 0;
+  if (field.startsWith('data_')) {
+    var di = parseInt(field.split('_')[1]);
+    editedRows[rowIdx].data[di] = v;
+  } else {
+    editedRows[rowIdx][field] = v;
+  }
+  render();
+}
+
+function hasEdits() {
+  for (var i = 0; i < editedRows.length; i++) {
+    var e = editedRows[i], c = cleanRows[i];
+    if (e.is_single !== c.is_single || e.is_buffer !== c.is_buffer ||
+        e.is_buffer_start !== c.is_buffer_start || e.rem_words !== c.rem_words ||
+        e.mem_ptr !== c.mem_ptr || e.timestamp !== c.timestamp || e.pc !== c.pc) return true;
+    for (var j = 0; j < 4; j++) if (e.data[j] !== c.data[j]) return true;
+  }
+  return false;
+}
+
+// ============================================================
+// Constraint evaluation
+// ============================================================
+function evalConstraints() {
+  var results = [];
+  for (var i = 0; i < editedRows.length; i++) {
+    var r = editedRows[i];
+    var next = (i < editedRows.length - 1) ? editedRows[i + 1] : null;
+    var isValid = r.is_single + r.is_buffer;
+    var isStart = r.is_single + r.is_buffer_start;
+    var isEnd;
+    if (!next) {
+      isEnd = 1;
+    } else {
+      // is_end = NOT(next.is_buffer) + next.is_buffer_start
+      // More precisely: is_end when next row is NOT a continuation buffer row
+      isEnd = (next.is_buffer === 0 || next.is_buffer_start === 1) ? 1 : 0;
+    }
+
+    var c = {};
+
+    // C1: booleans
+    c.c1_single = r.is_single * (r.is_single - 1);
+    c.c1_buffer = r.is_buffer * (r.is_buffer - 1);
+    c.c1_bufstart = r.is_buffer_start * (r.is_buffer_start - 1);
+
+    // C2: is_single + is_buffer <= 1
+    var sum = r.is_single + r.is_buffer;
+    c.c2 = sum * (sum - 1);
+
+    // C3: is_buffer_start implies is_buffer
+    c.c3 = r.is_buffer_start * (1 - r.is_buffer);
+
+    // C4: is_single => is_end
+    c.c4_active = r.is_single;
+    c.c4 = (r.is_single === 1) ? (1 - isEnd) : 0;
+
+    // C5: is_valid && is_end => rem_words == 1
+    c.c5_active = isValid && isEnd;
+    c.c5 = (isValid && isEnd) ? (r.rem_words - 1) : 0;
+
+    // C6-C8: transition constraints (when NOT end and next exists)
+    c.c6_active = isValid && !isEnd && next;
+    c.c7_active = isValid && !isEnd && next;
+    c.c8_active = isValid && !isEnd && next;
+    if (isValid && !isEnd && next) {
+      c.c6 = next.rem_words - (r.rem_words - 1);
+      c.c7 = next.mem_ptr - (r.mem_ptr + 4);
+      c.c8 = next.timestamp - (r.timestamp + TS_PER_ROW);
+    } else {
+      c.c6 = 0; c.c7 = 0; c.c8 = 0;
+    }
+
+    // B1: byte range (simplified: check [0,256))
+    c.b1 = 0;
+    for (var j = 0; j < 4; j++) {
+      if (r.data[j] < 0 || r.data[j] >= 256) c.b1 = r.data[j];
+    }
+    c.b1_active = isValid;
+
+    c.isValid = isValid;
+    c.isStart = isStart;
+    c.isEnd = isEnd;
+    results.push(c);
+  }
+  return results;
+}
+
+// ============================================================
+// Render
+// ============================================================
+function render() {
+  document.getElementById('btn-reset').classList.toggle('has-edits', hasEdits());
+  renderTraceTable();
+  renderConstraintTable();
+  renderBusTable();
+}
+
+function cellHtml(rowIdx, field, value, clean, width) {
+  var mod = (value !== clean) ? ' modified' : '';
+  return '<input type="number" class="cell-input' + mod + '" value="' + value +
+    '" onchange="onCellEdit(' + rowIdx + ',\'' + field + '\',this.value)" style="width:' + (width || 50) + 'px">';
+}
+
+function renderTraceTable() {
+  var constraints = evalConstraints();
+  var html = '<thead>';
+  html += '<tr>';
+  html += '<th class="group-header" colspan="1"></th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="3">Control Flags</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="3">State</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="4">Data (hint bytes)</th>';
+  html += '</tr>';
+  html += '<tr>';
+  html += '<th>Row</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>is_single</th><th>is_buffer</th><th>is_buf_start</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>rem_words</th><th>mem_ptr</th><th>timestamp</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>d[0]</th><th>d[1]</th><th>d[2]</th><th>d[3]</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < editedRows.length; i++) {
+    var r = editedRows[i], c = cleanRows[i], cr = constraints[i];
+    var anyFail = cr.c1_single || cr.c1_buffer || cr.c1_bufstart || cr.c2 || cr.c3 ||
+                  cr.c4 || cr.c5 || cr.c6 || cr.c7 || cr.c8 || cr.b1;
+
+    html += '<tr' + (anyFail ? ' class="affected-row"' : '') + '>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    html += '<td class="col-trace">' + cellHtml(i, 'is_single', r.is_single, c.is_single, 40) + '</td>';
+    html += '<td class="col-trace">' + cellHtml(i, 'is_buffer', r.is_buffer, c.is_buffer, 40) + '</td>';
+    html += '<td class="col-trace">' + cellHtml(i, 'is_buffer_start', r.is_buffer_start, c.is_buffer_start, 40) + '</td>';
+
+    html += '<td class="col-sep"></td>';
+
+    html += '<td class="col-trace">' + cellHtml(i, 'rem_words', r.rem_words, c.rem_words, 50) + '</td>';
+    html += '<td class="col-trace">' + cellHtml(i, 'mem_ptr', r.mem_ptr, c.mem_ptr, 60) + '</td>';
+    html += '<td class="col-trace">' + cellHtml(i, 'timestamp', r.timestamp, c.timestamp, 60) + '</td>';
+
+    html += '<td class="col-sep"></td>';
+
+    for (var j = 0; j < 4; j++) {
+      html += '<td class="col-trace">' + cellHtml(i, 'data_' + j, r.data[j], c.data[j], 40) + '</td>';
+    }
+
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('trace-table').innerHTML = html;
+}
+
+function cval(val, active) {
+  if (!active) return '<td class="c-inactive">&mdash;</td>';
+  if (val === 0) return '<td class="c-pass">0</td>';
+  return '<td class="c-fail">' + val + '</td>';
+}
+
+function renderConstraintTable() {
+  var constraints = evalConstraints();
+  var html = '<thead><tr>';
+  html += '<th>Row</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>C1a</th><th>C1b</th><th>C1c</th><th>C2</th><th>C3</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>C4</th><th>C5</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>C6</th><th>C7</th><th>C8</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>B1</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < constraints.length; i++) {
+    var cr = constraints[i];
+    var anyFail = cr.c1_single || cr.c1_buffer || cr.c1_bufstart || cr.c2 || cr.c3 ||
+                  cr.c4 || cr.c5 || cr.c6 || cr.c7 || cr.c8 || cr.b1;
+
+    html += '<tr' + (anyFail ? ' class="affected-row"' : '') + '>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    // C1: always active
+    html += cval(cr.c1_single, true);
+    html += cval(cr.c1_buffer, true);
+    html += cval(cr.c1_bufstart, true);
+    html += cval(cr.c2, true);
+    html += cval(cr.c3, true);
+
+    html += '<td class="col-sep"></td>';
+
+    // C4: active when is_single
+    html += cval(cr.c4, cr.c4_active);
+    // C5: active when is_valid && is_end
+    html += cval(cr.c5, cr.c5_active);
+
+    html += '<td class="col-sep"></td>';
+
+    // C6-C8: transition
+    html += cval(cr.c6, cr.c6_active);
+    html += cval(cr.c7, cr.c7_active);
+    html += cval(cr.c8, cr.c8_active);
+
+    html += '<td class="col-sep"></td>';
+
+    // B1: byte range
+    html += cval(cr.b1, cr.b1_active);
+
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('constraint-table').innerHTML = html;
+
+  // Summary
+  var allOk = constraints.every(function(cr) {
+    return !cr.c1_single && !cr.c1_buffer && !cr.c1_bufstart && !cr.c2 && !cr.c3 &&
+           !cr.c4 && !cr.c5 && !cr.c6 && !cr.c7 && !cr.c8 && !cr.b1;
+  });
+  var resultDiv = document.getElementById('constraint-result');
+  if (allOk) {
+    resultDiv.innerHTML = '<div class="balance-ok">All constraints satisfied. rem_words counts down correctly, mem_ptr increments by 4, timestamps advance by 3 per row.</div>';
+  } else {
+    var failCount = constraints.filter(function(cr) {
+      return cr.c1_single || cr.c1_buffer || cr.c1_bufstart || cr.c2 || cr.c3 ||
+             cr.c4 || cr.c5 || cr.c6 || cr.c7 || cr.c8 || cr.b1;
+    }).length;
+    resultDiv.innerHTML = '<div class="balance-fail">CONSTRAINT VIOLATION: ' + failCount + ' row(s) with broken constraints.</div>';
+  }
+}
+
+function renderBusTable() {
+  var html = '<thead><tr>';
+  html += '<th>Row</th>';
+  html += '<th>Bus</th>';
+  html += '<th>Direction</th>';
+  html += '<th>Key</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < editedRows.length; i++) {
+    var r = editedRows[i];
+    var isStart = r.is_single + r.is_buffer_start;
+    var isValid = r.is_single + r.is_buffer;
+
+    if (isStart) {
+      // Execution bus (first row only)
+      html += '<tr>';
+      html += '<td class="col-row">' + i + '</td>';
+      html += '<td><span style="color:var(--accent)">ExecutionBus</span></td>';
+      html += '<td><span style="color:var(--green);font-size:10px">SEND</span></td>';
+      html += '<td style="font-size:11px">(pc=' + r.pc + ', ts=' + r.timestamp + ', opcode=' + (r.is_single ? 'STOREW' : 'BUFFER') + ')</td>';
+      html += '</tr>';
+
+      // Program bus (first row only)
+      html += '<tr>';
+      html += '<td class="col-row">' + i + '</td>';
+      html += '<td><span style="color:var(--purple)">ProgramBus</span></td>';
+      html += '<td><span style="color:var(--orange);font-size:10px">RECV</span></td>';
+      html += '<td style="font-size:11px">(pc=' + r.pc + ', HINT_STORE)</td>';
+      html += '</tr>';
+
+      // Memory read: mem_ptr
+      html += '<tr>';
+      html += '<td class="col-row">' + i + '</td>';
+      html += '<td><span style="color:var(--green)">MemoryBus</span></td>';
+      html += '<td><span style="color:var(--orange);font-size:10px">READ</span></td>';
+      html += '<td style="font-size:11px">(reg_as, ptr_reg) &rarr; mem_ptr=' + r.mem_ptr + ' @ ts=' + r.timestamp + '</td>';
+      html += '</tr>';
+    }
+
+    if (isStart && r.is_buffer) {
+      // Memory read: num_words (buffer only)
+      html += '<tr>';
+      html += '<td class="col-row">' + i + '</td>';
+      html += '<td><span style="color:var(--green)">MemoryBus</span></td>';
+      html += '<td><span style="color:var(--orange);font-size:10px">READ</span></td>';
+      html += '<td style="font-size:11px">(reg_as, nw_reg) &rarr; num_words=' + r.rem_words + ' @ ts=' + (r.timestamp + 1) + '</td>';
+      html += '</tr>';
+    }
+
+    if (isValid) {
+      // Memory write: data
+      html += '<tr>';
+      html += '<td class="col-row">' + i + '</td>';
+      html += '<td><span style="color:var(--green)">MemoryBus</span></td>';
+      html += '<td><span style="color:var(--green);font-size:10px">WRITE</span></td>';
+      html += '<td style="font-size:11px">(mem_as, ' + r.mem_ptr + ') &larr; [' + r.data.join(', ') + '] @ ts=' + (r.timestamp + 2) + '</td>';
+      html += '</tr>';
+
+      // Bitwise range checks
+      html += '<tr>';
+      html += '<td class="col-row">' + i + '</td>';
+      html += '<td><span style="color:var(--orange)">BitwiseBus</span></td>';
+      html += '<td><span style="color:var(--green);font-size:10px">SEND</span></td>';
+      html += '<td style="font-size:11px">range_check(' + r.data[0] + ', ' + r.data[1] + ') + range_check(' + r.data[2] + ', ' + r.data[3] + ')</td>';
+      html += '</tr>';
+    }
+  }
+
+  html += '</tbody>';
+  document.getElementById('bus-table').innerHTML = html;
+}
+
+// ============================================================
+// Event listeners
+// ============================================================
+document.getElementById('inp-pc').addEventListener('input', recompute);
+document.getElementById('inp-ts').addEventListener('input', recompute);
+document.getElementById('inp-memptr').addEventListener('input', recompute);
+document.getElementById('inp-numwords').addEventListener('input', recompute);
+document.querySelectorAll('input[name="mode"]').forEach(function(r) {
+  r.addEventListener('change', recompute);
+});
+
+// ============================================================
+// Init
+// ============================================================
+recompute();
+</script>
+</body>
+</html>
