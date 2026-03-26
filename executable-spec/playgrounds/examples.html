@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenVM AIR Examples</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --bus-exec: #6c8cff;
+    --bus-prog: #c084fc;
+    --bus-mem: #4ade80;
+    --bus-bitwise: #f97316;
+    --bus-varrange: #22d3ee;
+    --bus-rangetuple: #facc15;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .topbar a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 12px;
+  }
+
+  .topbar a:hover { color: var(--text); }
+  .topbar .title { font-size: 15px; color: var(--accent); font-weight: bold; }
+  .topbar .sep { color: var(--border); }
+
+  .container {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 32px;
+    line-height: 1.7;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .card:hover {
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .card h2 {
+    font-size: 15px;
+    margin-bottom: 8px;
+  }
+
+  .card p {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 12px;
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tags .label {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-right: 4px;
+    line-height: 22px;
+  }
+
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.02em;
+  }
+
+  /* Color-coded tags matching bus colors */
+  .tag.exec     { background: #6c8cff22; color: #6c8cff; border: 1px solid #6c8cff44; }
+  .tag.prog     { background: #c084fc22; color: #c084fc; border: 1px solid #c084fc44; }
+  .tag.mem      { background: #4ade8022; color: #4ade80; border: 1px solid #4ade8044; }
+  .tag.bitwise  { background: #f9731622; color: #f97316; border: 1px solid #f9731644; }
+  .tag.varrange { background: #22d3ee22; color: #22d3ee; border: 1px solid #22d3ee44; }
+  .tag.rangetuple { background: #facc1522; color: #facc15; border: 1px solid #facc1544; }
+  .tag.general  { background: #e1e4ed15; color: #8b8fa7; border: 1px solid #2e3345; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html">Home</a>
+  <span class="sep">/</span>
+  <span class="title">Examples</span>
+</div>
+
+<div class="container">
+  <div class="subtitle">
+    Learn the building blocks of STARK proofs one concept at a time.
+    Each example teaches concepts used in the production architecture &mdash;
+    the colored pills show which production buses and patterns each example covers.
+  </div>
+
+  <div class="grid">
+
+    <a class="card" href="fibonacci-air.html">
+      <h2>Fibonacci AIR</h2>
+      <p>
+        The simplest AIR: two witness columns, five polynomial constraints,
+        three selectors. Edit any trace cell to see which constraints break and why.
+      </p>
+      <div class="tags">
+        <span class="label">Teaches &rarr;</span>
+        <span class="tag general">Traces</span>
+        <span class="tag general">Constraints</span>
+        <span class="tag general">Selectors</span>
+      </div>
+    </a>
+
+    <a class="card" href="range-check-air.html">
+      <h2>Range Check</h2>
+      <p>
+        Introduces preprocessed traces and bus interactions.
+        Two AIRs communicate through a shared bus to prove values lie in a range.
+      </p>
+      <div class="tags">
+        <span class="label">Teaches &rarr;</span>
+        <span class="tag general">Lookup Tables</span>
+        <span class="tag bitwise">BitwiseOpLookup</span>
+        <span class="tag varrange">VarRangeChecker</span>
+        <span class="tag rangetuple">RangeTupleChecker</span>
+      </div>
+    </a>
+
+    <a class="card" href="logup-protocol.html">
+      <h2>LogUp Protocol</h2>
+      <p>
+        How bus interactions actually work: random challenge compression,
+        after-challenge trace columns, and the cross-AIR cumulative sum check.
+      </p>
+      <div class="tags">
+        <span class="label">Teaches &rarr;</span>
+        <span class="tag general">Bus Balance</span>
+        <span class="tag exec">ExecutionBus</span>
+        <span class="tag prog">ProgramBus</span>
+        <span class="tag mem">MemoryBus</span>
+      </div>
+    </a>
+
+    <a class="card" href="limb-arithmetic.html">
+      <h2>Limb Arithmetic</h2>
+      <p>
+        How 32-bit operations work in a 31-bit prime field: limb decomposition,
+        carry propagation, and range checks. The foundation of all RISC-V chips.
+      </p>
+      <div class="tags">
+        <span class="label">Teaches &rarr;</span>
+        <span class="tag general">Carry Chains</span>
+        <span class="tag bitwise">All RV32IM Chips</span>
+        <span class="tag rangetuple">RangeTupleChecker</span>
+      </div>
+    </a>
+
+    <a class="card" href="adapter-core.html">
+      <h2>Adapter/Core Pattern</h2>
+      <p>
+        How instruction chips split into reusable Adapters (memory + execution bus)
+        and swappable Cores (arithmetic). The VmAirWrapper column layout.
+      </p>
+      <div class="tags">
+        <span class="label">Teaches &rarr;</span>
+        <span class="tag general">VmAirWrapper</span>
+        <span class="tag exec">All Instruction Chips</span>
+        <span class="tag mem">Memory Access</span>
+      </div>
+    </a>
+
+    <a class="card" href="memory-bus.html">
+      <h2>Memory Bus</h2>
+      <p>
+        The timestamp-ordered memory protocol: how reads and writes generate
+        send/receive pairs, and how the boundary chip closes the bus.
+      </p>
+      <div class="tags">
+        <span class="label">Teaches &rarr;</span>
+        <span class="tag general">Offline Checker</span>
+        <span class="tag mem">MemoryBus</span>
+        <span class="tag varrange">VolatileBoundary</span>
+      </div>
+    </a>
+
+    <a class="card" href="execution-chain.html">
+      <h2>Execution Chain</h2>
+      <p>
+        How the execution bus, program bus, and VmConnectorAir chain instructions
+        into a complete program execution cycle.
+      </p>
+      <div class="tags">
+        <span class="label">Teaches &rarr;</span>
+        <span class="tag exec">ExecutionBus</span>
+        <span class="tag prog">ProgramBus</span>
+        <span class="tag general">VmConnector</span>
+        <span class="tag general">ProgramAir</span>
+      </div>
+    </a>
+
+  </div>
+</div>
+
+</body>
+</html>

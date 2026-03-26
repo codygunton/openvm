@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenVM Production Architecture</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --bus-exec: #6c8cff;
+    --bus-prog: #c084fc;
+    --bus-mem: #4ade80;
+    --bus-bitwise: #f97316;
+    --bus-varrange: #22d3ee;
+    --bus-rangetuple: #facc15;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* --- Top bar --- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .topbar a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 12px;
+  }
+
+  .topbar a:hover { color: var(--text); }
+
+  .topbar .title {
+    font-size: 15px;
+    color: var(--bus-exec);
+    font-weight: bold;
+  }
+
+  .topbar .sep { color: var(--border); }
+
+  /* --- Main layout --- */
+  .main {
+    display: flex;
+    height: calc(100vh - 45px);
+  }
+
+  .graph-area {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+  }
+
+  /* --- SVG styling --- */
+  svg { display: block; }
+
+  .air-node {
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+
+  .air-node rect {
+    fill: var(--surface);
+    stroke: var(--border);
+    stroke-width: 1.5;
+    rx: 6;
+    transition: stroke 0.2s, filter 0.2s;
+  }
+
+  .air-node text {
+    fill: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+
+  .air-node.checker rect { stroke-dasharray: 5 3; }
+
+  .air-node:hover rect { stroke: var(--bus-exec); }
+
+  .air-node.dimmed { opacity: 0.2; }
+  .air-node.highlighted rect { filter: drop-shadow(0 0 8px var(--hl-color, var(--bus-exec))); }
+
+  /* Bus rails */
+  .bus-rail {
+    stroke-width: 3;
+    fill: none;
+    cursor: pointer;
+    transition: stroke-width 0.2s, opacity 0.2s;
+  }
+
+  .bus-rail:hover { stroke-width: 5; }
+  .bus-rail.dimmed { opacity: 0.15; }
+  .bus-rail.highlighted { stroke-width: 5; }
+
+  /* Bus lines (lookup connections) */
+  .bus-line {
+    stroke-width: 1.5;
+    fill: none;
+    cursor: pointer;
+    transition: stroke-width 0.2s, opacity 0.2s;
+  }
+
+  .bus-line:hover { stroke-width: 3; }
+  .bus-line.dimmed { opacity: 0.1; }
+  .bus-line.highlighted { stroke-width: 3; }
+
+  /* Bus labels */
+  .bus-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    fill: var(--text-dim);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .bus-label.visible { opacity: 1; }
+
+  /* --- Side panel --- */
+  .panel {
+    width: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    transition: width 0.25s ease;
+    flex-shrink: 0;
+  }
+
+  .panel.open { width: 340px; }
+
+  .panel-inner {
+    padding: 24px 20px;
+    display: none;
+  }
+
+  .panel.open .panel-inner { display: block; }
+
+  .panel-close {
+    float: right;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 16px;
+    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+  }
+
+  .panel-close:hover { color: var(--text); border-color: var(--text-dim); }
+
+  .panel h2 {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .panel .badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .panel .desc {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 16px;
+  }
+
+  .panel .key-format {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 12px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+  }
+
+  .panel .key-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .panel .direction {
+    font-size: 12px;
+    margin-bottom: 16px;
+    line-height: 1.8;
+  }
+
+  .panel .direction .arrow { margin-right: 4px; }
+
+  .panel .connected-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel .air-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+    color: var(--text);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .panel .air-link:hover { color: var(--bus-exec); }
+
+  .panel .air-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .panel .learn-link {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 8px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 12px;
+    transition: border-color 0.15s;
+  }
+
+  .panel .learn-link:hover { border-color: var(--bus-exec); }
+
+  /* --- Legend --- */
+  .legend {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+
+  .legend-item:hover { color: var(--text); }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* --- Tier labels --- */
+  .tier-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    fill: var(--text-dim);
+    text-anchor: start;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    opacity: 0.5;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="index.html">Home</a>
+  <span class="sep">/</span>
+  <span class="title">Production Architecture</span>
+</div>
+
+<div class="main">
+  <div class="graph-area">
+    <svg id="graph" viewBox="0 0 1200 720" width="1200" height="720"></svg>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div class="panel" id="panel">
+    <div class="panel-inner" id="panel-inner"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Data Model
+// ============================================================
+
+const BUSES = {
+  execution: {
+    name: 'ExecutionBus',
+    color: '#6c8cff',
+    type: 'Permutation Check',
+    desc: 'Ensures instructions execute in correct PC/timestamp order. Each instruction chip sends its (pc, timestamp) pair; VmConnector receives them to close the cycle.',
+    keyFormat: '(pc, timestamp, opA, opB)',
+    senders: ['VmConnector', 'ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'Keccak', 'ModArith', 'ECC', 'Phantom'],
+    receivers: ['VmConnector'],
+    learn: 'execution-chain.html',
+    learnName: 'Execution Chain',
+    rail: true
+  },
+  program: {
+    name: 'ProgramBus',
+    color: '#c084fc',
+    type: 'Lookup',
+    desc: 'Every executed instruction must exist in the program ROM. The Program AIR publishes instruction rows; each chip looks them up to prove it is executing authorized code.',
+    keyFormat: '(pc, opcode, a, b, c, d, e, f, g)',
+    senders: ['Program'],
+    receivers: ['ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'Keccak', 'ModArith', 'ECC', 'Phantom'],
+    learn: 'execution-chain.html',
+    learnName: 'Execution Chain',
+    rail: true
+  },
+  memory: {
+    name: 'MemoryBus',
+    color: '#4ade80',
+    type: 'Permutation Check',
+    desc: 'Read/write consistency via an offline checker. Every memory access sends a tuple; VolatileBoundary and AccessAdapter close the bus so that every read returns the last written value.',
+    keyFormat: '(addr_space, pointer, data..., timestamp)',
+    senders: ['ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'Keccak', 'ModArith', 'ECC'],
+    receivers: ['VolatileBoundary', 'AccessAdapter'],
+    learn: 'memory-bus.html',
+    learnName: 'Memory Bus',
+    rail: true
+  },
+  bitwise: {
+    name: 'BitwiseOpLookupBus',
+    color: '#f97316',
+    type: 'Lookup',
+    desc: 'Provides verified XOR results and 8-bit range checks. Instruction chips send (x, y, x XOR y) triples; BitwiseOpLookup holds the lookup table.',
+    keyFormat: '(x, y, x\u2295y) or (x, y, 0) for range',
+    senders: ['ALU', 'Shift', 'BranchLT', 'SLT', 'JALR', 'JAL/LUI', 'AUIPC', 'DivRem', 'MulH', 'Keccak'],
+    receivers: ['BitwiseOpLookup'],
+    learn: 'range-check-air.html',
+    learnName: 'Range Check'
+  },
+  varrange: {
+    name: 'VarRangeCheckerBus',
+    color: '#22d3ee',
+    type: 'Lookup',
+    desc: 'Range checks for variable bit widths. Verifies that a value fits in [0, 2^bits) where bits is configurable per check.',
+    keyFormat: '(value, max_bits)',
+    senders: ['Shift', 'LoadSignExt', 'JALR', 'VmConnector', 'VolatileBoundary', 'ModArith', 'ECC'],
+    receivers: ['VarRangeChecker'],
+    learn: 'range-check-air.html',
+    learnName: 'Range Check'
+  },
+  rangetuple: {
+    name: 'RangeTupleCheckerBus',
+    color: '#facc15',
+    type: 'Lookup',
+    desc: 'Range checks for pairs of values. Verifies that (v0, v1) both lie in their respective bounded ranges.',
+    keyFormat: '(v0, v1) bounded by (size0, size1)',
+    senders: ['Mul', 'DivRem', 'MulH'],
+    receivers: ['RangeTupleChecker'],
+    learn: 'range-check-air.html',
+    learnName: 'Range Check'
+  }
+};
+
+const NODES = [
+  // Tier 1 — System Core
+  { id: 'VmConnector',     tier: 1, col: 0, file: 'system-connector.html', label: 'VmConnector' },
+  { id: 'Program',         tier: 1, col: 1, file: 'system-program.html',   label: 'Program' },
+  { id: 'Phantom',         tier: 1, col: 2, file: 'system-phantom.html',   label: 'Phantom' },
+
+  // Tier 2 — Instruction AIRs (3 rows)
+  { id: 'ALU',             tier: 2, row: 0, col: 0, file: 'rv32im-alu.html',        label: 'ALU' },
+  { id: 'Shift',           tier: 2, row: 0, col: 1, file: 'rv32im-shift.html',      label: 'Shift' },
+  { id: 'Mul',             tier: 2, row: 0, col: 2, file: 'rv32im-multiply.html',   label: 'Mul' },
+  { id: 'MulH',            tier: 2, row: 0, col: 3, file: 'rv32im-multiply.html',   label: 'MulH' },
+  { id: 'DivRem',          tier: 2, row: 0, col: 4, file: 'rv32im-divrem.html',     label: 'DivRem' },
+  { id: 'BranchEq',        tier: 2, row: 0, col: 5, file: 'rv32im-branch.html',     label: 'BranchEq' },
+  { id: 'BranchLT',        tier: 2, row: 1, col: 0, file: 'rv32im-branch.html',     label: 'BranchLT' },
+  { id: 'SLT',             tier: 2, row: 1, col: 1, file: 'rv32im-slt.html',        label: 'SLT' },
+  { id: 'LoadSignExt',     tier: 2, row: 1, col: 2, file: 'rv32im-loadsignext.html',label: 'LoadSignExt' },
+  { id: 'Load/Store',      tier: 2, row: 1, col: 3, file: 'rv32im-memory.html',     label: 'Load/Store' },
+  { id: 'JALR',            tier: 2, row: 1, col: 4, file: 'rv32im-jump.html',       label: 'JALR' },
+  { id: 'JAL/LUI',         tier: 2, row: 1, col: 5, file: 'rv32im-jump.html',       label: 'JAL/LUI' },
+  { id: 'AUIPC',           tier: 2, row: 2, col: 0, file: 'rv32im-jump.html',       label: 'AUIPC' },
+  { id: 'Keccak',          tier: 2, row: 2, col: 1, file: 'keccak256.html',         label: 'Keccak' },
+  { id: 'ModArith',        tier: 2, row: 2, col: 2, file: 'modular-arithmetic.html',label: 'ModArith' },
+  { id: 'ECC',             tier: 2, row: 2, col: 3, file: 'ecc-weierstrass.html',   label: 'ECC' },
+
+  // Tier 3 — Memory System
+  { id: 'VolatileBoundary', tier: 3, col: 0, file: 'system-memory.html',  label: 'VolatileBoundary' },
+  { id: 'AccessAdapter',    tier: 3, col: 1, file: 'system-memory.html',  label: 'AccessAdapter' },
+
+  // Tier 4 — Checker AIRs (no playground)
+  { id: 'BitwiseOpLookup',  tier: 4, col: 0, file: null, label: 'BitwiseOpLookup',  checker: true },
+  { id: 'VarRangeChecker',  tier: 4, col: 1, file: null, label: 'VarRangeChecker',  checker: true },
+  { id: 'RangeTupleChecker',tier: 4, col: 2, file: null, label: 'RangeTupleChecker', checker: true },
+];
+
+// ============================================================
+// Layout Engine
+// ============================================================
+
+const SVG_W = 1200, SVG_H = 720;
+const NODE_W = 120, NODE_H = 36;
+const TIER_Y = { 1: 50, 2: 200, 3: 500, 4: 620 };
+const TIER2_ROW_GAP = 54;
+const RAIL_Y = { execution: 148, program: 162, memory: 456 };
+
+function nodePos(n) {
+  let x, y;
+  if (n.tier === 1) {
+    const cols = NODES.filter(d => d.tier === 1).length;
+    const totalW = cols * NODE_W + (cols - 1) * 60;
+    const startX = (SVG_W - totalW) / 2;
+    x = startX + n.col * (NODE_W + 60);
+    y = TIER_Y[1];
+  } else if (n.tier === 2) {
+    const cols = 6;
+    const gap = 18;
+    const totalW = cols * NODE_W + (cols - 1) * gap;
+    const startX = (SVG_W - totalW) / 2;
+    x = startX + n.col * (NODE_W + gap);
+    y = TIER_Y[2] + (n.row || 0) * TIER2_ROW_GAP;
+  } else if (n.tier === 3) {
+    const cols = NODES.filter(d => d.tier === 3).length;
+    const totalW = cols * NODE_W + (cols - 1) * 120;
+    const startX = (SVG_W - totalW) / 2;
+    x = startX + n.col * (NODE_W + 120);
+    y = TIER_Y[3];
+  } else {
+    const cols = NODES.filter(d => d.tier === 4).length;
+    const totalW = cols * NODE_W + (cols - 1) * 60;
+    const startX = (SVG_W - totalW) / 2;
+    x = startX + n.col * (NODE_W + 60);
+    y = TIER_Y[4];
+  }
+  return { x, y, cx: x + NODE_W / 2, cy: y + NODE_H / 2 };
+}
+
+// ============================================================
+// SVG Rendering
+// ============================================================
+
+const svg = document.getElementById('graph');
+const ns = 'http://www.w3.org/2000/svg';
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(ns, tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+// Tier labels
+const tierLabels = [
+  { y: TIER_Y[1] - 14, text: 'System Core' },
+  { y: TIER_Y[2] - 14, text: 'Instruction & Crypto AIRs' },
+  { y: TIER_Y[3] - 14, text: 'Memory System' },
+  { y: TIER_Y[4] - 14, text: 'Checker AIRs' },
+];
+
+tierLabels.forEach(t => {
+  const txt = el('text', { x: 20, y: t.y, class: 'tier-label' }, svg);
+  txt.textContent = t.text;
+});
+
+// Draw bus rails
+const railGroup = el('g', { id: 'rails' }, svg);
+
+Object.entries(BUSES).forEach(([busId, bus]) => {
+  if (!bus.rail) return;
+  const ry = RAIL_Y[busId];
+  if (!ry) return;
+  const line = el('line', {
+    x1: 60, y1: ry, x2: SVG_W - 60, y2: ry,
+    stroke: bus.color,
+    'stroke-dasharray': '8 4',
+    class: 'bus-rail',
+    'data-bus': busId
+  }, railGroup);
+
+  // Rail label
+  const lbl = el('text', {
+    x: SVG_W - 55, y: ry - 6,
+    class: 'bus-label',
+    fill: bus.color,
+    'data-bus-label': busId
+  }, railGroup);
+  lbl.textContent = bus.name;
+});
+
+// Draw lookup bus lines
+const lineGroup = el('g', { id: 'buslines' }, svg);
+
+function drawLookupLines() {
+  ['bitwise', 'varrange', 'rangetuple'].forEach(busId => {
+    const bus = BUSES[busId];
+    const receiver = NODES.find(n => n.id === bus.receivers[0]);
+    if (!receiver) return;
+    const rp = nodePos(receiver);
+
+    bus.senders.forEach(senderId => {
+      const sender = NODES.find(n => n.id === senderId);
+      if (!sender) return;
+      const sp = nodePos(sender);
+
+      const line = el('line', {
+        x1: sp.cx, y1: sp.y + NODE_H,
+        x2: rp.cx, y2: rp.y,
+        stroke: bus.color,
+        'stroke-opacity': 0.4,
+        class: 'bus-line',
+        'data-bus': busId
+      }, lineGroup);
+    });
+  });
+}
+
+drawLookupLines();
+
+// Draw nodes
+const nodeGroup = el('g', { id: 'nodes' }, svg);
+const nodeEls = {};
+
+NODES.forEach(n => {
+  const p = nodePos(n);
+  const g = el('g', {
+    class: 'air-node' + (n.checker ? ' checker' : ''),
+    'data-id': n.id,
+    transform: `translate(${p.x}, ${p.y})`
+  }, nodeGroup);
+
+  el('rect', { width: NODE_W, height: NODE_H }, g);
+
+  const txt = el('text', { x: NODE_W / 2, y: NODE_H / 2 }, g);
+  txt.textContent = n.label;
+
+  nodeEls[n.id] = g;
+
+  // Click → navigate or show tooltip
+  g.addEventListener('click', () => {
+    if (n.file) {
+      window.location.href = n.file;
+    }
+  });
+});
+
+// ============================================================
+// Bus Interaction
+// ============================================================
+
+let activeBus = null;
+
+function connectedNodes(busId) {
+  const bus = BUSES[busId];
+  return new Set([...bus.senders, ...bus.receivers]);
+}
+
+function highlightBus(busId) {
+  if (activeBus === busId) return;
+  activeBus = busId;
+  const bus = BUSES[busId];
+  const connected = connectedNodes(busId);
+
+  // Dim/highlight nodes
+  NODES.forEach(n => {
+    const el = nodeEls[n.id];
+    el.classList.toggle('dimmed', !connected.has(n.id));
+    el.classList.toggle('highlighted', connected.has(n.id));
+    if (connected.has(n.id)) {
+      el.style.setProperty('--hl-color', bus.color);
+      el.querySelector('rect').style.stroke = bus.color;
+    } else {
+      el.querySelector('rect').style.stroke = '';
+    }
+  });
+
+  // Dim/highlight rails
+  document.querySelectorAll('.bus-rail').forEach(r => {
+    const bid = r.getAttribute('data-bus');
+    r.classList.toggle('dimmed', bid !== busId);
+    r.classList.toggle('highlighted', bid === busId);
+  });
+
+  // Dim/highlight lines
+  document.querySelectorAll('.bus-line').forEach(l => {
+    const bid = l.getAttribute('data-bus');
+    l.classList.toggle('dimmed', bid !== busId);
+    l.classList.toggle('highlighted', bid === busId);
+  });
+
+  // Show bus label
+  document.querySelectorAll('.bus-label').forEach(lbl => {
+    const bid = lbl.getAttribute('data-bus-label');
+    lbl.classList.toggle('visible', bid === busId);
+  });
+}
+
+function clearHighlight() {
+  activeBus = null;
+  NODES.forEach(n => {
+    const el = nodeEls[n.id];
+    el.classList.remove('dimmed', 'highlighted');
+    el.querySelector('rect').style.stroke = '';
+  });
+  document.querySelectorAll('.bus-rail').forEach(r => {
+    r.classList.remove('dimmed', 'highlighted');
+  });
+  document.querySelectorAll('.bus-line').forEach(l => {
+    l.classList.remove('dimmed', 'highlighted');
+  });
+  document.querySelectorAll('.bus-label').forEach(lbl => {
+    lbl.classList.remove('visible');
+  });
+}
+
+function showPanel(busId) {
+  const bus = BUSES[busId];
+  const panel = document.getElementById('panel');
+  const inner = document.getElementById('panel-inner');
+
+  highlightBus(busId);
+
+  const senderLinks = bus.senders.map(id => {
+    const n = NODES.find(d => d.id === id);
+    const href = n && n.file ? ` href="${n.file}"` : '';
+    const tag = n && n.file ? 'a' : 'span';
+    return `<${tag} class="air-link"${href}><span class="air-dot" style="background:${bus.color}"></span>${id}</${tag}>`;
+  }).join('');
+
+  const receiverLinks = bus.receivers.map(id => {
+    const n = NODES.find(d => d.id === id);
+    const href = n && n.file ? ` href="${n.file}"` : '';
+    const tag = n && n.file ? 'a' : 'span';
+    return `<${tag} class="air-link"${href}><span class="air-dot" style="background:${bus.color}"></span>${id}</${tag}>`;
+  }).join('');
+
+  inner.innerHTML = `
+    <button class="panel-close" onclick="closePanel()">&times;</button>
+    <h2 style="color:${bus.color}">${bus.name}</h2>
+    <span class="badge" style="background:${bus.color}22;color:${bus.color};border:1px solid ${bus.color}44">${bus.type}</span>
+    <div class="desc">${bus.desc}</div>
+    <div class="key-label">Key Format</div>
+    <div class="key-format"><code>${bus.keyFormat}</code></div>
+    <div class="direction">
+      <span class="arrow" style="color:${bus.color}">\u2191</span> <strong>Senders</strong>
+    </div>
+    ${senderLinks}
+    <div class="direction" style="margin-top:12px">
+      <span class="arrow" style="color:${bus.color}">\u2193</span> <strong>Receivers</strong>
+    </div>
+    ${receiverLinks}
+    <a class="learn-link" href="${bus.learn}">Learn this concept \u2192 ${bus.learnName}</a>
+  `;
+
+  panel.classList.add('open');
+}
+
+function closePanel() {
+  document.getElementById('panel').classList.remove('open');
+  clearHighlight();
+}
+
+// Rail click handlers
+document.querySelectorAll('.bus-rail').forEach(r => {
+  r.addEventListener('click', () => showPanel(r.getAttribute('data-bus')));
+  r.addEventListener('mouseenter', () => {
+    if (!activeBus || activeBus === r.getAttribute('data-bus')) return;
+  });
+});
+
+// Line click handlers
+document.querySelectorAll('.bus-line').forEach(l => {
+  l.addEventListener('click', () => showPanel(l.getAttribute('data-bus')));
+});
+
+// ============================================================
+// Legend
+// ============================================================
+
+const legend = document.getElementById('legend');
+Object.entries(BUSES).forEach(([busId, bus]) => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `<span class="legend-dot" style="background:${bus.color}"></span>${bus.name}`;
+  item.addEventListener('click', () => showPanel(busId));
+  item.addEventListener('mouseenter', () => highlightBus(busId));
+  item.addEventListener('mouseleave', () => { if (!document.getElementById('panel').classList.contains('open')) clearHighlight(); });
+  legend.appendChild(item);
+});
+
+// Click on background to close
+document.querySelector('.graph-area').addEventListener('click', (e) => {
+  if (e.target === svg || e.target.closest('.graph-area') === e.target) {
+    closePanel();
+  }
+});
+</script>
+
+</body>
+</html>
