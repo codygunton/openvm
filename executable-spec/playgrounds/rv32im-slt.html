@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RV32IM Set Less Than (SLT/SLTU)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body code {
+    color: var(--text);
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio buttons --- */
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .radio-group label:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .radio-group input[type="radio"] {
+    display: none;
+  }
+
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-all { background: var(--accent-dim); color: var(--accent); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Panel sections --- */
+  .panel-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+
+  .panel-section h3 {
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* --- 32-bit summary --- */
+  .summary-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .summary-block .sum-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 80px;
+  }
+
+  .summary-block .sum-val { font-weight: 600; }
+  .summary-block .sum-hex { color: var(--accent); margin-left: 6px; }
+  .summary-block .sum-limbs { color: var(--text-dim); margin-left: 6px; }
+  .summary-block .sum-op { color: var(--yellow); font-weight: 700; }
+
+  .decomp {
+    font-size: 12px;
+    color: var(--text);
+    margin-bottom: 12px;
+    line-height: 1.8;
+  }
+
+  .decomp .dim { color: var(--text-dim); }
+  .decomp .val { color: var(--green); font-weight: 600; }
+  .decomp .lbl { color: var(--accent); }
+
+  .result-line {
+    font-size: 12px;
+    margin: 6px 0;
+    line-height: 1.8;
+  }
+
+  .result-line .pass { color: var(--green); font-weight: 700; }
+  .result-line .fail { color: var(--red); font-weight: 700; }
+  .result-line .lbl { color: var(--accent); }
+  .result-line .dim { color: var(--text-dim); }
+  .result-line .val { color: var(--text); font-weight: 600; }
+
+  .msb-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin: 10px 0;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+
+  .msb-box .title {
+    color: var(--purple);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  /* --- Diff marker scan boxes --- */
+  .marker-scan {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+  }
+
+  .marker-box {
+    flex: 1;
+    min-width: 70px;
+    background: var(--surface2);
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 8px;
+    text-align: center;
+    font-size: 11px;
+    transition: all 0.15s;
+  }
+
+  .marker-box.active {
+    border-color: var(--green);
+    background: var(--green-dim);
+  }
+
+  .marker-box .mb-label {
+    color: var(--text-dim);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+
+  .marker-box .mb-val {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--border);
+  }
+
+  .marker-box.active .mb-val {
+    color: var(--green);
+  }
+
+  .marker-box .mb-detail {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .marker-box.active .mb-detail {
+    color: var(--text);
+  }
+
+  /* --- Flag display --- */
+  .flag-display {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+  }
+
+  .flag-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+
+  .flag-row:last-child { margin-bottom: 0; }
+
+  .flag-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    width: 110px;
+    flex-shrink: 0;
+  }
+
+  .flag-chip {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .flag-on { background: var(--green-dim); color: var(--green); }
+  .flag-off { background: var(--surface2); color: var(--border); }
+
+  /* --- Bus table --- */
+  .bus-table th { font-size: 10px; }
+  .bus-table td { font-size: 11px; }
+  .bus-mode { font-weight: 600; }
+  .bus-mode.range { color: var(--yellow); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>RV32IM Set Less Than</h1>
+    <div class="intro">
+      <strong>SLT</strong> (Set Less Than, signed) and <strong>SLTU</strong> (unsigned) compare two
+      register values and write <strong>1</strong> to the destination register if rs1 &lt; rs2,
+      otherwise <strong>0</strong>. Unlike branch instructions, SLT writes the comparison bit
+      to <code>rd</code> rather than conditionally jumping. The AIR uses the same
+      <strong>MSB-to-LSB diff_marker scan</strong> as BLT/BGE to find the first differing limb.
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">Diff Marker Scan (MSB to LSB)</div>
+        <div class="callout-body">
+          To prove <code>a &lt; b</code> (or <code>a &gt;= b</code>), scan limbs from MSB to LSB.
+          <code>diff_marker[i]</code> is a one-hot vector: it is 1 at the most significant limb
+          where <code>b[i] != c[i]</code>. <code>diff_val</code> holds the absolute difference
+          at that position, confirming which operand is larger.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">MSB Signed Transformation (SLT only)</div>
+        <div class="callout-body">
+          For signed comparison, the MSB byte is transformed:
+          <code>b_msb_f = b[3] - sign*256</code>.
+          This maps [128,255] to negative field values, so unsigned comparison of
+          the transformed MSBs gives correct signed ordering. Range checking via
+          the bus verifies <code>b_msb_f + 128</code> is in [0,255].
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>rs1 (b)</label>
+        <input type="number" id="inp-rs1" value="42" min="-2147483648" max="2147483647">
+      </div>
+      <div class="control-row">
+        <label>rs2 (c)</label>
+        <input type="number" id="inp-rs2" value="100" min="-2147483648" max="2147483647">
+      </div>
+      <div style="margin-bottom: 8px;">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Operation:</div>
+        <div class="radio-group">
+          <label><input type="radio" name="op" value="SLT" checked><span>SLT</span></label>
+          <label><input type="radio" name="op" value="SLTU"><span>SLTU</span></label>
+        </div>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">15</span></div>
+      <div class="stat-row"><span class="label">Layout</span><span class="val">b[4]+c[4]+cmp_result+2 flags+b_msb_f+c_msb_f+marker[4]+diff_val</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">9 groups</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">2 (BitwiseOperationLookup)</span></div>
+      <div class="stat-row"><span class="label">Adapter</span><span class="val">Rv32BaseAluAdapter</span></div>
+      <div class="stat-row"><span class="label">Output</span><span class="val">rd = [cmp_result, 0, 0, 0]</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Flag booleans</span>
+          <span class="c-formula">slt_flag*(1-slt_flag) = 0, sltu_flag*(1-sltu_flag) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Exactly one flag set (is_valid boolean)</span>
+          <span class="c-formula">(slt+sltu)*(1-(slt+sltu)) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">cmp_result is boolean</span>
+          <span class="c-formula">cmp_result*(1-cmp_result) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">MSB transformation valid</span>
+          <span class="c-formula">(b[3]-b_msb_f)*(256-(b[3]-b_msb_f)) = 0<br>(c[3]-c_msb_f)*(256-(c[3]-c_msb_f)) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">diff_marker booleans</span>
+          <span class="c-formula">marker[i]*(1-marker[i]) = 0 for each i</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C6</span> <span class="c-desc">Prefix scan: no diff before marker</span>
+          <span class="c-formula">(1-prefix_sum) * diff = 0 (MSB to LSB)</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C7</span> <span class="c-desc">At marker: diff_val matches</span>
+          <span class="c-formula">marker[i]*(diff_val - diff) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C8</span> <span class="c-desc">prefix_sum is boolean (one-hot or zero)</span>
+          <span class="c-formula">prefix_sum*(1-prefix_sum) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C9</span> <span class="c-desc">No marker implies no result</span>
+          <span class="c-formula">(1-prefix_sum)*cmp_result = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Set Less Than Constraint Evaluation</h2>
+    <div class="hint">
+      Edit witness cells in the table to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+
+    <div id="main-content"></div>
+  </div>
+
+</div>
+
+<script>
+// BabyBear prime
+var P = 2013265921;
+
+function mod(x, m) {
+  return ((x % m) + m) % m;
+}
+
+function toLimbs(val) {
+  if (val < 0) val = val + 0x100000000;
+  val = val >>> 0;
+  return [val & 0xFF, (val >> 8) & 0xFF, (val >> 16) & 0xFF, (val >> 24) & 0xFF];
+}
+
+function fromLimbs(limbs) {
+  return ((limbs[3] & 0xFF) << 24 | (limbs[2] & 0xFF) << 16 | (limbs[1] & 0xFF) << 8 | (limbs[0] & 0xFF)) >>> 0;
+}
+
+function toSigned32(u) {
+  return (u | 0);
+}
+
+function toHex32(val) {
+  return '0x' + (val >>> 0).toString(16).toUpperCase().padStart(8, '0');
+}
+
+function formatFieldVal(v) {
+  if (v === 0) return '0';
+  if (v <= 999999) return v.toString();
+  if (v > P - 999999) return '-' + (P - v).toString();
+  return v.toString();
+}
+
+function getOp() {
+  return document.querySelector('input[name="op"]:checked').value;
+}
+
+// Core logic: run_less_than matching Rust
+function runLessThan(is_slt, b, c) {
+  var b_sign = ((b[3] >> 7) === 1) && is_slt;
+  var c_sign = ((c[3] >> 7) === 1) && is_slt;
+  for (var i = 3; i >= 0; i--) {
+    if (b[i] !== c[i]) {
+      return {
+        cmp_result: (b[i] < c[i]) !== (b_sign !== c_sign),
+        diff_idx: i,
+        b_sign: b_sign,
+        c_sign: c_sign
+      };
+    }
+  }
+  return { cmp_result: false, diff_idx: 4, b_sign: b_sign, c_sign: c_sign };
+}
+
+// Compute all witness columns from b, c, and opcode
+function computeWitness(b, c, op) {
+  var is_slt = (op === 'SLT');
+  var r = runLessThan(is_slt, b, c);
+
+  var slt_flag = is_slt ? 1 : 0;
+  var sltu_flag = is_slt ? 0 : 1;
+  var cmp_result = r.cmp_result ? 1 : 0;
+
+  // b_msb_f and c_msb_f
+  var b_msb_f, c_msb_f;
+  if (r.b_sign) {
+    b_msb_f = mod(-(256 - b[3]), P);
+  } else {
+    b_msb_f = b[3];
+  }
+  if (r.c_sign) {
+    c_msb_f = mod(-(256 - c[3]), P);
+  } else {
+    c_msb_f = c[3];
+  }
+
+  // diff_marker
+  var diff_marker = [0, 0, 0, 0];
+  if (r.diff_idx < 4) {
+    diff_marker[r.diff_idx] = 1;
+  }
+
+  // diff_val
+  var diff_val = 0;
+  if (r.diff_idx < 4) {
+    if (r.diff_idx === 3) {
+      if (cmp_result) {
+        diff_val = mod(c_msb_f - b_msb_f, P);
+      } else {
+        diff_val = mod(b_msb_f - c_msb_f, P);
+      }
+    } else {
+      if (cmp_result) {
+        diff_val = c[r.diff_idx] - b[r.diff_idx];
+      } else {
+        diff_val = b[r.diff_idx] - c[r.diff_idx];
+      }
+    }
+  }
+
+  return {
+    b: b.slice(),
+    c: c.slice(),
+    cmp_result: cmp_result,
+    slt_flag: slt_flag,
+    sltu_flag: sltu_flag,
+    b_msb_f: b_msb_f,
+    c_msb_f: c_msb_f,
+    diff_marker: diff_marker.slice(),
+    diff_val: diff_val,
+    b_sign: r.b_sign,
+    c_sign: r.c_sign,
+    diff_idx: r.diff_idx
+  };
+}
+
+// Evaluate all constraints against (possibly edited) witness
+function evalConstraints(w) {
+  var results = [];
+
+  // C1: Flag booleans
+  var c1a = mod(w.slt_flag * (1 - w.slt_flag), P);
+  var c1b = mod(w.sltu_flag * (1 - w.sltu_flag), P);
+  results.push({
+    name: 'C1',
+    value: mod(c1a + c1b, P),
+    desc: 'Flag booleans',
+    detail: 'slt=' + c1a + ', sltu=' + c1b
+  });
+
+  // C2: Exactly one flag (is_valid boolean)
+  var is_valid = w.slt_flag + w.sltu_flag;
+  var c2 = mod(is_valid * (1 - is_valid), P);
+  results.push({
+    name: 'C2',
+    value: c2,
+    desc: 'Exactly one flag (is_valid boolean)'
+  });
+
+  // C3: cmp_result boolean
+  var c3 = mod(w.cmp_result * (1 - w.cmp_result), P);
+  results.push({
+    name: 'C3',
+    value: c3,
+    desc: 'cmp_result is boolean'
+  });
+
+  // C4: MSB transformation valid
+  // (b[3] - b_msb_f) * (256 - (b[3] - b_msb_f)) = 0
+  var b_diff = mod(w.b[3] - w.b_msb_f, P);
+  var c4a = mod(b_diff * mod(256 - b_diff, P), P);
+  var c_diff = mod(w.c[3] - w.c_msb_f, P);
+  var c4b = mod(c_diff * mod(256 - c_diff, P), P);
+  results.push({
+    name: 'C4',
+    value: mod(c4a + c4b, P),
+    desc: 'MSB transformation',
+    detail: 'b_side=' + formatFieldVal(c4a) + ', c_side=' + formatFieldVal(c4b)
+  });
+
+  // C5: diff_marker booleans
+  var c5 = 0;
+  for (var i = 0; i < 4; i++) {
+    c5 = mod(c5 + mod(w.diff_marker[i] * (1 - w.diff_marker[i]), P), P);
+  }
+  results.push({
+    name: 'C5',
+    value: c5,
+    desc: 'diff_marker booleans'
+  });
+
+  // C6: Prefix scan: (1-prefix_sum)*diff = 0 for each limb (MSB to LSB)
+  // Matching Rust: for i in (0..4).rev()
+  //   diff = (if i==3 { c_msb_f - b_msb_f } else { c[i] - b[i] }) * (2*cmp_result - 1)
+  //   prefix_sum += marker[i]
+  //   assert (1 - prefix_sum) * diff = 0
+  var c6 = 0;
+  var prefix_sum = 0;
+  for (var i = 3; i >= 0; i--) {
+    var diff_raw;
+    if (i === 3) {
+      diff_raw = mod(w.c_msb_f - w.b_msb_f, P);
+    } else {
+      diff_raw = mod(w.c[i] - w.b[i], P);
+    }
+    var sign_factor = mod(2 * w.cmp_result - 1, P);
+    var diff = mod(diff_raw * sign_factor, P);
+    prefix_sum += w.diff_marker[i];
+    var not_prefix = mod(1 - prefix_sum, P);
+    c6 = mod(c6 + mod(not_prefix * diff, P), P);
+  }
+  results.push({
+    name: 'C6',
+    value: c6,
+    desc: 'Prefix scan'
+  });
+
+  // C7: At marker: marker[i]*(diff_val - diff) = 0
+  var c7 = 0;
+  prefix_sum = 0;
+  for (var i = 3; i >= 0; i--) {
+    var diff_raw;
+    if (i === 3) {
+      diff_raw = mod(w.c_msb_f - w.b_msb_f, P);
+    } else {
+      diff_raw = mod(w.c[i] - w.b[i], P);
+    }
+    var sign_factor = mod(2 * w.cmp_result - 1, P);
+    var diff = mod(diff_raw * sign_factor, P);
+    c7 = mod(c7 + mod(w.diff_marker[i] * mod(w.diff_val - diff, P), P), P);
+  }
+  results.push({
+    name: 'C7',
+    value: c7,
+    desc: 'diff_val at marker'
+  });
+
+  // C8: prefix_sum boolean (one-hot or zero)
+  var total_markers = 0;
+  for (var i = 0; i < 4; i++) total_markers += w.diff_marker[i];
+  var c8 = mod(total_markers * (1 - total_markers), P);
+  results.push({
+    name: 'C8',
+    value: c8,
+    desc: 'prefix_sum boolean (one-hot or zero)'
+  });
+
+  // C9: (1-prefix_sum)*cmp_result = 0
+  var c9 = mod(mod(1 - total_markers, P) * w.cmp_result, P);
+  results.push({
+    name: 'C9',
+    value: c9,
+    desc: 'No marker => no result'
+  });
+
+  return results;
+}
+
+// ========== State ==========
+
+var cleanWitness = null;
+var editedWitness = null;
+
+function getInputs() {
+  var rs1 = parseInt(document.getElementById('inp-rs1').value) || 0;
+  var rs2 = parseInt(document.getElementById('inp-rs2').value) || 0;
+  return { rs1: rs1, rs2: rs2 };
+}
+
+function recompute() {
+  var inp = getInputs();
+  var op = getOp();
+  var b = toLimbs(inp.rs1);
+  var c = toLimbs(inp.rs2);
+  cleanWitness = computeWitness(b, c, op);
+  editedWitness = copyWitness(cleanWitness);
+  render();
+}
+
+function copyWitness(w) {
+  return {
+    b: w.b.slice(),
+    c: w.c.slice(),
+    cmp_result: w.cmp_result,
+    slt_flag: w.slt_flag,
+    sltu_flag: w.sltu_flag,
+    b_msb_f: w.b_msb_f,
+    c_msb_f: w.c_msb_f,
+    diff_marker: w.diff_marker.slice(),
+    diff_val: w.diff_val,
+    b_sign: w.b_sign,
+    c_sign: w.c_sign,
+    diff_idx: w.diff_idx
+  };
+}
+
+function resetTrace() {
+  editedWitness = copyWitness(cleanWitness);
+  render();
+}
+
+function hasEdits() {
+  if (!cleanWitness || !editedWitness) return false;
+  for (var i = 0; i < 4; i++) {
+    if (editedWitness.b[i] !== cleanWitness.b[i]) return true;
+    if (editedWitness.c[i] !== cleanWitness.c[i]) return true;
+    if (editedWitness.diff_marker[i] !== cleanWitness.diff_marker[i]) return true;
+  }
+  if (editedWitness.cmp_result !== cleanWitness.cmp_result) return true;
+  if (editedWitness.b_msb_f !== cleanWitness.b_msb_f) return true;
+  if (editedWitness.c_msb_f !== cleanWitness.c_msb_f) return true;
+  if (editedWitness.diff_val !== cleanWitness.diff_val) return true;
+  return false;
+}
+
+function onCellEdit(field, idx, value) {
+  var v = parseInt(value);
+  if (isNaN(v)) return;
+  if (idx >= 0) {
+    editedWitness[field][idx] = v;
+  } else {
+    editedWitness[field] = v;
+  }
+  render();
+}
+
+// ========== Rendering ==========
+
+function render() {
+  if (!editedWitness) return;
+  var w = editedWitness;
+  var op = getOp();
+  var is_slt = (op === 'SLT');
+
+  var edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  var constraints = evalConstraints(w);
+
+  var html = '';
+
+  // --- 32-Bit Values section ---
+  var bVal = fromLimbs(w.b);
+  var cVal = fromLimbs(w.c);
+  html += '<div class="panel-section">';
+  html += '<h3>32-bit Values</h3>';
+  html += '<div class="decomp">';
+  html += '<span class="lbl">b (rs1)</span> <span class="dim">=</span> <span class="val">' + (is_slt ? toSigned32(bVal) : bVal) + '</span>';
+  html += ' <span class="dim">' + toHex32(bVal) + ' = [' + w.b.join(', ') + ']</span><br>';
+  html += '<span class="lbl">c (rs2)</span> <span class="dim">=</span> <span class="val">' + (is_slt ? toSigned32(cVal) : cVal) + '</span>';
+  html += ' <span class="dim">' + toHex32(cVal) + ' = [' + w.c.join(', ') + ']</span>';
+  html += '</div>';
+  html += '</div>';
+
+  // --- Comparison Result section ---
+  html += '<div class="panel-section">';
+  html += '<h3>Comparison Result (' + op + ')</h3>';
+  html += '<div class="result-line">';
+  html += '<span class="lbl">cmp_result</span> = <span class="val">' + w.cmp_result + '</span>';
+  html += ' <span class="dim">(rd = ' + w.cmp_result + ' : ';
+  if (w.cmp_result === 1) {
+    html += 'rs1 &lt; rs2';
+  } else {
+    html += 'rs1 &gt;= rs2';
+  }
+  html += ')</span></div>';
+  html += '<div class="result-line">';
+  html += '<span class="lbl">Output (rd)</span> <span class="dim">=</span> <span class="val">[' + w.cmp_result + ', 0, 0, 0]</span>';
+  html += '</div>';
+
+  // Signed MSB transformation
+  if (is_slt) {
+    html += '<div class="msb-box">';
+    html += '<div class="title">Signed Mode MSB Transformation</div>';
+    html += 'b_msb_f = b[3] - b_sign*256 = ' + w.b[3] + ' - ' + (w.b_sign ? 1 : 0) + '*256 = <strong>' + formatFieldVal(w.b_msb_f) + '</strong><br>';
+    html += 'c_msb_f = c[3] - c_sign*256 = ' + w.c[3] + ' - ' + (w.c_sign ? 1 : 0) + '*256 = <strong>' + formatFieldVal(w.c_msb_f) + '</strong>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+
+  // --- Witness Columns table ---
+  html += '<div class="panel-section">';
+  html += '<h3>Witness Columns (15 core)</h3>';
+  html += '<div class="trace-wrapper"><table>';
+  html += '<thead><tr>';
+  html += '<th>Column</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>Value</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>Description</th>';
+  html += '</tr></thead><tbody>';
+
+  // b[0..3]
+  for (var i = 0; i < 4; i++) {
+    var bMod = w.b[i] !== cleanWitness.b[i];
+    html += '<tr>';
+    html += '<td class="col-row">b[' + i + ']</td><td class="col-sep"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (bMod ? ' modified' : '') + '" value="' + w.b[i] + '" onchange="onCellEdit(\'b\',' + i + ',this.value)"></td>';
+    html += '<td class="col-sep"></td>';
+    html += '<td style="text-align:left;font-size:10px;color:var(--text-dim)">rs1 limb ' + i + (i === 3 ? ' (MSB)' : i === 0 ? ' (LSB)' : '') + '</td>';
+    html += '</tr>';
+  }
+
+  // c[0..3]
+  for (var i = 0; i < 4; i++) {
+    var cMod = w.c[i] !== cleanWitness.c[i];
+    html += '<tr>';
+    html += '<td class="col-row">c[' + i + ']</td><td class="col-sep"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (cMod ? ' modified' : '') + '" value="' + w.c[i] + '" onchange="onCellEdit(\'c\',' + i + ',this.value)"></td>';
+    html += '<td class="col-sep"></td>';
+    html += '<td style="text-align:left;font-size:10px;color:var(--text-dim)">rs2 limb ' + i + (i === 3 ? ' (MSB)' : i === 0 ? ' (LSB)' : '') + '</td>';
+    html += '</tr>';
+  }
+
+  // cmp_result
+  var crMod = w.cmp_result !== cleanWitness.cmp_result;
+  html += '<tr>';
+  html += '<td class="col-row">cmp_result</td><td class="col-sep"></td>';
+  html += '<td class="col-trace"><input type="number" class="cell-input' + (crMod ? ' modified' : '') + '" value="' + w.cmp_result + '" onchange="onCellEdit(\'cmp_result\',-1,this.value)"></td>';
+  html += '<td class="col-sep"></td>';
+  html += '<td style="text-align:left;font-size:10px;color:var(--text-dim)">1 if rs1 &lt; rs2, else 0</td>';
+  html += '</tr>';
+
+  // b_msb_f
+  var bmMod = w.b_msb_f !== cleanWitness.b_msb_f;
+  html += '<tr>';
+  html += '<td class="col-row">b_msb_f</td><td class="col-sep"></td>';
+  html += '<td class="col-trace"><input type="number" class="cell-input' + (bmMod ? ' modified' : '') + '" value="' + w.b_msb_f + '" onchange="onCellEdit(\'b_msb_f\',-1,this.value)"></td>';
+  html += '<td class="col-sep"></td>';
+  html += '<td style="text-align:left;font-size:10px;color:var(--text-dim)">MSB as field elem' + (is_slt ? ' (signed)' : '') + '</td>';
+  html += '</tr>';
+
+  // c_msb_f
+  var cmMod = w.c_msb_f !== cleanWitness.c_msb_f;
+  html += '<tr>';
+  html += '<td class="col-row">c_msb_f</td><td class="col-sep"></td>';
+  html += '<td class="col-trace"><input type="number" class="cell-input' + (cmMod ? ' modified' : '') + '" value="' + w.c_msb_f + '" onchange="onCellEdit(\'c_msb_f\',-1,this.value)"></td>';
+  html += '<td class="col-sep"></td>';
+  html += '<td style="text-align:left;font-size:10px;color:var(--text-dim)">MSB as field elem' + (is_slt ? ' (signed)' : '') + '</td>';
+  html += '</tr>';
+
+  // diff_marker[0..3]
+  for (var i = 0; i < 4; i++) {
+    var dmMod = w.diff_marker[i] !== cleanWitness.diff_marker[i];
+    html += '<tr' + (w.diff_marker[i] === 1 ? ' style="background:rgba(108,140,255,0.08)"' : '') + '>';
+    html += '<td class="col-row">marker[' + i + ']</td><td class="col-sep"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (dmMod ? ' modified' : '') + '" value="' + w.diff_marker[i] + '" onchange="onCellEdit(\'diff_marker\',' + i + ',this.value)"></td>';
+    html += '<td class="col-sep"></td>';
+    html += '<td style="text-align:left;font-size:10px;color:var(--text-dim)">1 at first differing limb' + (i === 3 ? ' (MSB)' : i === 0 ? ' (LSB)' : '') + '</td>';
+    html += '</tr>';
+  }
+
+  // diff_val
+  var dvMod = w.diff_val !== cleanWitness.diff_val;
+  html += '<tr>';
+  html += '<td class="col-row">diff_val</td><td class="col-sep"></td>';
+  html += '<td class="col-trace"><input type="number" class="cell-input' + (dvMod ? ' modified' : '') + '" value="' + w.diff_val + '" onchange="onCellEdit(\'diff_val\',-1,this.value)"></td>';
+  html += '<td class="col-sep"></td>';
+  html += '<td style="text-align:left;font-size:10px;color:var(--text-dim)">|diff| at marked limb (positive, nonzero)</td>';
+  html += '</tr>';
+
+  html += '</tbody></table></div>';
+  html += '</div>';
+
+  // --- Diff Marker Scan visualization ---
+  html += '<div class="panel-section">';
+  html += '<h3>Diff Marker Scan (MSB to LSB)</h3>';
+  html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">';
+  html += 'Scanning from limb 3 (MSB) to limb 0 (LSB). The first limb where b[i] != c[i] gets marker = 1.';
+  html += '</div>';
+  html += '<div class="marker-scan">';
+  // Display MSB to LSB
+  for (var idx = 0; idx < 4; idx++) {
+    var i = 3 - idx;
+    var active = w.diff_marker[i] === 1;
+    var bEff = (i === 3) ? formatFieldVal(w.b_msb_f) : w.b[i].toString();
+    var cEff = (i === 3) ? formatFieldVal(w.c_msb_f) : w.c[i].toString();
+    html += '<div class="marker-box' + (active ? ' active' : '') + '">';
+    html += '<div class="mb-label">Limb ' + i + (i === 3 ? ' (MSB)' : i === 0 ? ' (LSB)' : '') + '</div>';
+    html += '<div class="mb-val">' + w.diff_marker[i] + '</div>';
+    html += '<div class="mb-detail">b=' + bEff + ', c=' + cEff + '</div>';
+    if (active) {
+      html += '<div class="mb-detail" style="color:var(--green)">diff_val=' + formatFieldVal(w.diff_val) + '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Show prefix sum trace
+  html += '<div style="font-size:11px;margin-top:10px;">';
+  var ps = 0;
+  for (var i = 3; i >= 0; i--) {
+    ps += w.diff_marker[i];
+    var diff_raw;
+    if (i === 3) {
+      diff_raw = mod(w.c_msb_f - w.b_msb_f, P);
+    } else {
+      diff_raw = mod(w.c[i] - w.b[i], P);
+    }
+    var sign_factor = mod(2 * w.cmp_result - 1, P);
+    var diff = mod(diff_raw * sign_factor, P);
+    var not_ps = mod(1 - ps, P);
+    var scan_ok = mod(not_ps * diff, P) === 0;
+    html += '<span style="color:var(--text-dim)">limb ' + i + ':</span> ';
+    html += 'prefix_sum=' + ps;
+    html += ', diff=' + formatFieldVal(diff);
+    html += ', (1-ps)*diff=<span class="' + (scan_ok ? 'c-pass' : 'c-fail') + '">' + formatFieldVal(mod(not_ps * diff, P)) + '</span>';
+    if (i > 0) html += '<br>';
+  }
+  html += '</div>';
+  html += '</div>';
+
+  // --- Bus Interactions ---
+  html += '<div class="panel-section">';
+  html += '<h3>Bus Interactions (BitwiseOperationLookupBus)</h3>';
+  html += '<div class="trace-wrapper"><table class="bus-table">';
+  html += '<thead><tr>';
+  html += '<th>#</th><th>Mode</th><th>x</th><th>y</th><th>Condition</th><th>Purpose</th>';
+  html += '</tr></thead><tbody>';
+
+  // Bus 1: range check (b_msb_f + 128*slt, c_msb_f + 128*slt)
+  var bus1_x = mod(w.b_msb_f + 128 * w.slt_flag, P);
+  var bus1_y = mod(w.c_msb_f + 128 * w.slt_flag, P);
+  var total_markers_bus = 0;
+  for (var i = 0; i < 4; i++) total_markers_bus += w.diff_marker[i];
+  html += '<tr>';
+  html += '<td class="col-row">1</td>';
+  html += '<td class="bus-mode range">range</td>';
+  html += '<td>' + formatFieldVal(bus1_x) + '</td>';
+  html += '<td>' + formatFieldVal(bus1_y) + '</td>';
+  html += '<td style="font-size:10px;color:var(--text-dim)">is_valid=' + (w.slt_flag + w.sltu_flag) + '</td>';
+  html += '<td style="font-size:10px;color:var(--text-dim);text-align:left">MSB range check' + (is_slt ? ' (signed: +128 offset)' : '') + '</td>';
+  html += '</tr>';
+
+  // Bus 2: range check (diff_val - 1, 0) when prefix_sum=1
+  html += '<tr>';
+  html += '<td class="col-row">2</td>';
+  html += '<td class="bus-mode range">range</td>';
+  html += '<td>' + formatFieldVal(mod(w.diff_val - 1, P)) + '</td>';
+  html += '<td>0</td>';
+  html += '<td style="font-size:10px;color:var(--text-dim)">prefix_sum=' + total_markers_bus + '</td>';
+  html += '<td style="font-size:10px;color:var(--text-dim);text-align:left">Verify diff_val is nonzero (diff_val-1 in [0,255])</td>';
+  html += '</tr>';
+
+  html += '</tbody></table></div>';
+  html += '</div>';
+
+  // --- Constraint Evaluation ---
+  html += '<div class="panel-section">';
+  html += '<h3>Constraint Evaluation</h3>';
+  html += '<div class="trace-wrapper"><table>';
+  html += '<thead><tr><th>ID</th><th>Description</th><th>Value</th><th>Status</th></tr></thead>';
+  html += '<tbody>';
+  for (var ci = 0; ci < constraints.length; ci++) {
+    var c = constraints[ci];
+    var pass = c.value === 0;
+    html += '<tr' + (!pass ? ' class="affected-row"' : '') + '>';
+    html += '<td style="color:var(--accent);font-weight:700">' + c.name + '</td>';
+    html += '<td style="text-align:left;color:var(--text-dim);font-size:11px">' + c.desc + '</td>';
+    html += '<td>' + formatFieldVal(c.value) + '</td>';
+    html += '<td class="' + (pass ? 'c-pass' : 'c-fail') + '">' + (pass ? 'PASS' : 'FAIL') + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+
+  // Overall status
+  var allPass = true;
+  for (var ci = 0; ci < constraints.length; ci++) {
+    if (constraints[ci].value !== 0) { allPass = false; break; }
+  }
+  html += '<div class="result-line" style="margin-top:10px;">';
+  if (allPass) {
+    html += '<span class="pass">All 9 constraint groups satisfied.</span>';
+  } else {
+    var failCount = 0;
+    for (var ci = 0; ci < constraints.length; ci++) {
+      if (constraints[ci].value !== 0) failCount++;
+    }
+    html += '<span class="fail">' + failCount + ' constraint group(s) violated.</span>';
+    if (edited) {
+      html += ' <span class="dim">Edited cells shown in yellow.</span>';
+    }
+  }
+  html += '</div>';
+  html += '</div>';
+
+  document.getElementById('main-content').innerHTML = html;
+}
+
+// ========== Event Listeners ==========
+
+document.getElementById('inp-rs1').addEventListener('input', recompute);
+document.getElementById('inp-rs2').addEventListener('input', recompute);
+document.querySelectorAll('input[name="op"]').forEach(function(r) {
+  r.addEventListener('change', recompute);
+});
+
+recompute();
+</script>
+</body>
+</html>

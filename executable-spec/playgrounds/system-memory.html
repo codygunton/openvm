@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System: Memory Subsystem</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Toggle buttons --- */
+  .toggle-group {
+    display: flex;
+    gap: 0;
+    margin-bottom: 12px;
+  }
+
+  .toggle-btn {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+  .toggle-btn:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+
+  .toggle-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-last { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-all { background: var(--purple); color: #1a1d27; }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    line-height: 1.7;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; margin-bottom: 28px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Memory map --- */
+  .mem-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+
+  .mem-cell {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    text-align: center;
+  }
+
+  .mem-cell .addr {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 2px;
+  }
+
+  .mem-cell .val {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .mem-cell .ts {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* --- Split/merge diagram --- */
+  .adapter-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+
+  .adapter-diagram .diag-title {
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .block-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .block-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    width: 60px;
+    flex-shrink: 0;
+  }
+
+  .block-cell {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    min-width: 40px;
+  }
+
+  .block-cell.parent { border-color: var(--cyan); color: var(--cyan); }
+  .block-cell.left { border-color: var(--green); color: var(--green); }
+  .block-cell.right { border-color: var(--orange); color: var(--orange); }
+
+  .diag-arrow {
+    font-size: 16px;
+    color: var(--text-dim);
+    margin: 4px 0;
+    text-align: center;
+  }
+
+  /* --- Badge --- */
+  .badge-send { background: var(--green-dim); color: var(--green); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+
+  .match-ok { color: var(--green); }
+  .match-fail { color: var(--red); font-weight: 700; }
+
+  .balance-ok { color: var(--green); font-weight: 600; padding: 8px; background: var(--green-dim); border-radius: 4px; margin-top: 8px; }
+  .balance-fail { color: var(--red); font-weight: 600; padding: 8px; background: var(--red-dim); border-radius: 4px; margin-top: 8px; }
+
+  .section-gap { margin-top: 32px; }
+
+  .hint-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-top: 16px;
+  }
+
+  .hint-box h3 {
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .hint-box p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 8px;
+  }
+
+  .hint-box p:last-child { margin-bottom: 0; }
+  .hint-box strong { color: var(--text); }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>System: Memory Subsystem</h1>
+    <div class="intro">
+      OpenVM's memory consistency is enforced by two cooperating AIR chips.
+      The <strong>VolatileBoundaryAir</strong> bookkeeps all touched memory locations, recording
+      their initial and final values. <strong>AccessAdapterAir&lt;N&gt;</strong> handles block-size
+      conversions &mdash; splitting a large block into smaller pieces or merging small blocks into
+      a larger one. Together, they ensure every read returns the most recently written value.
+    </div>
+
+    <div class="section">
+      <div class="section-title">View</div>
+      <div class="toggle-group">
+        <button class="toggle-btn active" id="tab-btn-boundary" onclick="switchTab('boundary')">Boundary AIR</button>
+        <button class="toggle-btn" id="tab-btn-adapter" onclick="switchTab('adapter')">Access Adapter</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">VolatileBoundaryAir</div>
+        <div class="callout-body">
+          One row per touched memory address, <strong>sorted by (addr_space, pointer)</strong>.
+          Each row records <strong>initial_data</strong> (always 0 for volatile memory)
+          and the <strong>final_data + final_timestamp</strong> from the last access.
+          It <strong>sends</strong> the initial state at t=0 and <strong>receives</strong>
+          the final state, closing the memory bus loop.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">AccessAdapterAir&lt;N&gt;</div>
+        <div class="callout-body">
+          Converts between memory block sizes.
+          <strong>Split</strong> (is_split=1): receives parent block of N values, sends two child
+          blocks of N/2 values each. <strong>Merge</strong> (is_split=0): reverses the direction.
+          The <strong>direction</strong> flag flips send/receive roles.
+          Timestamps must satisfy: for split, both children share the parent timestamp;
+          for merge, parent_ts = max(left_ts, right_ts).
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">End-to-End Memory Consistency</div>
+        <div class="callout-body">
+          Instruction chips read/write memory via the <strong>memory bus</strong>. Each access
+          receives the previous state and sends the new state. The boundary chip initializes
+          (sends at t=0) and finalizes (receives at final_ts). Access adapters bridge block sizes.
+          If all bus sends balance all receives, memory is consistent.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>Preset</label>
+        <select id="inp-preset">
+          <option value="simple" selected>Simple read/write</option>
+          <option value="multi">Multiple addresses</option>
+          <option value="overwrite">Overwrite pattern</option>
+        </select>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset to valid</button>
+    </div>
+
+    <div id="sidebar-stats-boundary" class="tab-content active">
+      <div class="section">
+        <div class="section-title">Boundary AIR Structure</div>
+        <div class="stat-row"><span class="label">Columns</span><span class="val">addr_space, pointer, initial_data, final_data, final_ts, is_valid</span></div>
+        <div class="stat-row"><span class="label">Rows</span><span class="val dynamic" id="stat-boundary-rows">4</span></div>
+        <div class="stat-row"><span class="label">Bus interactions</span><span class="val dynamic" id="stat-boundary-bus">8</span></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Boundary Constraints</div>
+        <ul class="constraint-list">
+          <li>
+            <span class="c-id">B1</span> <span class="c-desc">is_valid is boolean</span>
+            <span class="c-formula">is_valid * (1 - is_valid) = 0</span>
+            <span class="c-sel sel-all">all rows</span>
+          </li>
+          <li>
+            <span class="c-id">B2</span> <span class="c-desc">Padding at bottom</span>
+            <span class="c-formula">next.is_valid &rArr; local.is_valid</span>
+            <span class="c-sel sel-trans">transition</span>
+          </li>
+          <li>
+            <span class="c-id">B3</span> <span class="c-desc">Sorted addresses</span>
+            <span class="c-formula">(addr_space, pointer) &lt; (next.addr_space, next.pointer) when both valid</span>
+            <span class="c-sel sel-trans">transition</span>
+          </li>
+          <li>
+            <span class="c-id">B4</span> <span class="c-desc">Send initial state</span>
+            <span class="c-formula">send(addr, initial_data, t=0) when is_valid</span>
+            <span class="c-sel sel-first">bus</span>
+          </li>
+          <li>
+            <span class="c-id">B5</span> <span class="c-desc">Receive final state</span>
+            <span class="c-formula">receive(addr, final_data, final_ts) when is_valid</span>
+            <span class="c-sel sel-first">bus</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="sidebar-stats-adapter" class="tab-content">
+      <div class="section">
+        <div class="section-title">Access Adapter AIR Structure</div>
+        <div class="stat-row"><span class="label">Param N</span><span class="val">4 (block size)</span></div>
+        <div class="stat-row"><span class="label">Columns</span><span class="val">is_valid, is_split, address, values[N], left_ts, right_ts</span></div>
+        <div class="stat-row"><span class="label">Bus interactions</span><span class="val">3 per row (1 parent, 2 children)</span></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Adapter Constraints</div>
+        <ul class="constraint-list">
+          <li>
+            <span class="c-id">A1</span> <span class="c-desc">is_split is boolean</span>
+            <span class="c-formula">is_split * (1 - is_split) = 0</span>
+            <span class="c-sel sel-all">all rows</span>
+          </li>
+          <li>
+            <span class="c-id">A2</span> <span class="c-desc">is_valid is boolean</span>
+            <span class="c-formula">is_valid * (1 - is_valid) = 0</span>
+            <span class="c-sel sel-all">all rows</span>
+          </li>
+          <li>
+            <span class="c-id">A3</span> <span class="c-desc">Split timestamps equal</span>
+            <span class="c-formula">when is_split: left_ts = right_ts</span>
+            <span class="c-sel sel-all">all rows</span>
+          </li>
+          <li>
+            <span class="c-id">A4</span> <span class="c-desc">Parent timestamp = max</span>
+            <span class="c-formula">parent_ts = is_right_larger ? right_ts : left_ts</span>
+            <span class="c-sel sel-all">all rows</span>
+          </li>
+          <li>
+            <span class="c-id">A5</span> <span class="c-desc">Bus: receive parent, send children</span>
+            <span class="c-formula">direction = is_split ? +1 : -1 (flips send/receive roles)</span>
+            <span class="c-sel sel-first">bus</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- ===== BOUNDARY TAB ===== -->
+    <div id="main-boundary" class="tab-content active">
+
+      <h2>Memory Map</h2>
+      <div class="hint">
+        Visual summary of all touched memory addresses with their final values.
+      </div>
+      <div class="mem-grid" id="mem-grid"></div>
+
+      <h2>Boundary AIR Trace</h2>
+      <div class="hint">
+        Edit <strong style="color:var(--cyan)">final_data</strong> or <strong style="color:var(--accent)">final_ts</strong>
+        to see constraints break.
+        <span class="g">0 &#10003;</span> = satisfied,
+        <span class="d">&mdash;</span> = not applicable,
+        <span class="r">&#10007; fail</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="trace-wrapper">
+        <table id="boundary-table"></table>
+      </div>
+
+      <div class="section-gap"></div>
+      <h2>Memory Bus Balance</h2>
+      <div class="hint">
+        The boundary chip sends initial tuples and receives final tuples.
+        Instruction chips (not shown here) send/receive for each access.
+        All sends must match all receives for the bus to balance.
+      </div>
+      <div class="trace-wrapper">
+        <table id="bus-ledger-table"></table>
+      </div>
+      <div id="bus-balance-summary"></div>
+
+      <div class="hint-box">
+        <h3>What to try</h3>
+        <p>Change a <strong>final_data</strong> value. The boundary chip will still send the original
+           initial state and receive the modified final state. If no instruction chip wrote that
+           modified value, the bus won't balance.</p>
+        <p>Change a <strong>final_ts</strong> to be less than or equal to a write timestamp.
+           The timestamp ordering constraint would fail in the full system (here you'll see the
+           bus mismatch since the receive tuple changes).</p>
+      </div>
+    </div>
+
+    <!-- ===== ADAPTER TAB ===== -->
+    <div id="main-adapter" class="tab-content">
+
+      <h2>Split Operation (N=4)</h2>
+      <div class="hint">
+        A 4-element block at address (as=1, ptr=0) is <strong>split</strong> into two 2-element blocks.
+        The parent block is received from the bus; the two child blocks are sent.
+      </div>
+      <div class="adapter-diagram" id="split-diagram"></div>
+
+      <h2>Merge Operation (N=4)</h2>
+      <div class="hint">
+        Two 2-element blocks are <strong>merged</strong> back into one 4-element block.
+        Direction is reversed: children are received, parent is sent.
+      </div>
+      <div class="adapter-diagram" id="merge-diagram"></div>
+
+      <h2>Access Adapter Trace</h2>
+      <div class="hint">
+        Edit values or timestamps to see constraint violations.
+        <span class="g">0 &#10003;</span> = satisfied,
+        <span class="r">&#10007; fail</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="trace-wrapper">
+        <table id="adapter-table"></table>
+      </div>
+
+      <h2>Adapter Bus Interactions</h2>
+      <div class="hint">
+        Each adapter row generates 3 bus interactions: one for the parent block and one for each child half.
+      </div>
+      <div class="trace-wrapper">
+        <table id="adapter-bus-table"></table>
+      </div>
+
+      <div class="hint-box">
+        <h3>Split vs Merge</h3>
+        <p>In a <strong>split</strong> (is_split=1), the adapter receives the parent block and sends
+           two child blocks. The direction multiplier is +1.</p>
+        <p>In a <strong>merge</strong> (is_split=0), the adapter receives two child blocks and sends
+           the parent block. The direction multiplier is -1, flipping send/receive roles.</p>
+        <p>For a split, <strong>left_ts = right_ts</strong> (both children inherit the parent's timestamp).
+           For a merge, <strong>parent_ts = max(left_ts, right_ts)</strong>.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DATA MODEL
+// ============================================================
+
+// Presets define user operations (read/write). The boundary + bus
+// interactions are derived from these.
+var PRESETS = {
+  simple: [
+    { type: 'WRITE', addrSpace: 1, pointer: 0, data: 42, ts: 1 },
+    { type: 'READ',  addrSpace: 1, pointer: 0, data: 42, ts: 2 },
+    { type: 'WRITE', addrSpace: 1, pointer: 4, data: 99, ts: 3 },
+    { type: 'READ',  addrSpace: 1, pointer: 4, data: 99, ts: 4 },
+  ],
+  multi: [
+    { type: 'WRITE', addrSpace: 1, pointer: 0, data: 10, ts: 1 },
+    { type: 'WRITE', addrSpace: 1, pointer: 4, data: 20, ts: 2 },
+    { type: 'WRITE', addrSpace: 2, pointer: 0, data: 30, ts: 3 },
+    { type: 'READ',  addrSpace: 1, pointer: 0, data: 10, ts: 4 },
+    { type: 'READ',  addrSpace: 1, pointer: 4, data: 20, ts: 5 },
+    { type: 'READ',  addrSpace: 2, pointer: 0, data: 30, ts: 6 },
+  ],
+  overwrite: [
+    { type: 'WRITE', addrSpace: 1, pointer: 0, data: 42, ts: 1 },
+    { type: 'WRITE', addrSpace: 1, pointer: 0, data: 99, ts: 2 },
+    { type: 'READ',  addrSpace: 1, pointer: 0, data: 99, ts: 3 },
+    { type: 'WRITE', addrSpace: 1, pointer: 4, data: 77, ts: 4 },
+    { type: 'READ',  addrSpace: 1, pointer: 4, data: 77, ts: 5 },
+  ],
+};
+
+var cleanOps = [];
+var editedOps = [];
+
+// Adapter state
+var cleanAdapterRows = [];
+var editedAdapterRows = [];
+
+function deepCopy(arr) { return arr.map(function(o) { return Object.assign({}, o); }); }
+function deepCopyNested(arr) { return arr.map(function(o) { var c = Object.assign({}, o); c.values = o.values.slice(); return c; }); }
+
+// ============================================================
+// BOUNDARY LOGIC
+// ============================================================
+
+function addrKey(as_, ptr) { return as_ + ',' + ptr; }
+
+// Build boundary rows from the edited operations.
+// Returns sorted array of { addrSpace, pointer, initialData, finalData, finalTs, isValid }
+function buildBoundaryRows(ops) {
+  var addrMap = {};
+  for (var i = 0; i < ops.length; i++) {
+    var op = ops[i];
+    var key = addrKey(op.addrSpace, op.pointer);
+    if (!addrMap[key]) {
+      addrMap[key] = { addrSpace: op.addrSpace, pointer: op.pointer, finalData: 0, finalTs: 0 };
+    }
+    if (op.ts > addrMap[key].finalTs) {
+      addrMap[key].finalTs = op.ts;
+      addrMap[key].finalData = op.data;
+    }
+  }
+  var rows = [];
+  var keys = Object.keys(addrMap);
+  for (var j = 0; j < keys.length; j++) {
+    var entry = addrMap[keys[j]];
+    rows.push({
+      addrSpace: entry.addrSpace,
+      pointer: entry.pointer,
+      initialData: 0,
+      finalData: entry.finalData,
+      finalTs: entry.finalTs,
+      isValid: 1
+    });
+  }
+  // Sort by (addrSpace, pointer)
+  rows.sort(function(a, b) {
+    if (a.addrSpace !== b.addrSpace) return a.addrSpace - b.addrSpace;
+    return a.pointer - b.pointer;
+  });
+  return rows;
+}
+
+// Evaluate boundary constraints
+function evalBoundaryConstraints(rows) {
+  var results = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    // B1: is_valid boolean
+    var b1 = r.isValid * (1 - r.isValid) === 0;
+
+    // B3: sorted addresses (transition constraint)
+    var b3 = null;
+    if (i < rows.length - 1 && rows[i + 1].isValid === 1 && r.isValid === 1) {
+      if (r.addrSpace < rows[i + 1].addrSpace) {
+        b3 = true;
+      } else if (r.addrSpace === rows[i + 1].addrSpace) {
+        b3 = r.pointer < rows[i + 1].pointer;
+      } else {
+        b3 = false;
+      }
+    }
+
+    results.push({ b1: b1, b3: b3 });
+  }
+  return results;
+}
+
+// Build bus interactions from boundary rows + user operations
+function buildBusInteractions(boundaryRows, ops) {
+  var entries = [];
+
+  // Boundary: send initial state for each valid row
+  for (var i = 0; i < boundaryRows.length; i++) {
+    var br = boundaryRows[i];
+    if (br.isValid !== 1) continue;
+    entries.push({
+      source: 'Boundary init',
+      dir: 'send',
+      tuple: [br.addrSpace, br.pointer, br.initialData, 0],
+      label: '(' + br.addrSpace + ':' + br.pointer + ', data=' + br.initialData + ', t=0)'
+    });
+  }
+
+  // User operations: each access receives previous state, sends new state
+  var addrState = {};
+  // Sort user ops by timestamp
+  var sortedOps = ops.slice().sort(function(a, b) { return a.ts - b.ts; });
+
+  for (var j = 0; j < sortedOps.length; j++) {
+    var op = sortedOps[j];
+    var key = addrKey(op.addrSpace, op.pointer);
+    if (!addrState[key]) {
+      addrState[key] = { data: 0, ts: 0 };
+    }
+    var prev = addrState[key];
+    var opLabel = op.type + ' @(' + op.addrSpace + ':' + op.pointer + ')';
+
+    entries.push({
+      source: opLabel,
+      dir: 'receive',
+      tuple: [op.addrSpace, op.pointer, prev.data, prev.ts],
+      label: '(' + op.addrSpace + ':' + op.pointer + ', data=' + prev.data + ', t=' + prev.ts + ')'
+    });
+    entries.push({
+      source: opLabel,
+      dir: 'send',
+      tuple: [op.addrSpace, op.pointer, op.data, op.ts],
+      label: '(' + op.addrSpace + ':' + op.pointer + ', data=' + op.data + ', t=' + op.ts + ')'
+    });
+
+    addrState[key] = { data: op.data, ts: op.ts };
+  }
+
+  // Boundary: receive final state for each valid row
+  for (var k = 0; k < boundaryRows.length; k++) {
+    var br2 = boundaryRows[k];
+    if (br2.isValid !== 1) continue;
+    entries.push({
+      source: 'Boundary final',
+      dir: 'receive',
+      tuple: [br2.addrSpace, br2.pointer, br2.finalData, br2.finalTs],
+      label: '(' + br2.addrSpace + ':' + br2.pointer + ', data=' + br2.finalData + ', t=' + br2.finalTs + ')'
+    });
+  }
+
+  return entries;
+}
+
+function tupleKey(t) { return t[0] + ',' + t[1] + ',' + t[2] + ',' + t[3]; }
+
+function matchLedger(entries) {
+  var sends = [];
+  var receives = [];
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].dir === 'send') sends.push(i);
+    else receives.push(i);
+  }
+  var matched = [];
+  for (var m = 0; m < entries.length; m++) matched.push(null);
+
+  var recvUsed = {};
+  for (var s = 0; s < sends.length; s++) {
+    var si = sends[s];
+    var sk = tupleKey(entries[si].tuple);
+    for (var r = 0; r < receives.length; r++) {
+      var ri = receives[r];
+      if (recvUsed[ri]) continue;
+      if (tupleKey(entries[ri].tuple) === sk) {
+        matched[si] = ri;
+        matched[ri] = si;
+        recvUsed[ri] = true;
+        break;
+      }
+    }
+  }
+  return matched;
+}
+
+// ============================================================
+// ADAPTER LOGIC
+// ============================================================
+
+function buildDefaultAdapterRows() {
+  return [
+    {
+      isValid: 1, isSplit: 1, addrSpace: 1, pointer: 0,
+      values: [10, 20, 30, 40],
+      leftTs: 5, rightTs: 5, isRightLarger: 0
+    },
+    {
+      isValid: 1, isSplit: 0, addrSpace: 1, pointer: 8,
+      values: [50, 60, 70, 80],
+      leftTs: 3, rightTs: 7, isRightLarger: 1
+    }
+  ];
+}
+
+function evalAdapterConstraints(rows) {
+  var results = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    // A1: is_split boolean
+    var a1 = r.isSplit * (1 - r.isSplit) === 0;
+    // A2: is_valid boolean
+    var a2 = r.isValid * (1 - r.isValid) === 0;
+    // A3: split timestamps equal (when is_split)
+    var a3 = null;
+    if (r.isSplit === 1) {
+      a3 = r.leftTs === r.rightTs;
+    }
+    // A4: parent_ts = max(left, right)
+    var expectedParentTs = r.isRightLarger ? r.rightTs : r.leftTs;
+    var computedIsRightLarger = r.rightTs > r.leftTs ? 1 : 0;
+    var a4 = r.isRightLarger === computedIsRightLarger;
+
+    results.push({ a1: a1, a2: a2, a3: a3, a4: a4 });
+  }
+  return results;
+}
+
+function buildAdapterBusInteractions(rows) {
+  var entries = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r.isValid !== 1) continue;
+
+    var parentTs = r.isRightLarger ? r.rightTs : r.leftTs;
+    var dir = r.isSplit === 1 ? 'split' : 'merge';
+    var halfN = Math.floor(r.values.length / 2);
+    var leftVals = r.values.slice(0, halfN);
+    var rightVals = r.values.slice(halfN);
+
+    // Parent block
+    entries.push({
+      row: i,
+      role: 'parent',
+      dir: r.isSplit === 1 ? 'receive' : 'send',
+      as_: r.addrSpace, ptr: r.pointer,
+      values: r.values.slice(),
+      ts: parentTs,
+      opType: dir
+    });
+
+    // Left child
+    entries.push({
+      row: i,
+      role: 'left',
+      dir: r.isSplit === 1 ? 'send' : 'receive',
+      as_: r.addrSpace, ptr: r.pointer,
+      values: leftVals,
+      ts: r.leftTs,
+      opType: dir
+    });
+
+    // Right child
+    entries.push({
+      row: i,
+      role: 'right',
+      dir: r.isSplit === 1 ? 'send' : 'receive',
+      as_: r.addrSpace, ptr: r.pointer + halfN,
+      values: rightVals,
+      ts: r.rightTs,
+      opType: dir
+    });
+  }
+  return entries;
+}
+
+// ============================================================
+// TAB SWITCHING
+// ============================================================
+
+var currentTab = 'boundary';
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tab-btn-boundary').classList.toggle('active', tab === 'boundary');
+  document.getElementById('tab-btn-adapter').classList.toggle('active', tab === 'adapter');
+  document.getElementById('sidebar-stats-boundary').classList.toggle('active', tab === 'boundary');
+  document.getElementById('sidebar-stats-adapter').classList.toggle('active', tab === 'adapter');
+  document.getElementById('main-boundary').classList.toggle('active', tab === 'boundary');
+  document.getElementById('main-adapter').classList.toggle('active', tab === 'adapter');
+}
+
+// ============================================================
+// PRESET / RESET
+// ============================================================
+
+function loadPreset(name) {
+  cleanOps = deepCopy(PRESETS[name]);
+  editedOps = deepCopy(cleanOps);
+  cleanAdapterRows = buildDefaultAdapterRows();
+  editedAdapterRows = deepCopyNested(cleanAdapterRows);
+  render();
+}
+
+function resetAll() {
+  editedOps = deepCopy(cleanOps);
+  editedAdapterRows = deepCopyNested(cleanAdapterRows);
+  render();
+}
+
+function hasEdits() {
+  for (var i = 0; i < editedOps.length; i++) {
+    if (editedOps[i].data !== cleanOps[i].data) return true;
+    if (editedOps[i].ts !== cleanOps[i].ts) return true;
+  }
+  for (var j = 0; j < editedAdapterRows.length; j++) {
+    var e = editedAdapterRows[j];
+    var c = cleanAdapterRows[j];
+    if (e.isSplit !== c.isSplit) return true;
+    if (e.leftTs !== c.leftTs) return true;
+    if (e.rightTs !== c.rightTs) return true;
+    if (e.isRightLarger !== c.isRightLarger) return true;
+    for (var k = 0; k < e.values.length; k++) {
+      if (e.values[k] !== c.values[k]) return true;
+    }
+  }
+  return false;
+}
+
+// ============================================================
+// EDIT HANDLERS
+// ============================================================
+
+function onBoundaryFinalDataEdit(opIdx, value) {
+  // We need to find which op corresponds to this boundary row.
+  // opIdx here is the index into the ops that defines the final data for a boundary row.
+  // We'll need to re-derive which op sets the final data. For simplicity, we store
+  // the mapping during render and use a different approach: we actually edit the
+  // editedOps directly based on which boundary row is being edited.
+  // Since boundary rows are derived from ops, editing final_data means editing
+  // the last op that wrote to that address.
+  var v = parseInt(value) || 0;
+  // opIdx is actually the index into the boundaryEditMap
+  if (window._boundaryEditMap && window._boundaryEditMap[opIdx] !== undefined) {
+    var opIndex = window._boundaryEditMap[opIdx];
+    editedOps[opIndex].data = v;
+  }
+  render();
+}
+
+function onBoundaryFinalTsEdit(opIdx, value) {
+  var v = parseInt(value) || 0;
+  if (window._boundaryEditMap && window._boundaryEditMap[opIdx] !== undefined) {
+    var opIndex = window._boundaryEditMap[opIdx];
+    editedOps[opIndex].ts = v;
+  }
+  render();
+}
+
+function onAdapterValueEdit(rowIdx, valIdx, value) {
+  editedAdapterRows[rowIdx].values[valIdx] = parseInt(value) || 0;
+  render();
+}
+
+function onAdapterTsEdit(rowIdx, field, value) {
+  editedAdapterRows[rowIdx][field] = parseInt(value) || 0;
+  render();
+}
+
+function onAdapterSplitEdit(rowIdx, value) {
+  editedAdapterRows[rowIdx].isSplit = parseInt(value) || 0;
+  render();
+}
+
+function onAdapterRightLargerEdit(rowIdx, value) {
+  editedAdapterRows[rowIdx].isRightLarger = parseInt(value) || 0;
+  render();
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+
+function render() {
+  var edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  renderBoundary();
+  renderAdapter();
+}
+
+function renderBoundary() {
+  var boundaryRows = buildBoundaryRows(editedOps);
+  var constraints = evalBoundaryConstraints(boundaryRows);
+  var busEntries = buildBusInteractions(boundaryRows, editedOps);
+  var matched = matchLedger(busEntries);
+
+  // Build the edit map: boundary row index -> op index (the op that determines final state)
+  window._boundaryEditMap = {};
+  var sortedOps = editedOps.slice().sort(function(a, b) { return a.ts - b.ts; });
+  for (var bi = 0; bi < boundaryRows.length; bi++) {
+    var br = boundaryRows[bi];
+    // Find the op with the highest ts for this address
+    var bestOpIdx = -1;
+    var bestTs = -1;
+    for (var oi = 0; oi < editedOps.length; oi++) {
+      if (editedOps[oi].addrSpace === br.addrSpace && editedOps[oi].pointer === br.pointer) {
+        if (editedOps[oi].ts > bestTs) {
+          bestTs = editedOps[oi].ts;
+          bestOpIdx = oi;
+        }
+      }
+    }
+    window._boundaryEditMap[bi] = bestOpIdx;
+  }
+
+  // Stats
+  document.getElementById('stat-boundary-rows').textContent = boundaryRows.length;
+  document.getElementById('stat-boundary-bus').textContent = busEntries.length;
+
+  // Memory map
+  var gridHtml = '';
+  for (var g = 0; g < boundaryRows.length; g++) {
+    var row = boundaryRows[g];
+    gridHtml += '<div class="mem-cell">';
+    gridHtml += '<div class="addr">as:' + row.addrSpace + ' ptr:' + row.pointer + '</div>';
+    gridHtml += '<div class="val">' + row.finalData + '</div>';
+    gridHtml += '<div class="ts">final t=' + row.finalTs + '</div>';
+    gridHtml += '</div>';
+  }
+  document.getElementById('mem-grid').innerHTML = gridHtml;
+
+  // Boundary trace table
+  var bHtml = '<thead><tr>';
+  bHtml += '<th class="group-header" colspan="1"></th>';
+  bHtml += '<th class="col-sep"></th>';
+  bHtml += '<th class="group-header" colspan="5">Trace Columns</th>';
+  bHtml += '<th class="col-sep"></th>';
+  bHtml += '<th class="group-header" colspan="2">Constraints</th>';
+  bHtml += '</tr><tr>';
+  bHtml += '<th>Row</th>';
+  bHtml += '<th class="col-sep"></th>';
+  bHtml += '<th>addr_space</th><th>pointer</th><th>initial_data</th><th>final_data</th><th>final_ts</th>';
+  bHtml += '<th class="col-sep"></th>';
+  bHtml += '<th title="B1: is_valid boolean">B1</th>';
+  bHtml += '<th title="B3: Sorted addresses">B3 sort</th>';
+  bHtml += '</tr></thead><tbody>';
+
+  for (var i = 0; i < boundaryRows.length; i++) {
+    var r = boundaryRows[i];
+    var c = constraints[i];
+    var hasViolation = !c.b1 || c.b3 === false;
+
+    // Determine if final_data/ts are modified
+    var opIdx = window._boundaryEditMap[i];
+    var fdModified = opIdx >= 0 && editedOps[opIdx].data !== cleanOps[opIdx].data;
+    var ftModified = opIdx >= 0 && editedOps[opIdx].ts !== cleanOps[opIdx].ts;
+
+    bHtml += '<tr' + (hasViolation ? ' class="affected-row"' : '') + '>';
+    bHtml += '<td class="col-row">' + i + '</td>';
+    bHtml += '<td class="col-sep"></td>';
+    bHtml += '<td class="col-trace">' + r.addrSpace + '</td>';
+    bHtml += '<td class="col-trace">' + r.pointer + '</td>';
+    bHtml += '<td class="col-trace">' + r.initialData + '</td>';
+    bHtml += '<td class="col-trace"><input type="number" class="cell-input' + (fdModified ? ' modified' : '') + '" value="' + r.finalData + '" onchange="onBoundaryFinalDataEdit(' + i + ',this.value)"></td>';
+    bHtml += '<td class="col-trace"><input type="number" class="cell-input' + (ftModified ? ' modified' : '') + '" value="' + r.finalTs + '" onchange="onBoundaryFinalTsEdit(' + i + ',this.value)"></td>';
+    bHtml += '<td class="col-sep"></td>';
+
+    // B1
+    if (c.b1) bHtml += '<td class="col-constraint c-pass">0 &#10003;</td>';
+    else bHtml += '<td class="col-constraint c-fail">&#10007;</td>';
+
+    // B3
+    if (c.b3 === null) bHtml += '<td class="col-constraint c-inactive">&mdash;</td>';
+    else if (c.b3) bHtml += '<td class="col-constraint c-pass">0 &#10003;</td>';
+    else bHtml += '<td class="col-constraint c-fail">&#10007;</td>';
+
+    bHtml += '</tr>';
+  }
+  bHtml += '</tbody>';
+  document.getElementById('boundary-table').innerHTML = bHtml;
+
+  // Bus ledger table
+  var lHtml = '<thead><tr>';
+  lHtml += '<th>Source</th><th>Direction</th><th>Tuple (as, ptr, data, ts)</th><th>Matched?</th>';
+  lHtml += '</tr></thead><tbody>';
+
+  var unmatchedSends = 0;
+  var unmatchedRecvs = 0;
+
+  for (var li = 0; li < busEntries.length; li++) {
+    var e = busEntries[li];
+    var isMatched = matched[li] !== null;
+    if (!isMatched) {
+      if (e.dir === 'send') unmatchedSends++;
+      else unmatchedRecvs++;
+    }
+
+    var dirBadge = e.dir === 'send'
+      ? '<span class="badge-send">send</span>'
+      : '<span class="badge-recv">recv</span>';
+
+    var matchStr;
+    if (isMatched) {
+      matchStr = '<span class="match-ok">&#10003; matched</span>';
+    } else {
+      matchStr = '<span class="match-fail">&#10007; unmatched</span>';
+    }
+
+    var rowClass = !isMatched ? ' class="affected-row"' : '';
+    lHtml += '<tr' + rowClass + '>';
+    lHtml += '<td style="text-align:left;padding-left:10px;">' + e.source + '</td>';
+    lHtml += '<td>' + dirBadge + '</td>';
+    lHtml += '<td style="font-weight:600">' + e.label + '</td>';
+    lHtml += '<td style="text-align:left;padding-left:10px;">' + matchStr + '</td>';
+    lHtml += '</tr>';
+  }
+  lHtml += '</tbody>';
+  document.getElementById('bus-ledger-table').innerHTML = lHtml;
+
+  // Balance summary
+  var balEl = document.getElementById('bus-balance-summary');
+  if (unmatchedSends === 0 && unmatchedRecvs === 0) {
+    balEl.innerHTML = '<div class="balance-ok">Bus Balance: All sends matched &#10003;</div>';
+  } else {
+    var parts = [];
+    if (unmatchedSends > 0) parts.push(unmatchedSends + ' unmatched send' + (unmatchedSends > 1 ? 's' : ''));
+    if (unmatchedRecvs > 0) parts.push(unmatchedRecvs + ' unmatched receive' + (unmatchedRecvs > 1 ? 's' : ''));
+    balEl.innerHTML = '<div class="balance-fail">Bus Balance: ' + parts.join(', ') + ' &#10007;</div>';
+  }
+}
+
+function renderAdapter() {
+  var rows = editedAdapterRows;
+  var constraints = evalAdapterConstraints(rows);
+  var busEntries = buildAdapterBusInteractions(rows);
+
+  // Split diagram (row 0)
+  var sr = rows[0];
+  var halfN = Math.floor(sr.values.length / 2);
+  var splitHtml = '<div class="diag-title">' + (sr.isSplit === 1 ? 'Split' : 'Merge') + ' (is_split=' + sr.isSplit + ')</div>';
+  splitHtml += '<div class="block-row"><span class="block-label">Parent:</span>';
+  for (var sv = 0; sv < sr.values.length; sv++) {
+    splitHtml += '<span class="block-cell parent">' + sr.values[sv] + '</span>';
+  }
+  var parentTs0 = sr.isRightLarger ? sr.rightTs : sr.leftTs;
+  splitHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">t=' + parentTs0 + '</span>';
+  splitHtml += '</div>';
+  splitHtml += '<div class="diag-arrow">' + (sr.isSplit === 1 ? '&#9660; split into' : '&#9650; merge from') + '</div>';
+  splitHtml += '<div class="block-row"><span class="block-label">Left:</span>';
+  for (var sl = 0; sl < halfN; sl++) {
+    splitHtml += '<span class="block-cell left">' + sr.values[sl] + '</span>';
+  }
+  splitHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">t=' + sr.leftTs + '</span>';
+  splitHtml += '</div>';
+  splitHtml += '<div class="block-row"><span class="block-label">Right:</span>';
+  for (var srl = halfN; srl < sr.values.length; srl++) {
+    splitHtml += '<span class="block-cell right">' + sr.values[srl] + '</span>';
+  }
+  splitHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">t=' + sr.rightTs + '</span>';
+  splitHtml += '</div>';
+  document.getElementById('split-diagram').innerHTML = splitHtml;
+
+  // Merge diagram (row 1)
+  var mr = rows[1];
+  var halfM = Math.floor(mr.values.length / 2);
+  var mergeHtml = '<div class="diag-title">' + (mr.isSplit === 1 ? 'Split' : 'Merge') + ' (is_split=' + mr.isSplit + ')</div>';
+  mergeHtml += '<div class="block-row"><span class="block-label">Left:</span>';
+  for (var ml = 0; ml < halfM; ml++) {
+    mergeHtml += '<span class="block-cell left">' + mr.values[ml] + '</span>';
+  }
+  mergeHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">t=' + mr.leftTs + '</span>';
+  mergeHtml += '</div>';
+  mergeHtml += '<div class="block-row"><span class="block-label">Right:</span>';
+  for (var mrl = halfM; mrl < mr.values.length; mrl++) {
+    mergeHtml += '<span class="block-cell right">' + mr.values[mrl] + '</span>';
+  }
+  mergeHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">t=' + mr.rightTs + '</span>';
+  mergeHtml += '</div>';
+  var parentTsM = mr.isRightLarger ? mr.rightTs : mr.leftTs;
+  mergeHtml += '<div class="diag-arrow">' + (mr.isSplit === 0 ? '&#9650; merge into' : '&#9660; split into') + '</div>';
+  mergeHtml += '<div class="block-row"><span class="block-label">Parent:</span>';
+  for (var mv = 0; mv < mr.values.length; mv++) {
+    mergeHtml += '<span class="block-cell parent">' + mr.values[mv] + '</span>';
+  }
+  mergeHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">t=' + parentTsM + '</span>';
+  mergeHtml += '</div>';
+  document.getElementById('merge-diagram').innerHTML = mergeHtml;
+
+  // Adapter trace table
+  var aHtml = '<thead><tr>';
+  aHtml += '<th class="group-header" colspan="1"></th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th class="group-header" colspan="4">Flags &amp; Address</th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th class="group-header" colspan="4">Values (N=4)</th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th class="group-header" colspan="3">Timestamps</th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th class="group-header" colspan="4">Constraints</th>';
+  aHtml += '</tr><tr>';
+  aHtml += '<th>Row</th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th>is_valid</th><th>is_split</th><th>addr_space</th><th>pointer</th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th>v[0]</th><th>v[1]</th><th>v[2]</th><th>v[3]</th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th>left_ts</th><th>right_ts</th><th>is_right_larger</th>';
+  aHtml += '<th class="col-sep"></th>';
+  aHtml += '<th title="A1: is_split bool">A1</th>';
+  aHtml += '<th title="A2: is_valid bool">A2</th>';
+  aHtml += '<th title="A3: split ts equal">A3</th>';
+  aHtml += '<th title="A4: parent ts = max">A4</th>';
+  aHtml += '</tr></thead><tbody>';
+
+  for (var ai = 0; ai < rows.length; ai++) {
+    var ar = rows[ai];
+    var ac = constraints[ai];
+    var aViolation = !ac.a1 || !ac.a2 || ac.a3 === false || !ac.a4;
+
+    aHtml += '<tr' + (aViolation ? ' class="affected-row"' : '') + '>';
+    aHtml += '<td class="col-row">' + ai + '</td>';
+    aHtml += '<td class="col-sep"></td>';
+    aHtml += '<td class="col-trace">' + ar.isValid + '</td>';
+
+    // is_split (editable)
+    var splitMod = ar.isSplit !== cleanAdapterRows[ai].isSplit;
+    aHtml += '<td class="col-trace"><input type="number" class="cell-input' + (splitMod ? ' modified' : '') + '" value="' + ar.isSplit + '" min="0" max="1" onchange="onAdapterSplitEdit(' + ai + ',this.value)"></td>';
+
+    aHtml += '<td class="col-trace">' + ar.addrSpace + '</td>';
+    aHtml += '<td class="col-trace">' + ar.pointer + '</td>';
+    aHtml += '<td class="col-sep"></td>';
+
+    // Values (editable)
+    for (var vi = 0; vi < ar.values.length; vi++) {
+      var vMod = ar.values[vi] !== cleanAdapterRows[ai].values[vi];
+      aHtml += '<td class="col-trace"><input type="number" class="cell-input' + (vMod ? ' modified' : '') + '" value="' + ar.values[vi] + '" onchange="onAdapterValueEdit(' + ai + ',' + vi + ',this.value)"></td>';
+    }
+    aHtml += '<td class="col-sep"></td>';
+
+    // Timestamps (editable)
+    var ltMod = ar.leftTs !== cleanAdapterRows[ai].leftTs;
+    var rtMod = ar.rightTs !== cleanAdapterRows[ai].rightTs;
+    var rlMod = ar.isRightLarger !== cleanAdapterRows[ai].isRightLarger;
+    aHtml += '<td class="col-trace"><input type="number" class="cell-input' + (ltMod ? ' modified' : '') + '" value="' + ar.leftTs + '" onchange="onAdapterTsEdit(' + ai + ',\'leftTs\',this.value)"></td>';
+    aHtml += '<td class="col-trace"><input type="number" class="cell-input' + (rtMod ? ' modified' : '') + '" value="' + ar.rightTs + '" onchange="onAdapterTsEdit(' + ai + ',\'rightTs\',this.value)"></td>';
+    aHtml += '<td class="col-trace"><input type="number" class="cell-input' + (rlMod ? ' modified' : '') + '" value="' + ar.isRightLarger + '" min="0" max="1" onchange="onAdapterRightLargerEdit(' + ai + ',this.value)"></td>';
+    aHtml += '<td class="col-sep"></td>';
+
+    // Constraints
+    if (ac.a1) aHtml += '<td class="col-constraint c-pass">0 &#10003;</td>';
+    else aHtml += '<td class="col-constraint c-fail">&#10007;</td>';
+
+    if (ac.a2) aHtml += '<td class="col-constraint c-pass">0 &#10003;</td>';
+    else aHtml += '<td class="col-constraint c-fail">&#10007;</td>';
+
+    if (ac.a3 === null) aHtml += '<td class="col-constraint c-inactive">&mdash;</td>';
+    else if (ac.a3) aHtml += '<td class="col-constraint c-pass">0 &#10003;</td>';
+    else aHtml += '<td class="col-constraint c-fail">&#10007;</td>';
+
+    if (ac.a4) aHtml += '<td class="col-constraint c-pass">0 &#10003;</td>';
+    else aHtml += '<td class="col-constraint c-fail">&#10007;</td>';
+
+    aHtml += '</tr>';
+  }
+  aHtml += '</tbody>';
+  document.getElementById('adapter-table').innerHTML = aHtml;
+
+  // Adapter bus interactions table
+  var abHtml = '<thead><tr>';
+  abHtml += '<th>Row</th><th>Role</th><th>Direction</th><th>Address</th><th>Values</th><th>Timestamp</th>';
+  abHtml += '</tr></thead><tbody>';
+
+  for (var bi = 0; bi < busEntries.length; bi++) {
+    var be = busEntries[bi];
+    var dirBadge = be.dir === 'send'
+      ? '<span class="badge-send">send</span>'
+      : '<span class="badge-recv">recv</span>';
+
+    var roleColor = '';
+    if (be.role === 'parent') roleColor = 'color:var(--cyan);font-weight:600';
+    else if (be.role === 'left') roleColor = 'color:var(--green);font-weight:600';
+    else roleColor = 'color:var(--orange);font-weight:600';
+
+    abHtml += '<tr>';
+    abHtml += '<td class="col-row">' + be.row + '</td>';
+    abHtml += '<td style="' + roleColor + '">' + be.role + '</td>';
+    abHtml += '<td>' + dirBadge + '</td>';
+    abHtml += '<td>(' + be.as_ + ':' + be.ptr + ')</td>';
+    abHtml += '<td style="font-weight:600">[' + be.values.join(', ') + ']</td>';
+    abHtml += '<td>' + be.ts + '</td>';
+    abHtml += '</tr>';
+  }
+  abHtml += '</tbody>';
+  document.getElementById('adapter-bus-table').innerHTML = abHtml;
+}
+
+// ============================================================
+// EVENT LISTENERS
+// ============================================================
+
+document.getElementById('inp-preset').addEventListener('change', function() {
+  loadPreset(this.value);
+});
+
+// Init
+loadPreset('simple');
+</script>
+</body>
+</html>

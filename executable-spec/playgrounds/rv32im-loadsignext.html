@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RV32IM Load Sign Extend (LB/LH)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 80px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], input[type="text"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio group --- */
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .radio-group label:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .radio-group input[type="radio"] {
+    display: none;
+  }
+
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-all { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-bus { background: var(--purple); color: #1a1d27; }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section {
+    margin-bottom: 24px;
+  }
+
+  /* --- Byte grid --- */
+  .byte-grid {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .byte-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .byte-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .byte-val {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    min-width: 56px;
+    text-align: center;
+  }
+
+  .byte-val.selected {
+    border-color: var(--green);
+    background: var(--green-dim);
+    color: var(--green);
+  }
+
+  .byte-val.dim {
+    color: var(--border);
+    background: var(--surface2);
+  }
+
+  .byte-val.sign-fill {
+    border-color: var(--yellow);
+    background: var(--yellow-dim);
+    color: var(--yellow);
+  }
+
+  .byte-input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 6px;
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    min-width: 56px;
+    width: 56px;
+    text-align: center;
+    color: var(--text);
+  }
+
+  .byte-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  /* --- Summary block --- */
+  .summary-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .summary-block .sum-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 120px;
+  }
+
+  .summary-block .sum-val {
+    font-weight: 600;
+  }
+
+  .summary-block .sum-hex {
+    color: var(--accent);
+    margin-left: 6px;
+  }
+
+  .summary-block .sum-op {
+    color: var(--yellow);
+    font-weight: 700;
+  }
+
+  /* --- Flag display --- */
+  .flag-display {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+  }
+
+  .flag-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+
+  .flag-row:last-child { margin-bottom: 0; }
+
+  .flag-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    width: 140px;
+    flex-shrink: 0;
+  }
+
+  .flag-chip {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .flag-on {
+    background: var(--green-dim);
+    color: var(--green);
+  }
+
+  .flag-off {
+    background: var(--surface2);
+    color: var(--border);
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>RV32IM Load Sign Extend (LB/LH)</h1>
+    <div class="intro">
+      The <strong>LoadSignExtendCoreAir</strong> handles signed byte and halfword loads.
+      Unlike unsigned loads (LBU/LHU) which zero-extend, <strong>LB</strong> and <strong>LH</strong>
+      replicate the most significant bit of the loaded value into the upper bytes.
+      If the MSB is 1 (negative in two's complement), the upper bytes become <strong>0xFF</strong>;
+      if 0, they become <strong>0x00</strong>.
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">Shifted Read Data</div>
+        <div class="callout-body">
+          The adapter reads 4 bytes from memory at some aligned address. The <strong>shift amount</strong>
+          (0-3 for LB, 0 or 2 for LH) selects which byte(s) to load. The chip pre-shifts
+          the read data by <strong>(shift &amp; 2)</strong> so that the core AIR only needs to
+          handle shift=0 for LH and shift=0/1 for LB, reducing the number of opcode flags needed.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Three-Flag Design</div>
+        <div class="callout-body">
+          Instead of separate flags for each shift value, the chip uses three flags:
+          <strong>loadb_flag0</strong> (LB with shift&amp;1=0), <strong>loadb_flag1</strong>
+          (LB with shift&amp;1=1), and <strong>loadh_flag</strong> (LH).
+          The <strong>shift_most_sig_bit</strong> column tracks whether shift&amp;2=2
+          (i.e., upper-half rotation was applied).
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">MSB Range Check</div>
+        <div class="callout-body">
+          To verify <strong>data_most_sig_bit</strong> is correct, the chip sends
+          <strong>most_sig_limb - data_most_sig_bit * 128</strong> to the
+          VariableRangeCheckerBus with a 7-bit range check. If the result is in [0, 127],
+          the MSB claim is valid.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Operation</div>
+      <div class="radio-group" id="op-radios">
+        <label><input type="radio" name="op" value="LB" checked><span>LB</span></label>
+        <label><input type="radio" name="op" value="LH"><span>LH</span></label>
+      </div>
+      <div class="control-row">
+        <label>Shift</label>
+        <select id="inp-shift">
+          <option value="0" selected>0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;margin-bottom:4px;">
+        Memory bytes are edited in the main panel.
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset to defaults</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">11</span></div>
+      <div class="stat-row"><span class="label">Layout</span><span class="val" style="font-size:10px">flags[3] shift_msb data_msb shifted[4] prev[4]</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val dynamic" id="active-constraint-count">8</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">1 (VariableRangeChecker)</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list" id="constraint-sidebar-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Flag booleans</span>
+          <span class="c-formula">loadb0*(1-loadb0) = 0, loadb1*(1-loadb1) = 0, loadh*(1-loadh) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Exactly one flag (is_valid boolean)</span>
+          <span class="c-formula">is_valid = loadb0+loadb1+loadh; is_valid*(1-is_valid) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">data_most_sig_bit boolean</span>
+          <span class="c-formula">data_msb*(1-data_msb) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">shift_most_sig_bit boolean</span>
+          <span class="c-formula">shift_msb*(1-shift_msb) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">write_data[0] construction</span>
+          <span class="c-formula">w[0] = (loadh+loadb0)*shifted[0] + loadb1*shifted[1]</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C6</span> <span class="c-desc">write_data[1] construction</span>
+          <span class="c-formula">w[1] = shifted[1]*loadh + (loadb0+loadb1)*limb_mask</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C7</span> <span class="c-desc">write_data[2..3] sign fill</span>
+          <span class="c-formula">w[2] = limb_mask, w[3] = limb_mask (where limb_mask = data_msb*255)</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C8</span> <span class="c-desc">MSB range check (bus)</span>
+          <span class="c-formula">most_sig_limb - data_msb*128 in [0, 127]</span>
+          <span class="c-sel sel-bus">VariableRangeChecker</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Memory Data -->
+    <div class="main-section">
+      <h2>Memory Data (read_data)</h2>
+      <div class="hint">The 4 bytes read from memory at the aligned address. Edit hex values (00-FF).</div>
+      <div class="byte-grid" id="read-data-grid"></div>
+    </div>
+
+    <!-- Sign Extension Visualization -->
+    <div class="main-section">
+      <h2 id="sign-ext-title">Sign Extension Visualization</h2>
+      <div class="hint" id="sign-ext-hint">
+        <span class="g">Green</span> = data bytes extracted from memory.
+        <span style="color:var(--yellow)">Yellow</span> = sign fill (0x00 or 0xFF based on MSB).
+      </div>
+      <div id="sign-ext-visual"></div>
+    </div>
+
+    <!-- Before / After Comparison -->
+    <div class="main-section">
+      <h2>Before / After Comparison</h2>
+      <div class="hint">Unsigned interpretation vs sign-extended (two's complement) value.</div>
+      <div class="summary-block" id="before-after-block"></div>
+    </div>
+
+    <!-- Witness Columns -->
+    <div class="main-section">
+      <h2>Witness Columns (11 Core Columns)</h2>
+      <div class="hint">
+        All core AIR columns. Edit <strong>shifted_read_data</strong>, <strong>data_msb</strong>,
+        and <strong>shift_msb</strong> cells to see which constraints break.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="flag-display" id="flag-display"></div>
+      <div class="trace-wrapper">
+        <table id="witness-table"></table>
+      </div>
+    </div>
+
+    <!-- Constraint Evaluation -->
+    <div class="main-section">
+      <h2>Constraint Evaluation</h2>
+      <div class="hint">
+        <span class="g">0</span> = satisfied,
+        <span class="r">nonzero</span> = violated.
+      </div>
+      <div class="trace-wrapper">
+        <table id="constraint-table"></table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// BabyBear prime for field arithmetic display (constraints shown mod P)
+var P = 2013265921;
+
+function mod(x, m) { return ((x % m) + m) % m; }
+function clamp(v) { return ((v % 256) + 256) % 256; }
+function hex(v) { return '0x' + clamp(v).toString(16).toUpperCase().padStart(2, '0'); }
+function parseByteHex(s) {
+  s = s.trim().replace(/^0x/i, '');
+  var v = parseInt(s, 16);
+  if (isNaN(v)) return 0;
+  return clamp(v);
+}
+
+// --- State ---
+var opType = 'LB';  // 'LB' or 'LH'
+var shiftAmount = 0;
+var readData = [0x85, 0xCD, 0x3F, 0x12]; // byte 0 has MSB=1 for interesting sign extension
+
+// Core witness columns (editable)
+var editedShiftedReadData = [0, 0, 0, 0];
+var editedDataMsb = 0;
+var editedShiftMsb = 0;
+
+// Clean (correct) values
+var cleanShiftedReadData = [0, 0, 0, 0];
+var cleanDataMsb = 0;
+var cleanShiftMsb = 0;
+
+// Derived values (from clean state)
+var is_loadb0 = 0;
+var is_loadb1 = 0;
+var is_loadh = 0;
+
+function getOp() {
+  var el = document.querySelector('input[name="op"]:checked');
+  return el ? el.value : 'LB';
+}
+
+function getMaxShift(op) {
+  return op === 'LH' ? 2 : 3;
+}
+
+// Compute the correct witness columns from readData, opType, shiftAmount
+function computeWitness() {
+  var isByte = (opType === 'LB');
+  var shift = shiftAmount;
+
+  // Flags
+  is_loadb0 = (isByte && (shift & 1) === 0) ? 1 : 0;
+  is_loadb1 = (isByte && (shift & 1) === 1) ? 1 : 0;
+  is_loadh = (!isByte) ? 1 : 0;
+
+  // shift_most_sig_bit: whether shift & 2 == 2
+  cleanShiftMsb = ((shift & 2) === 2) ? 1 : 0;
+
+  // shifted_read_data = readData rotated left by (shift & 2)
+  var rotateBy = shift & 2;
+  for (var i = 0; i < 4; i++) {
+    cleanShiftedReadData[i] = readData[(i + rotateBy) % 4];
+  }
+
+  // most_sig_limb: the limb whose MSB determines sign extension
+  var mostSigLimb;
+  if (isByte) {
+    mostSigLimb = readData[shift]; // before shifting, this is the target byte
+  } else {
+    // LH: upper byte of the halfword = readData[NUM_CELLS/2 - 1 + shift]
+    // NUM_CELLS/2 - 1 = 1, so readData[1 + shift]
+    mostSigLimb = readData[1 + shift];
+  }
+
+  // data_most_sig_bit: bit 7 of mostSigLimb
+  cleanDataMsb = ((mostSigLimb >> 7) & 1);
+
+  // Copy clean to edited
+  editedShiftedReadData = cleanShiftedReadData.slice();
+  editedDataMsb = cleanDataMsb;
+  editedShiftMsb = cleanShiftMsb;
+}
+
+// Compute write_data from the AIR constraint formulas (using edited values)
+function computeWriteData(shifted, dataMsb, lb0, lb1, lh) {
+  var limbMask = dataMsb * 255;
+  var w = [0, 0, 0, 0];
+
+  // write_data[0] = (is_loadh + is_loadb0) * shifted[0] + is_loadb1 * shifted[1]
+  w[0] = (lh + lb0) * shifted[0] + lb1 * shifted[1];
+
+  // write_data[1] = shifted[1] * is_loadh + (is_loadb0 + is_loadb1) * limb_mask
+  w[1] = shifted[1] * lh + (lb0 + lb1) * limbMask;
+
+  // write_data[2..3] = limb_mask
+  w[2] = limbMask;
+  w[3] = limbMask;
+
+  return w;
+}
+
+// Compute expected write_data for the "before/after" display using standard RISC-V semantics
+function computeExpectedResult() {
+  var isByte = (opType === 'LB');
+  var shift = shiftAmount;
+  var w = [0, 0, 0, 0];
+
+  if (isByte) {
+    w[0] = readData[shift];
+    var sign = (w[0] >> 7) & 1;
+    var ext = sign ? 0xFF : 0x00;
+    w[1] = ext;
+    w[2] = ext;
+    w[3] = ext;
+  } else {
+    w[0] = readData[shift];
+    w[1] = readData[shift + 1];
+    var sign = (w[1] >> 7) & 1;
+    var ext = sign ? 0xFF : 0x00;
+    w[2] = ext;
+    w[3] = ext;
+  }
+  return w;
+}
+
+// Evaluate all constraints (returns object with residuals)
+function evalConstraints() {
+  var shifted = editedShiftedReadData;
+  var dataMsb = editedDataMsb;
+  var shiftMsb = editedShiftMsb;
+  var lb0 = is_loadb0;
+  var lb1 = is_loadb1;
+  var lh = is_loadh;
+
+  var results = {};
+
+  // C1: Flag booleans (flags are derived from UI, always correct)
+  results.c1_lb0 = mod(lb0 * (1 - lb0), P);
+  results.c1_lb1 = mod(lb1 * (1 - lb1), P);
+  results.c1_lh = mod(lh * (1 - lh), P);
+
+  // C2: is_valid boolean
+  var isValid = lb0 + lb1 + lh;
+  results.c2 = mod(isValid * (1 - isValid), P);
+
+  // C3: data_most_sig_bit boolean
+  results.c3 = mod(dataMsb * (1 - dataMsb), P);
+
+  // C4: shift_most_sig_bit boolean
+  results.c4 = mod(shiftMsb * (1 - shiftMsb), P);
+
+  // C5: write_data[0]
+  var w = computeWriteData(shifted, dataMsb, lb0, lb1, lh);
+  var expected = computeExpectedResult();
+  results.c5 = mod(w[0] - expected[0], P);
+
+  // C6: write_data[1]
+  results.c6 = mod(w[1] - expected[1], P);
+
+  // C7a: write_data[2]
+  results.c7a = mod(w[2] - expected[2], P);
+
+  // C7b: write_data[3]
+  results.c7b = mod(w[3] - expected[3], P);
+
+  // C8: MSB range check
+  // most_sig_limb = shifted[0]*lb0 + shifted[1]*lb1 + shifted[NUM_CELLS/2-1]*lh
+  // NUM_CELLS/2 - 1 = 1
+  var mostSigLimb = shifted[0] * lb0 + shifted[1] * lb1 + shifted[1] * lh;
+  var rangeVal = mostSigLimb - dataMsb * 128;
+  results.c8_rangeVal = rangeVal;
+  results.c8 = (rangeVal >= 0 && rangeVal <= 127) ? 0 : 1;
+
+  return results;
+}
+
+// Check if any edited values differ from clean
+function hasEdits() {
+  for (var i = 0; i < 4; i++) {
+    if (editedShiftedReadData[i] !== cleanShiftedReadData[i]) return true;
+  }
+  if (editedDataMsb !== cleanDataMsb) return true;
+  if (editedShiftMsb !== cleanShiftMsb) return true;
+  return false;
+}
+
+// --- Render Functions ---
+
+function renderMemoryGrid() {
+  var container = document.getElementById('read-data-grid');
+  var html = '';
+  for (var i = 0; i < 4; i++) {
+    html += '<div class="byte-cell">';
+    html += '<span class="byte-label">Byte ' + i + '</span>';
+    html += '<input class="byte-input" type="text" maxlength="4" value="' + hex(readData[i]) + '" data-idx="' + i + '">';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+
+  // Attach event listeners
+  var inputs = container.querySelectorAll('.byte-input');
+  for (var j = 0; j < inputs.length; j++) {
+    inputs[j].addEventListener('change', function() {
+      var idx = parseInt(this.getAttribute('data-idx'));
+      readData[idx] = parseByteHex(this.value);
+      this.value = hex(readData[idx]);
+      recompute();
+    });
+  }
+}
+
+function renderSignExtVisual() {
+  var container = document.getElementById('sign-ext-visual');
+  var title = document.getElementById('sign-ext-title');
+  var hint = document.getElementById('sign-ext-hint');
+  var isByte = (opType === 'LB');
+  var shift = shiftAmount;
+
+  title.textContent = 'Sign Extension Visualization (' + opType + ', shift=' + shift + ')';
+
+  var expected = computeExpectedResult();
+  var msb = isByte ? ((readData[shift] >> 7) & 1) : ((readData[shift + 1] >> 7) & 1);
+  var signFill = msb ? '0xFF' : '0x00';
+
+  var html = '';
+
+  // Source bytes from memory
+  html += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">';
+  html += '<div style="display:flex;flex-direction:column;gap:4px;">';
+  html += '<span style="font-size:10px;color:var(--text-dim);">read_data</span>';
+  html += '<div class="byte-grid">';
+  for (var i = 0; i < 4; i++) {
+    var isSelected = false;
+    if (isByte) {
+      isSelected = (i === shift);
+    } else {
+      isSelected = (i === shift || i === shift + 1);
+    }
+    var cls = isSelected ? 'selected' : 'dim';
+    html += '<div class="byte-cell"><span class="byte-label">Byte ' + i + '</span>';
+    html += '<div class="byte-val ' + cls + '">' + hex(readData[i]) + '</div></div>';
+  }
+  html += '</div></div>';
+
+  html += '<span style="font-size:20px;color:var(--text-dim);margin-top:16px;">&#8594;</span>';
+
+  // Result with sign extension highlighted
+  html += '<div style="display:flex;flex-direction:column;gap:4px;">';
+  html += '<span style="font-size:10px;color:var(--text-dim);">write_data (sign-extended)</span>';
+  html += '<div class="byte-grid">';
+  for (var i = 0; i < 4; i++) {
+    var isData = isByte ? (i === 0) : (i < 2);
+    var cls = isData ? 'selected' : 'sign-fill';
+    html += '<div class="byte-cell"><span class="byte-label">Byte ' + i + '</span>';
+    html += '<div class="byte-val ' + cls + '">' + hex(expected[i]) + '</div></div>';
+  }
+  html += '</div></div>';
+
+  html += '</div>';
+
+  // MSB annotation
+  var targetByte = isByte ? readData[shift] : readData[shift + 1];
+  html += '<div style="font-size:12px;margin-top:4px;">';
+  html += 'MSB of ' + (isByte ? 'byte' : 'upper halfword byte') + ' ';
+  html += '<span style="color:var(--accent);font-weight:700;">' + hex(targetByte) + '</span>';
+  html += ' = <span style="color:' + (msb ? 'var(--red)' : 'var(--green)') + ';font-weight:700;">' + msb + '</span>';
+  html += ' &#8594; sign fill = <span style="color:var(--yellow);font-weight:700;">' + signFill + '</span>';
+  if (msb) {
+    html += ' <span style="font-size:10px;color:var(--red);">(negative in two\'s complement)</span>';
+  } else {
+    html += ' <span style="font-size:10px;color:var(--green);">(positive)</span>';
+  }
+  html += '</div>';
+
+  // Binary breakdown of the target byte
+  html += '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;">';
+  html += hex(targetByte) + ' = ';
+  var binStr = targetByte.toString(2).padStart(8, '0');
+  html += '<span style="color:' + (msb ? 'var(--red)' : 'var(--green)') + ';font-weight:700;">' + binStr[0] + '</span>';
+  html += '<span style="color:var(--text-dim);">' + binStr.substring(1) + '</span>';
+  html += '<sub style="font-size:9px;">2</sub>';
+  html += ' (MSB highlighted)';
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function renderBeforeAfter() {
+  var container = document.getElementById('before-after-block');
+  var expected = computeExpectedResult();
+  var isByte = (opType === 'LB');
+  var shift = shiftAmount;
+
+  // Unsigned value (what LBU/LHU would give)
+  var unsignedVal;
+  if (isByte) {
+    unsignedVal = readData[shift];
+  } else {
+    unsignedVal = readData[shift] | (readData[shift + 1] << 8);
+  }
+
+  // Signed value from sign-extended result
+  var signedVal = expected[0] | (expected[1] << 8) | (expected[2] << 16) | ((expected[3] << 24) >>> 0);
+  signedVal = signedVal | 0; // Convert to signed 32-bit
+
+  var html = '';
+  html += '<div><span class="sum-label">Unsigned (' + (isByte ? 'LBU' : 'LHU') + '):</span>';
+  html += '<span class="sum-val">' + unsignedVal + '</span>';
+  html += '<span class="sum-hex"> (0x' + unsignedVal.toString(16).toUpperCase().padStart(isByte ? 2 : 4, '0') + ')</span></div>';
+
+  html += '<div><span class="sum-label">Signed (' + opType + '):</span>';
+  html += '<span class="sum-val" style="color:' + (signedVal < 0 ? 'var(--red)' : 'var(--green)') + ';">' + signedVal + '</span>';
+  html += '<span class="sum-hex"> (0x' + (signedVal >>> 0).toString(16).toUpperCase().padStart(8, '0') + ')</span>';
+  html += ' <span class="sum-op">' + opType + '</span></div>';
+
+  html += '<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">';
+  html += 'write_data = [' + expected.map(hex).join(', ') + ']';
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function renderFlagDisplay() {
+  var container = document.getElementById('flag-display');
+  var html = '';
+
+  html += '<div class="flag-row"><span class="flag-label">Opcode Flags:</span>';
+  var flags = [
+    {name: 'loadb_flag0', val: is_loadb0},
+    {name: 'loadb_flag1', val: is_loadb1},
+    {name: 'loadh_flag', val: is_loadh}
+  ];
+  for (var i = 0; i < flags.length; i++) {
+    var f = flags[i];
+    html += '<span class="flag-chip ' + (f.val ? 'flag-on' : 'flag-off') + '">' + f.name + '=' + f.val + '</span>';
+  }
+  html += '</div>';
+
+  html += '<div class="flag-row"><span class="flag-label">Bit Columns:</span>';
+  html += '<span class="flag-chip ' + (editedDataMsb ? 'flag-on' : 'flag-off') + '">data_msb=' + editedDataMsb + '</span>';
+  html += '<span class="flag-chip ' + (editedShiftMsb ? 'flag-on' : 'flag-off') + '">shift_msb=' + editedShiftMsb + '</span>';
+  html += '</div>';
+
+  html += '<div class="flag-row"><span class="flag-label">Derived:</span>';
+  var limbMask = editedDataMsb * 255;
+  html += '<span class="flag-chip" style="background:var(--yellow-dim);color:var(--yellow);">limb_mask=' + limbMask + ' (' + hex(limbMask) + ')</span>';
+  var loadShiftAmount = editedShiftMsb * 2 + is_loadb1;
+  html += '<span class="flag-chip" style="background:var(--surface2);color:var(--text-dim);">load_shift_amount=' + loadShiftAmount + '</span>';
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+function renderWitnessTable() {
+  var table = document.getElementById('witness-table');
+
+  var html = '<thead>';
+  html += '<tr>';
+  html += '<th class="group-header" colspan="1"></th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="4">shifted_read_data (editable)</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="2">Bit Columns (editable)</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="4">prev_data (not constrained in core)</th>';
+  html += '</tr>';
+  html += '<tr>';
+  html += '<th>Col</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>s[0]</th><th>s[1]</th><th>s[2]</th><th>s[3]</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>data_msb</th><th>shift_msb</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>p[0]</th><th>p[1]</th><th>p[2]</th><th>p[3]</th>';
+  html += '</tr>';
+  html += '</thead><tbody>';
+
+  html += '<tr>';
+  html += '<td class="col-row">0</td>';
+  html += '<td class="col-sep"></td>';
+
+  // shifted_read_data (editable)
+  for (var i = 0; i < 4; i++) {
+    var isModified = editedShiftedReadData[i] !== cleanShiftedReadData[i];
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (isModified ? ' modified' : '') + '" value="' + editedShiftedReadData[i] + '" data-col="shifted" data-idx="' + i + '"></td>';
+  }
+
+  html += '<td class="col-sep"></td>';
+
+  // data_msb (editable)
+  var dmModified = editedDataMsb !== cleanDataMsb;
+  html += '<td class="col-trace"><input type="number" class="cell-input' + (dmModified ? ' modified' : '') + '" value="' + editedDataMsb + '" data-col="data_msb" data-idx="0"></td>';
+
+  // shift_msb (editable)
+  var smModified = editedShiftMsb !== cleanShiftMsb;
+  html += '<td class="col-trace"><input type="number" class="cell-input' + (smModified ? ' modified' : '') + '" value="' + editedShiftMsb + '" data-col="shift_msb" data-idx="0"></td>';
+
+  html += '<td class="col-sep"></td>';
+
+  // prev_data (read-only, not constrained in core AIR)
+  for (var i = 0; i < 4; i++) {
+    html += '<td style="color:var(--text-dim);">' + readData[i] + '</td>';
+  }
+
+  html += '</tr>';
+  html += '</tbody>';
+  table.innerHTML = html;
+
+  // Attach event listeners for editable cells
+  var inputs = table.querySelectorAll('.cell-input');
+  for (var j = 0; j < inputs.length; j++) {
+    inputs[j].addEventListener('change', function() {
+      var col = this.getAttribute('data-col');
+      var idx = parseInt(this.getAttribute('data-idx'));
+      var val = parseInt(this.value) || 0;
+      if (col === 'shifted') {
+        editedShiftedReadData[idx] = val;
+      } else if (col === 'data_msb') {
+        editedDataMsb = val;
+      } else if (col === 'shift_msb') {
+        editedShiftMsb = val;
+      }
+      render();
+    });
+  }
+}
+
+function renderConstraintTable() {
+  var table = document.getElementById('constraint-table');
+  var results = evalConstraints();
+
+  var constraints = [
+    {id: 'C1a', desc: 'loadb_flag0 boolean', val: results.c1_lb0},
+    {id: 'C1b', desc: 'loadb_flag1 boolean', val: results.c1_lb1},
+    {id: 'C1c', desc: 'loadh_flag boolean', val: results.c1_lh},
+    {id: 'C2', desc: 'is_valid boolean (exactly one flag)', val: results.c2},
+    {id: 'C3', desc: 'data_most_sig_bit boolean', val: results.c3},
+    {id: 'C4', desc: 'shift_most_sig_bit boolean', val: results.c4},
+    {id: 'C5', desc: 'write_data[0] construction', val: results.c5},
+    {id: 'C6', desc: 'write_data[1] construction', val: results.c6},
+    {id: 'C7a', desc: 'write_data[2] = limb_mask', val: results.c7a},
+    {id: 'C7b', desc: 'write_data[3] = limb_mask', val: results.c7b},
+    {id: 'C8', desc: 'MSB 7-bit range check (val=' + results.c8_rangeVal + ')', val: results.c8}
+  ];
+
+  var html = '<thead><tr>';
+  html += '<th>ID</th><th>Description</th><th>Residual</th><th>Status</th>';
+  html += '</tr></thead><tbody>';
+
+  var passCount = 0;
+  var failCount = 0;
+
+  for (var i = 0; i < constraints.length; i++) {
+    var c = constraints[i];
+    var pass = (c.val === 0);
+    if (pass) passCount++; else failCount++;
+
+    html += '<tr' + (!pass ? ' class="affected-row"' : '') + '>';
+    html += '<td style="color:var(--accent);font-weight:700;">' + c.id + '</td>';
+    html += '<td style="text-align:left;font-size:11px;">' + c.desc + '</td>';
+
+    if (pass) {
+      html += '<td class="c-pass">0</td>';
+      html += '<td class="c-pass">PASS</td>';
+    } else {
+      html += '<td class="c-fail">' + c.val + '</td>';
+      html += '<td class="c-fail">FAIL</td>';
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  table.innerHTML = html;
+
+  // Update sidebar count
+  document.getElementById('active-constraint-count').textContent = passCount + '/' + constraints.length + ' pass';
+  if (failCount > 0) {
+    document.getElementById('active-constraint-count').style.color = 'var(--red)';
+  } else {
+    document.getElementById('active-constraint-count').style.color = 'var(--green)';
+  }
+
+  // Update sidebar constraint list coloring
+  var sidebarItems = document.querySelectorAll('#constraint-sidebar-list li');
+  // Map sidebar items to constraint groups
+  var sidebarStatus = [
+    results.c1_lb0 === 0 && results.c1_lb1 === 0 && results.c1_lh === 0,  // C1
+    results.c2 === 0,          // C2
+    results.c3 === 0,          // C3
+    results.c4 === 0,          // C4
+    results.c5 === 0,          // C5
+    results.c6 === 0,          // C6
+    results.c7a === 0 && results.c7b === 0, // C7
+    results.c8 === 0           // C8
+  ];
+  for (var i = 0; i < sidebarItems.length && i < sidebarStatus.length; i++) {
+    if (sidebarStatus[i]) {
+      sidebarItems[i].style.borderLeftColor = 'var(--green)';
+    } else {
+      sidebarItems[i].style.borderLeftColor = 'var(--red)';
+    }
+  }
+}
+
+function updateShiftOptions() {
+  var maxShift = getMaxShift(opType);
+  var sel = document.getElementById('inp-shift');
+  for (var i = 0; i < sel.options.length; i++) {
+    var v = parseInt(sel.options[i].value);
+    // LH: only 0 and 2 allowed (alignment)
+    if (opType === 'LH') {
+      sel.options[i].disabled = (v !== 0 && v !== 2);
+    } else {
+      sel.options[i].disabled = false;
+    }
+  }
+  if (opType === 'LH' && shiftAmount !== 0 && shiftAmount !== 2) {
+    shiftAmount = 0;
+    sel.value = '0';
+  }
+}
+
+function render() {
+  renderFlagDisplay();
+  renderWitnessTable();
+  renderConstraintTable();
+
+  // Update reset button
+  var edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+}
+
+function recompute() {
+  opType = getOp();
+  shiftAmount = parseInt(document.getElementById('inp-shift').value);
+
+  updateShiftOptions();
+  // Re-read shift in case it was clamped
+  shiftAmount = parseInt(document.getElementById('inp-shift').value);
+
+  computeWitness();
+  renderMemoryGrid();
+  renderSignExtVisual();
+  renderBeforeAfter();
+  render();
+}
+
+function resetAll() {
+  readData = [0x85, 0xCD, 0x3F, 0x12];
+  document.getElementById('inp-shift').value = '0';
+  document.querySelector('input[name="op"][value="LB"]').checked = true;
+  recompute();
+}
+
+// --- Event Listeners ---
+var opRadios = document.querySelectorAll('input[name="op"]');
+for (var i = 0; i < opRadios.length; i++) {
+  opRadios[i].addEventListener('change', recompute);
+}
+document.getElementById('inp-shift').addEventListener('change', recompute);
+
+// Initial render
+recompute();
+</script>
+</body>
+</html>

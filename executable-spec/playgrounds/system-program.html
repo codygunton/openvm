@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System: Program Bus (Instruction ROM)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .concept {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+
+  .concept-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .concept p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .concept strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 70px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-lookup { background: var(--purple-dim); color: var(--purple); }
+  .sel-preproc { background: var(--cyan-dim); color: var(--cyan); }
+  .sel-bus { background: var(--orange-dim); color: var(--orange); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section {
+    margin-bottom: 32px;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .cell-select {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    border-radius: 3px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+
+  .cell-select:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-select.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  /* --- Freq bar --- */
+  .freq-bar-bg {
+    background: var(--surface2);
+    border-radius: 3px;
+    height: 18px;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    min-width: 60px;
+  }
+
+  .freq-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.2s;
+  }
+
+  .freq-bar-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  /* --- Badges --- */
+  .badge-send { background: var(--green-dim); color: var(--green); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-key { background: var(--purple-dim); color: var(--purple); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+
+  .match-ok { color: var(--green); }
+  .match-fail { color: var(--red); font-weight: 700; }
+
+  .balance-ok {
+    color: var(--green);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--green-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .balance-fail {
+    color: var(--red);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--red-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  /* --- What-if toggle --- */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .toggle-label {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  .toggle-switch.active {
+    background: var(--red-dim);
+    border-color: var(--red);
+  }
+
+  .toggle-switch .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: left 0.2s, background 0.2s;
+  }
+
+  .toggle-switch.active .toggle-knob {
+    left: 18px;
+    background: var(--red);
+  }
+
+  /* --- Execution step list --- */
+  .exec-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 11px;
+  }
+
+  .exec-step.fail {
+    border-color: var(--red);
+    background: var(--red-dim);
+  }
+
+  .exec-step .step-num {
+    color: var(--text-dim);
+    width: 30px;
+    flex-shrink: 0;
+    font-size: 10px;
+  }
+
+  .exec-step .step-tuple {
+    color: var(--accent);
+    font-weight: 600;
+    flex: 1;
+  }
+
+  .exec-step .step-status {
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .exec-arrow {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 16px;
+    margin: 2px 0;
+  }
+
+  /* --- Removed row styling --- */
+  .row-removed td {
+    text-decoration: line-through;
+    opacity: 0.4;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>System: Program Bus</h1>
+    <div class="intro">
+      The <strong>ProgramAir</strong> implements the <strong>instruction ROM</strong> of the VM.
+      It publishes every instruction in the compiled program as a lookup table on the
+      <strong>ProgramBus</strong>. When an instruction chip executes an instruction, it performs
+      a <strong>lookup</strong> against this table to prove it is executing a valid instruction
+      at the correct PC with the correct operands. This prevents the prover from executing
+      unauthorized instructions.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Key Concepts</div>
+
+      <div class="concept">
+        <div class="concept-title">Instruction ROM (Preprocessed Trace)</div>
+        <p>
+          The program is a <strong>fixed table</strong> committed at verifying key generation time.
+          Each row holds one instruction: <strong>(pc, opcode, a, b, c, d, e, f, g)</strong>.
+          These 9 columns form the <strong>cached (preprocessed) trace</strong>.
+          The only runtime column is <strong>exec_freq</strong>.
+        </p>
+      </div>
+
+      <div class="concept">
+        <div class="concept-title">LookupBus Mechanism</div>
+        <p>
+          The ProgramBus is a <strong>LookupBus</strong>. The ProgramAir adds each instruction
+          as a <strong>key</strong> with multiplicity = <strong>exec_freq</strong>. Instruction chips
+          call <strong>lookup_key()</strong> to consume one execution. If total lookups do not match
+          total exec_freq for every instruction, verification fails.
+        </p>
+      </div>
+
+      <div class="concept">
+        <div class="concept-title">Partitioned AIR</div>
+        <p>
+          The ProgramAir uses <strong>PartitionedBaseAir</strong>: the 9 instruction columns are
+          <strong>cached main</strong> (committed once, reused), while <strong>exec_freq</strong>
+          is the <strong>common main</strong> (varies per execution). Total width = 10 columns.
+        </p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Controls</div>
+      <div class="control-row">
+        <label>Program</label>
+        <select id="inp-preset" onchange="loadPreset()">
+          <option value="count" selected>Count to 10</option>
+          <option value="sum">Sum loop</option>
+          <option value="linear">Linear (no loop)</option>
+        </select>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Cached (preprocessed)</span><span class="val">9 cols</span></div>
+      <div class="stat-row"><span class="label">Common (runtime)</span><span class="val">1 col (exec_freq)</span></div>
+      <div class="stat-row"><span class="label">Total width</span><span class="val">10 cols</span></div>
+      <div class="stat-row"><span class="label">Polynomial constraints</span><span class="val">0</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val dynamic">1 (add_key_with_lookups)</span></div>
+      <div class="stat-row"><span class="label">Instruction count</span><span class="val dynamic" id="stat-instr">5</span></div>
+      <div class="stat-row"><span class="label">Total exec_freq</span><span class="val dynamic" id="stat-total-freq">0</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">B1</span> <span class="c-desc">Bus key publication</span>
+          <span class="c-formula">add_key_with_lookups(key=[pc, opcode, a..g], mult=exec_freq)</span>
+          <span class="c-sel sel-bus">program bus</span>
+        </li>
+        <li>
+          <span class="c-id">B2</span> <span class="c-desc">Lookup balance</span>
+          <span class="c-formula">For each instruction: sum of lookups from all chips = exec_freq</span>
+          <span class="c-sel sel-lookup">lookup</span>
+        </li>
+        <li>
+          <span class="c-id">P1</span> <span class="c-desc">Preprocessed commitment</span>
+          <span class="c-formula">Instruction columns are committed in VK; prover cannot modify them</span>
+          <span class="c-sel sel-preproc">preprocessed</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Section 1: Instruction Table -->
+    <div class="main-section">
+      <h2>Instruction Table (Program ROM)</h2>
+      <div class="hint">
+        Each row is one instruction in the compiled program. The <strong>exec_freq</strong> column
+        shows how many times the instruction is executed. Edit any cell to explore.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+        The instruction columns (PC through g) are <strong>preprocessed</strong> &mdash; fixed at
+        VK generation time.
+      </div>
+      <div class="trace-wrapper">
+        <table id="instr-table"></table>
+      </div>
+    </div>
+
+    <!-- Section 2: Execution Frequency Visualization -->
+    <div class="main-section">
+      <h2>Execution Frequency</h2>
+      <div class="hint">
+        Bar chart showing how many times each instruction executes.
+        Instructions inside loops have higher frequency. Padding rows have freq=0.
+      </div>
+      <div id="freq-chart"></div>
+    </div>
+
+    <!-- Section 3: Bus Lookup Ledger -->
+    <div class="main-section">
+      <h2>Bus Lookup Ledger</h2>
+      <div class="hint">
+        Each execution step sends a <span class="g">lookup</span> to the program bus.
+        The instruction table <strong>publishes</strong> each key with multiplicity = exec_freq.
+        The bus balances when total lookups = total published for every instruction tuple.
+      </div>
+      <div class="trace-wrapper">
+        <table id="bus-table"></table>
+      </div>
+      <div id="bus-balance"></div>
+    </div>
+
+    <!-- Section 4: What If -->
+    <div class="main-section">
+      <h2>What If: Remove an Instruction</h2>
+      <div class="hint">
+        Toggle a row off to simulate removing it from the ROM.
+        If the execution trace still references that instruction, the bus
+        lookup will <span class="r">fail</span> &mdash; the prover tried to execute
+        an instruction not in the program.
+      </div>
+      <div id="whatif-controls"></div>
+      <div id="whatif-result"></div>
+    </div>
+
+    <!-- Section 5: Constraint Evaluation -->
+    <div class="main-section">
+      <h2>Constraint Evaluation</h2>
+      <div class="hint">
+        Overall status of the ProgramAir constraints.
+        <span class="g">Pass</span> = all bus interactions balance.
+        <span class="r">Fail</span> = mismatch detected.
+      </div>
+      <div id="constraint-eval"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// Opcode constants (simplified for the playground)
+// ============================================================
+var OPCODES = {
+  LOAD_IMM:  { name: 'LOAD_IMM',  code: 0x10 },
+  ADD:       { name: 'ADD',        code: 0x20 },
+  SUB:       { name: 'SUB',        code: 0x21 },
+  BNE:       { name: 'BNE',        code: 0x30 },
+  TERMINATE: { name: 'TERMINATE',  code: 0x00 },
+};
+
+// ============================================================
+// Presets: each is an array of {pc, opcode, a, b, c, d, e, f, g, exec_freq}
+// ============================================================
+var PRESETS = {
+  count: {
+    desc: 'Count from 1 to 10: loop body executes 10 times',
+    instructions: [
+      { pc: 0,  opcode: 'LOAD_IMM',  a: 1, b: 0, c: 10, d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 4,  opcode: 'LOAD_IMM',  a: 2, b: 0, c: 1,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 8,  opcode: 'ADD',       a: 1, b: 1, c: 2,  d: 0, e: 0, f: 0, g: 0, exec_freq: 10 },
+      { pc: 12, opcode: 'BNE',       a: 1, b: 3, c: -4, d: 0, e: 0, f: 0, g: 0, exec_freq: 10 },
+      { pc: 16, opcode: 'TERMINATE', a: 0, b: 0, c: 0,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+    ],
+  },
+  sum: {
+    desc: 'Sum 1..5: accumulate in a loop',
+    instructions: [
+      { pc: 0,  opcode: 'LOAD_IMM',  a: 1, b: 0, c: 0,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 4,  opcode: 'LOAD_IMM',  a: 2, b: 0, c: 1,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 8,  opcode: 'ADD',       a: 1, b: 1, c: 2,  d: 0, e: 0, f: 0, g: 0, exec_freq: 5 },
+      { pc: 12, opcode: 'ADD',       a: 2, b: 2, c: 2,  d: 0, e: 0, f: 0, g: 0, exec_freq: 5 },
+      { pc: 16, opcode: 'BNE',       a: 2, b: 3, c: -8, d: 0, e: 0, f: 0, g: 0, exec_freq: 5 },
+      { pc: 20, opcode: 'TERMINATE', a: 0, b: 0, c: 0,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+    ],
+  },
+  linear: {
+    desc: 'Linear: no loops, each instruction executes once',
+    instructions: [
+      { pc: 0,  opcode: 'LOAD_IMM',  a: 1, b: 0, c: 42, d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 4,  opcode: 'LOAD_IMM',  a: 2, b: 0, c: 7,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 8,  opcode: 'ADD',       a: 3, b: 1, c: 2,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 12, opcode: 'SUB',       a: 4, b: 1, c: 2,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+      { pc: 16, opcode: 'TERMINATE', a: 0, b: 0, c: 0,  d: 0, e: 0, f: 0, g: 0, exec_freq: 1 },
+    ],
+  },
+};
+
+var OPCODE_LIST = ['LOAD_IMM', 'ADD', 'SUB', 'BNE', 'TERMINATE'];
+var OPERAND_FIELDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+
+// ============================================================
+// State
+// ============================================================
+var cleanInstr = [];
+var instr = [];
+var removedRows = {};  // index -> true if "removed" via what-if
+
+// ============================================================
+// Preset loading
+// ============================================================
+function loadPreset() {
+  var key = document.getElementById('inp-preset').value;
+  var preset = PRESETS[key];
+  cleanInstr = preset.instructions.map(function(r) { return copyRow(r); });
+  instr = preset.instructions.map(function(r) { return copyRow(r); });
+  removedRows = {};
+  renderAll();
+}
+
+function copyRow(r) {
+  return {
+    pc: r.pc, opcode: r.opcode,
+    a: r.a, b: r.b, c: r.c, d: r.d, e: r.e, f: r.f, g: r.g,
+    exec_freq: r.exec_freq
+  };
+}
+
+function resetAll() {
+  instr = cleanInstr.map(function(r) { return copyRow(r); });
+  removedRows = {};
+  renderAll();
+}
+
+// ============================================================
+// Edit handlers
+// ============================================================
+function onFieldEdit(idx, field, value) {
+  instr[idx][field] = parseInt(value) || 0;
+  renderAll();
+}
+
+function onOpcodeEdit(idx, value) {
+  instr[idx].opcode = value;
+  renderAll();
+}
+
+function onFreqEdit(idx, value) {
+  instr[idx].exec_freq = Math.max(0, parseInt(value) || 0);
+  renderAll();
+}
+
+function toggleRemoveRow(idx) {
+  if (removedRows[idx]) {
+    delete removedRows[idx];
+  } else {
+    removedRows[idx] = true;
+  }
+  renderAll();
+}
+
+// ============================================================
+// Has edits?
+// ============================================================
+function hasEdits() {
+  if (instr.length !== cleanInstr.length) return true;
+  for (var i = 0; i < instr.length; i++) {
+    var a = instr[i], b = cleanInstr[i];
+    if (a.pc !== b.pc || a.opcode !== b.opcode || a.exec_freq !== b.exec_freq) return true;
+    for (var k = 0; k < OPERAND_FIELDS.length; k++) {
+      if (a[OPERAND_FIELDS[k]] !== b[OPERAND_FIELDS[k]]) return true;
+    }
+  }
+  if (Object.keys(removedRows).length > 0) return true;
+  return false;
+}
+
+// ============================================================
+// Compute execution trace from frequencies
+// ============================================================
+function buildExecSteps() {
+  var steps = [];
+  for (var i = 0; i < instr.length; i++) {
+    var row = instr[i];
+    for (var f = 0; f < row.exec_freq; f++) {
+      steps.push({
+        instrIdx: i,
+        pc: row.pc,
+        opcode: row.opcode,
+        a: row.a, b: row.b, c: row.c, d: row.d, e: row.e, f: row.f, g: row.g,
+      });
+    }
+  }
+  return steps;
+}
+
+// ============================================================
+// Check bus balance
+// ============================================================
+function checkBusBalance() {
+  // For each instruction, the "published" multiplicity is exec_freq (if not removed)
+  // The "consumed" multiplicity is the number of execution steps referencing that instruction
+  // In our model, consumed = exec_freq always (since exec steps are derived from freq)
+  // But if a row is "removed" via what-if, published = 0 while consumed = exec_freq
+
+  var results = [];
+  for (var i = 0; i < instr.length; i++) {
+    var row = instr[i];
+    var published = removedRows[i] ? 0 : row.exec_freq;
+    var consumed = row.exec_freq;
+    results.push({
+      instrIdx: i,
+      pc: row.pc,
+      opcode: row.opcode,
+      published: published,
+      consumed: consumed,
+      balanced: published === consumed,
+    });
+  }
+  return results;
+}
+
+// ============================================================
+// Render all sections
+// ============================================================
+function renderAll() {
+  var edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  var totalFreq = 0;
+  for (var i = 0; i < instr.length; i++) totalFreq += instr[i].exec_freq;
+
+  document.getElementById('stat-instr').textContent = instr.length;
+  document.getElementById('stat-total-freq').textContent = totalFreq;
+
+  renderInstrTable();
+  renderFreqChart();
+  renderBusTable();
+  renderWhatIf();
+  renderConstraintEval();
+}
+
+// ============================================================
+// Render: Instruction Table
+// ============================================================
+function renderInstrTable() {
+  var html = '<thead>';
+  html += '<tr>';
+  html += '<th class="group-header" colspan="1"></th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="9">Cached Main (Preprocessed)</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="1">Common Main</th>';
+  html += '</tr>';
+  html += '<tr>';
+  html += '<th>Row</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>PC</th><th>Opcode</th>';
+  html += '<th>a</th><th>b</th><th>c</th><th>d</th><th>e</th><th>f</th><th>g</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>exec_freq</th>';
+  html += '</tr>';
+  html += '</thead><tbody>';
+
+  for (var i = 0; i < instr.length; i++) {
+    var row = instr[i];
+    var clean = cleanInstr[i] || null;
+    var isRemoved = !!removedRows[i];
+
+    html += '<tr' + (isRemoved ? ' class="row-removed"' : '') + '>';
+    html += '<td style="color:var(--text-dim);font-size:11px">' + i + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    // PC
+    var pcMod = clean && row.pc !== clean.pc;
+    html += '<td><input type="number" class="cell-input' + (pcMod ? ' modified' : '') + '" value="' + row.pc + '" onchange="onFieldEdit(' + i + ',\'pc\',this.value)" style="width:50px"></td>';
+
+    // Opcode
+    var opMod = clean && row.opcode !== clean.opcode;
+    html += '<td><select class="cell-select' + (opMod ? ' modified' : '') + '" onchange="onOpcodeEdit(' + i + ',this.value)">';
+    for (var j = 0; j < OPCODE_LIST.length; j++) {
+      var op = OPCODE_LIST[j];
+      html += '<option value="' + op + '"' + (op === row.opcode ? ' selected' : '') + '>' + op + '</option>';
+    }
+    html += '</select></td>';
+
+    // Operands a..g
+    for (var k = 0; k < OPERAND_FIELDS.length; k++) {
+      var fld = OPERAND_FIELDS[k];
+      var valMod = clean && row[fld] !== clean[fld];
+      html += '<td><input type="number" class="cell-input' + (valMod ? ' modified' : '') + '" value="' + row[fld] + '" onchange="onFieldEdit(' + i + ',\'' + fld + '\',this.value)" style="width:45px"></td>';
+    }
+
+    html += '<td class="col-sep"></td>';
+
+    // exec_freq
+    var freqMod = clean && row.exec_freq !== clean.exec_freq;
+    html += '<td><input type="number" class="cell-input' + (freqMod ? ' modified' : '') + '" value="' + row.exec_freq + '" onchange="onFreqEdit(' + i + ',this.value)" style="width:50px" min="0"></td>';
+
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('instr-table').innerHTML = html;
+}
+
+// ============================================================
+// Render: Frequency chart
+// ============================================================
+function renderFreqChart() {
+  var maxFreq = 1;
+  for (var i = 0; i < instr.length; i++) {
+    if (instr[i].exec_freq > maxFreq) maxFreq = instr[i].exec_freq;
+  }
+
+  var html = '<table><thead><tr>';
+  html += '<th>Row</th><th>PC</th><th>Opcode</th><th>exec_freq</th><th style="min-width:200px">Frequency</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < instr.length; i++) {
+    var row = instr[i];
+    var pct = maxFreq > 0 ? (row.exec_freq / maxFreq * 100) : 0;
+    var color = row.exec_freq === 0 ? 'var(--border)'
+      : row.exec_freq === 1 ? 'var(--accent)'
+      : row.exec_freq <= 5 ? 'var(--cyan)'
+      : 'var(--green)';
+
+    html += '<tr>';
+    html += '<td style="color:var(--text-dim);font-size:11px">' + i + '</td>';
+    html += '<td>' + row.pc + '</td>';
+    html += '<td style="font-size:11px">' + row.opcode + '</td>';
+    html += '<td style="font-weight:600">' + row.exec_freq + '</td>';
+    html += '<td><div class="freq-bar-bg"><div class="freq-bar-fill" style="width:' + pct + '%;background:' + color + '"></div>';
+    html += '<div class="freq-bar-label">' + row.exec_freq + 'x</div></div></td>';
+    html += '</tr>';
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('freq-chart').innerHTML = html;
+}
+
+// ============================================================
+// Render: Bus lookup table
+// ============================================================
+function renderBusTable() {
+  var balance = checkBusBalance();
+
+  var html = '<thead><tr>';
+  html += '<th>Row</th><th>Key Tuple</th><th>Published (ROM)</th><th>Consumed (Exec)</th><th>Status</th>';
+  html += '</tr></thead><tbody>';
+
+  var allBalanced = true;
+  for (var i = 0; i < balance.length; i++) {
+    var b = balance[i];
+    if (!b.balanced) allBalanced = false;
+
+    var tupleStr = '(' + instr[i].pc + ', ' + instr[i].opcode + ', ' + instr[i].a + ', ' + instr[i].b + ', ' + instr[i].c + ', ...)';
+
+    html += '<tr' + (!b.balanced ? ' class="affected-row"' : '') + '>';
+    html += '<td style="color:var(--text-dim);font-size:11px">' + i + '</td>';
+    html += '<td style="font-size:11px;text-align:left"><span class="badge-key">key</span> ' + tupleStr + '</td>';
+    html += '<td style="font-weight:600' + (removedRows[i] ? ';color:var(--red)' : '') + '">' + b.published + '</td>';
+    html += '<td style="font-weight:600">' + b.consumed + '</td>';
+
+    if (b.balanced) {
+      html += '<td class="match-ok">Balanced</td>';
+    } else {
+      var diff = b.consumed - b.published;
+      html += '<td class="match-fail">MISMATCH (' + (diff > 0 ? '+' : '') + diff + ')</td>';
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('bus-table').innerHTML = html;
+
+  var balDiv = document.getElementById('bus-balance');
+  if (allBalanced) {
+    balDiv.innerHTML = '<div class="balance-ok">B1/B2 satisfied: All instruction lookups match published multiplicities. Program bus balanced.</div>';
+  } else {
+    var mismatched = balance.filter(function(b) { return !b.balanced; }).length;
+    balDiv.innerHTML = '<div class="balance-fail">B1/B2 VIOLATED: ' + mismatched + ' instruction' + (mismatched === 1 ? '' : 's') + ' have mismatched multiplicities. Program bus NOT balanced.</div>';
+  }
+}
+
+// ============================================================
+// Render: What-if controls
+// ============================================================
+function renderWhatIf() {
+  var html = '';
+
+  for (var i = 0; i < instr.length; i++) {
+    var row = instr[i];
+    var isRemoved = !!removedRows[i];
+
+    html += '<div class="toggle-row">';
+    html += '<div class="toggle-switch' + (isRemoved ? ' active' : '') + '" onclick="toggleRemoveRow(' + i + ')">';
+    html += '<div class="toggle-knob"></div>';
+    html += '</div>';
+    html += '<span class="toggle-label">Row ' + i + ': PC=' + row.pc + ' ' + row.opcode;
+    if (row.exec_freq > 0) {
+      html += ' (freq=' + row.exec_freq + ')';
+    }
+    html += '</span>';
+    html += '</div>';
+  }
+
+  document.getElementById('whatif-controls').innerHTML = html;
+
+  // Result summary
+  var anyRemoved = Object.keys(removedRows).length > 0;
+  var resultDiv = document.getElementById('whatif-result');
+  if (!anyRemoved) {
+    resultDiv.innerHTML = '<div style="font-size:11px;color:var(--text-dim);margin-top:8px">Toggle a switch to remove an instruction from the ROM and observe the bus failure.</div>';
+  } else {
+    var removedList = [];
+    var willFail = false;
+    for (var idx in removedRows) {
+      if (removedRows.hasOwnProperty(idx)) {
+        var ri = parseInt(idx);
+        removedList.push('Row ' + ri + ' (PC=' + instr[ri].pc + ' ' + instr[ri].opcode + ')');
+        if (instr[ri].exec_freq > 0) willFail = true;
+      }
+    }
+    if (willFail) {
+      resultDiv.innerHTML = '<div class="balance-fail">Removed: ' + removedList.join(', ') + '. The prover claims to execute instructions not in the ROM &mdash; the verifier will reject this proof!</div>';
+    } else {
+      resultDiv.innerHTML = '<div class="balance-ok">Removed: ' + removedList.join(', ') + '. These instructions have exec_freq=0, so removing them does not affect the bus balance.</div>';
+    }
+  }
+}
+
+// ============================================================
+// Render: Constraint evaluation summary
+// ============================================================
+function renderConstraintEval() {
+  var balance = checkBusBalance();
+  var allBalanced = balance.every(function(b) { return b.balanced; });
+
+  var html = '<table><thead><tr>';
+  html += '<th>Constraint</th><th>Description</th><th>Status</th>';
+  html += '</tr></thead><tbody>';
+
+  // B1: bus key publication
+  html += '<tr>';
+  html += '<td style="color:var(--accent);font-weight:700">B1</td>';
+  html += '<td style="text-align:left;font-size:11px">Each instruction published as key with mult=exec_freq</td>';
+  html += '<td class="' + (allBalanced ? 'c-pass' : 'c-fail') + '">' + (allBalanced ? 'PASS' : 'FAIL') + '</td>';
+  html += '</tr>';
+
+  // B2: lookup balance
+  html += '<tr>';
+  html += '<td style="color:var(--accent);font-weight:700">B2</td>';
+  html += '<td style="text-align:left;font-size:11px">Total lookups = total published for every instruction</td>';
+  html += '<td class="' + (allBalanced ? 'c-pass' : 'c-fail') + '">' + (allBalanced ? 'PASS' : 'FAIL') + '</td>';
+  html += '</tr>';
+
+  // P1: preprocessed commitment (always pass in playground)
+  var anyFieldMod = false;
+  for (var i = 0; i < instr.length; i++) {
+    var clean = cleanInstr[i];
+    if (!clean) continue;
+    if (instr[i].pc !== clean.pc || instr[i].opcode !== clean.opcode) { anyFieldMod = true; break; }
+    for (var k = 0; k < OPERAND_FIELDS.length; k++) {
+      if (instr[i][OPERAND_FIELDS[k]] !== clean[OPERAND_FIELDS[k]]) { anyFieldMod = true; break; }
+    }
+    if (anyFieldMod) break;
+  }
+
+  html += '<tr>';
+  html += '<td style="color:var(--accent);font-weight:700">P1</td>';
+  html += '<td style="text-align:left;font-size:11px">Instruction columns match committed VK (preprocessed)</td>';
+  if (anyFieldMod) {
+    html += '<td class="c-fail">MODIFIED (would fail in real proof)</td>';
+  } else {
+    html += '<td class="c-pass">PASS</td>';
+  }
+  html += '</tr>';
+
+  html += '</tbody></table>';
+  document.getElementById('constraint-eval').innerHTML = html;
+}
+
+// ============================================================
+// Init
+// ============================================================
+loadPreset();
+</script>
+</body>
+</html>

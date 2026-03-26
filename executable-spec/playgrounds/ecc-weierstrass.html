@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto: Elliptic Curve (Weierstrass)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 50px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio buttons --- */
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .radio-group label:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .radio-group input[type="radio"] {
+    display: none;
+  }
+
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-all { background: var(--purple); color: #1a1d27; }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Summary block --- */
+  .summary-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .summary-block .sum-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 100px;
+  }
+
+  .summary-block .sum-val {
+    font-weight: 600;
+  }
+
+  .summary-block .sum-op {
+    color: var(--yellow);
+    font-weight: 700;
+  }
+
+  .summary-block .sum-dim {
+    color: var(--text-dim);
+    margin-left: 6px;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 100px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Flag display --- */
+  .flag-display {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+  }
+
+  .flag-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+
+  .flag-row:last-child { margin-bottom: 0; }
+
+  .flag-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    width: 140px;
+    flex-shrink: 0;
+  }
+
+  .flag-chip {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .flag-on {
+    background: var(--green-dim);
+    color: var(--green);
+  }
+
+  .flag-off {
+    background: var(--surface2);
+    color: var(--border);
+  }
+
+  /* --- Point dot chart --- */
+  .dot-chart {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+
+  .dot-chart canvas {
+    display: block;
+    margin: 0 auto;
+  }
+
+  /* --- Preset selector --- */
+  .preset-select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 8px;
+  }
+
+  .preset-select:hover {
+    border-color: var(--accent-dim);
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Crypto: Elliptic Curve (Weierstrass)</h1>
+    <div class="intro">
+      The <strong>WeierstrassChip</strong> handles elliptic curve point operations over short Weierstrass
+      curves: <strong>EC_ADD_NE</strong> (point addition, P1 &ne; P2) and <strong>EC_DOUBLE</strong>
+      (point doubling). These are the core operations behind <strong>ECDSA signature verification</strong>
+      used in Ethereum transactions. The chip uses a <strong>FieldExpressionCoreAir</strong> that encodes
+      the intermediate values (lambda, x3, y3) as witnesses and constrains the algebraic relations.
+      <br><br>
+      This playground uses a small prime <strong>p = 97</strong> for visual clarity.
+      In production, secp256k1 uses a 256-bit prime, but the AIR structure is identical.
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">ECDSA and the zkVM</div>
+        <div class="callout-body">
+          Every Ethereum transaction is signed with ECDSA over the secp256k1 curve. Verifying
+          a signature requires point addition and doubling &mdash; exactly the operations this chip
+          constrains. The prover provides <strong>lambda</strong> and the result point as witnesses;
+          the verifier checks the algebraic relations hold modulo p. This is how OpenVM proves
+          Ethereum signature verification inside a ZK proof.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Adapter + Core Pattern</div>
+        <div class="callout-body">
+          Like all OpenVM chips, the Weierstrass chip follows the <strong>Adapter/Core</strong> split.
+          The <strong>Rv32VecHeapAdapterAir</strong> handles memory reads (loading point coordinates)
+          and writes (storing the result point). The <strong>FieldExpressionCoreAir</strong> constrains
+          the field arithmetic &mdash; divisions become witness multiplications (e.g., constraining
+          <strong>lambda * (x2 - x1) = y2 - y1</strong> instead of computing lambda directly).
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div style="margin-bottom: 8px;">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Operation:</div>
+        <div class="radio-group">
+          <label><input type="radio" name="op" value="add" checked><span>EC_ADD_NE</span></label>
+          <label><input type="radio" name="op" value="double"><span>EC_DOUBLE</span></label>
+        </div>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Preset Points:</div>
+        <select class="preset-select" id="preset-select" onchange="applyPreset()">
+          <option value="0">P1=(1,28), P2=(5,36)</option>
+          <option value="1">P1=(12,38), P2=(23,7)</option>
+          <option value="2">P1=(5,36), P2=(33,32)</option>
+          <option value="3">P1=(20,21), P2=(29,90)</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <label>P1.x</label>
+        <input type="number" id="inp-x1" value="1" min="0" max="96">
+      </div>
+      <div class="control-row">
+        <label>P1.y</label>
+        <input type="number" id="inp-y1" value="28" min="0" max="96">
+      </div>
+      <div id="p2-inputs">
+        <div class="control-row">
+          <label>P2.x</label>
+          <input type="number" id="inp-x2" value="5" min="0" max="96">
+        </div>
+        <div class="control-row">
+          <label>P2.y</label>
+          <input type="number" id="inp-y2" value="36" min="0" max="96">
+        </div>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Chip type</span><span class="val">FieldExpressionCoreAir</span></div>
+      <div class="stat-row"><span class="label">Inputs (ADD)</span><span class="val">4 (x1, y1, x2, y2)</span></div>
+      <div class="stat-row"><span class="label">Inputs (DBL)</span><span class="val">2 (x1, y1)</span></div>
+      <div class="stat-row"><span class="label">Witnesses</span><span class="val">1 (lambda)</span></div>
+      <div class="stat-row"><span class="label">Outputs</span><span class="val">2 (x3, y3)</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">3 algebraic relations</span></div>
+      <div class="stat-row"><span class="label">Curve</span><span class="val">y&sup2; = x&sup3; + 7 (a=0)</span></div>
+      <div class="stat-row"><span class="label">Field (playground)</span><span class="val dynamic">F<sub>97</sub></span></div>
+      <div class="stat-row"><span class="label">Field (production)</span><span class="val">secp256k1 (256-bit)</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list" id="constraint-list-sidebar"></ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Curve: y&sup2; = x&sup3; + 7 (mod 97)</h2>
+    <div class="hint">
+      The curve has <strong>78 affine points</strong> plus the point at infinity (order 79, which is prime).
+      Below, blue dots show all curve points; colored markers highlight the input and output points.
+    </div>
+    <div class="dot-chart">
+      <canvas id="dot-canvas" width="500" height="350"></canvas>
+    </div>
+
+    <h2>Input Points</h2>
+    <div class="summary-block" id="input-block"></div>
+
+    <h2>Point on Curve Check</h2>
+    <div class="flag-display" id="curve-check"></div>
+
+    <h2 id="lambda-title">Lambda Computation</h2>
+    <div class="summary-block" id="lambda-block"></div>
+
+    <h2>Result Point</h2>
+    <div class="summary-block" id="result-block"></div>
+
+    <h2>Witness Trace &amp; Constraint Evaluation</h2>
+    <div class="hint">
+      Edit <strong>lambda</strong>, <strong>x3</strong>, and <strong>y3</strong> to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+    <div class="trace-wrapper">
+      <table id="main-table"></table>
+    </div>
+
+    <div class="flag-display" id="constraint-summary"></div>
+  </div>
+
+</div>
+
+<script>
+const P = 97;
+const CURVE_A = 0;
+const CURVE_B = 7;
+
+/* --- Modular arithmetic --- */
+function mod(x, m) {
+  return ((x % m) + m) % m;
+}
+
+function modpow(base, exp, m) {
+  base = mod(base, m);
+  let result = 1;
+  while (exp > 0) {
+    if (exp & 1) result = mod(result * base, m);
+    base = mod(base * base, m);
+    exp >>= 1;
+  }
+  return result;
+}
+
+function modinv(a, m) {
+  // Fermat's little theorem: a^(p-2) mod p
+  a = mod(a, m);
+  if (a === 0) return null;
+  return modpow(a, m - 2, m);
+}
+
+/* --- Precompute all curve points --- */
+function allCurvePoints() {
+  const pts = [];
+  for (let x = 0; x < P; x++) {
+    const rhs = mod(x * x * x + CURVE_A * x + CURVE_B, P);
+    for (let y = 0; y < P; y++) {
+      if (mod(y * y, P) === rhs) {
+        pts.push([x, y]);
+      }
+    }
+  }
+  return pts;
+}
+
+const ALL_POINTS = allCurvePoints();
+
+/* --- Point on curve check --- */
+function isOnCurve(x, y) {
+  return mod(y * y, P) === mod(x * x * x + CURVE_A * x + CURVE_B, P);
+}
+
+/* --- EC operations (correct computation) --- */
+function ecAddNe(x1, y1, x2, y2) {
+  const denom = modinv(mod(x2 - x1, P), P);
+  if (denom === null) return null;
+  const lambda = mod((y2 - y1) * denom, P);
+  const x3 = mod(lambda * lambda - x1 - x2, P);
+  const y3 = mod(lambda * (x1 - x3) - y1, P);
+  return { lambda: lambda, x3: x3, y3: y3 };
+}
+
+function ecDouble(x1, y1) {
+  const denom = modinv(mod(2 * y1, P), P);
+  if (denom === null) return null;
+  const lambda = mod((3 * x1 * x1 + CURVE_A) * denom, P);
+  const x3 = mod(lambda * lambda - 2 * x1, P);
+  const y3 = mod(lambda * (x1 - x3) - y1, P);
+  return { lambda: lambda, x3: x3, y3: y3 };
+}
+
+/* --- Presets --- */
+const PRESETS = [
+  { x1: 1, y1: 28, x2: 5, y2: 36 },
+  { x1: 12, y1: 38, x2: 23, y2: 7 },
+  { x1: 5, y1: 36, x2: 33, y2: 32 },
+  { x1: 20, y1: 21, x2: 29, y2: 90 },
+];
+
+/* --- State --- */
+let cleanLambda = 0, cleanX3 = 0, cleanY3 = 0;
+let editedLambda = 0, editedX3 = 0, editedY3 = 0;
+
+function getOp() {
+  return document.querySelector('input[name="op"]:checked').value;
+}
+
+function applyPreset() {
+  const idx = parseInt(document.getElementById('preset-select').value);
+  const preset = PRESETS[idx];
+  document.getElementById('inp-x1').value = preset.x1;
+  document.getElementById('inp-y1').value = preset.y1;
+  document.getElementById('inp-x2').value = preset.x2;
+  document.getElementById('inp-y2').value = preset.y2;
+  recompute();
+}
+
+function recompute() {
+  const op = getOp();
+  const x1 = mod(parseInt(document.getElementById('inp-x1').value) || 0, P);
+  const y1 = mod(parseInt(document.getElementById('inp-y1').value) || 0, P);
+  const x2 = mod(parseInt(document.getElementById('inp-x2').value) || 0, P);
+  const y2 = mod(parseInt(document.getElementById('inp-y2').value) || 0, P);
+
+  // Show/hide P2 inputs
+  document.getElementById('p2-inputs').style.display = op === 'add' ? 'block' : 'none';
+
+  let result;
+  if (op === 'add') {
+    result = ecAddNe(x1, y1, x2, y2);
+  } else {
+    result = ecDouble(x1, y1);
+  }
+
+  if (result) {
+    cleanLambda = result.lambda;
+    cleanX3 = result.x3;
+    cleanY3 = result.y3;
+  } else {
+    cleanLambda = 0;
+    cleanX3 = 0;
+    cleanY3 = 0;
+  }
+  editedLambda = cleanLambda;
+  editedX3 = cleanX3;
+  editedY3 = cleanY3;
+  render();
+}
+
+function resetTrace() {
+  editedLambda = cleanLambda;
+  editedX3 = cleanX3;
+  editedY3 = cleanY3;
+  render();
+}
+
+function onLambdaEdit(value) {
+  editedLambda = mod(parseInt(value) || 0, P);
+  render();
+}
+
+function onX3Edit(value) {
+  editedX3 = mod(parseInt(value) || 0, P);
+  render();
+}
+
+function onY3Edit(value) {
+  editedY3 = mod(parseInt(value) || 0, P);
+  render();
+}
+
+function hasEdits() {
+  return editedLambda !== cleanLambda || editedX3 !== cleanX3 || editedY3 !== cleanY3;
+}
+
+/* --- Constraint evaluation --- */
+function evalConstraints() {
+  const op = getOp();
+  const x1 = mod(parseInt(document.getElementById('inp-x1').value) || 0, P);
+  const y1 = mod(parseInt(document.getElementById('inp-y1').value) || 0, P);
+  const x2 = mod(parseInt(document.getElementById('inp-x2').value) || 0, P);
+  const y2 = mod(parseInt(document.getElementById('inp-y2').value) || 0, P);
+  const lam = editedLambda;
+  const x3 = editedX3;
+  const y3 = editedY3;
+
+  let c1, c2, c3;
+  let c1_desc, c2_desc, c3_desc;
+
+  if (op === 'add') {
+    // C1: lambda * (x2 - x1) - (y2 - y1) = 0
+    c1 = mod(lam * mod(x2 - x1, P) - mod(y2 - y1, P), P);
+    c1_desc = 'lambda * (x2 - x1) - (y2 - y1) = 0';
+
+    // C2: x3 - (lambda^2 - x1 - x2) = 0
+    c2 = mod(x3 - mod(lam * lam - x1 - x2, P), P);
+    c2_desc = 'x3 - (lambda^2 - x1 - x2) = 0';
+
+    // C3: y3 - (lambda * (x1 - x3) - y1) = 0
+    c3 = mod(y3 - mod(lam * mod(x1 - x3, P) - y1, P), P);
+    c3_desc = 'y3 - (lambda*(x1 - x3) - y1) = 0';
+  } else {
+    // C1: lambda * (2 * y1) - (3 * x1^2 + a) = 0
+    c1 = mod(lam * mod(2 * y1, P) - mod(3 * x1 * x1 + CURVE_A, P), P);
+    c1_desc = 'lambda * (2*y1) - (3*x1^2 + a) = 0';
+
+    // C2: x3 - (lambda^2 - 2*x1) = 0
+    c2 = mod(x3 - mod(lam * lam - 2 * x1, P), P);
+    c2_desc = 'x3 - (lambda^2 - 2*x1) = 0';
+
+    // C3: y3 - (lambda * (x1 - x3) - y1) = 0
+    c3 = mod(y3 - mod(lam * mod(x1 - x3, P) - y1, P), P);
+    c3_desc = 'y3 - (lambda*(x1 - x3) - y1) = 0';
+  }
+
+  return { c1, c2, c3, c1_desc, c2_desc, c3_desc };
+}
+
+/* --- Draw dot chart --- */
+function drawChart() {
+  const canvas = document.getElementById('dot-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const pad = 30;
+  const plotW = W - 2 * pad;
+  const plotH = H - 2 * pad;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#1a1d27';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = '#2e3345';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const x = pad + (plotW * i) / 4;
+    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, H - pad); ctx.stroke();
+    ctx.fillStyle = '#8b8fa7';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round((P * i) / 4).toString(), x, H - pad + 14);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const y = pad + (plotH * i) / 4;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+    ctx.fillStyle = '#8b8fa7';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(P - (P * i) / 4).toString(), pad - 4, y + 3);
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#8b8fa7';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('x', W / 2, H - 2);
+  ctx.save();
+  ctx.translate(8, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('y', 0, 0);
+  ctx.restore();
+
+  function toPixel(px, py) {
+    return [pad + (px / P) * plotW, H - pad - (py / P) * plotH];
+  }
+
+  // All curve points
+  for (const [px, py] of ALL_POINTS) {
+    const [sx, sy] = toPixel(px, py);
+    ctx.fillStyle = 'rgba(108, 140, 255, 0.35)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const op = getOp();
+  const x1 = mod(parseInt(document.getElementById('inp-x1').value) || 0, P);
+  const y1 = mod(parseInt(document.getElementById('inp-y1').value) || 0, P);
+  const x2 = mod(parseInt(document.getElementById('inp-x2').value) || 0, P);
+  const y2 = mod(parseInt(document.getElementById('inp-y2').value) || 0, P);
+
+  // P1 marker (green)
+  const [p1x, p1y] = toPixel(x1, y1);
+  ctx.fillStyle = '#4ade80';
+  ctx.beginPath(); ctx.arc(p1x, p1y, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#4ade80';
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('P1', p1x + 7, p1y - 4);
+
+  if (op === 'add') {
+    // P2 marker (purple)
+    const [p2x, p2y] = toPixel(x2, y2);
+    ctx.fillStyle = '#c084fc';
+    ctx.beginPath(); ctx.arc(p2x, p2y, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c084fc';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText('P2', p2x + 7, p2y - 4);
+  }
+
+  // P3 marker (yellow)
+  const [p3x, p3y] = toPixel(editedX3, editedY3);
+  ctx.fillStyle = '#facc15';
+  ctx.beginPath(); ctx.arc(p3x, p3y, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#facc15';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText('P3', p3x + 7, p3y - 4);
+}
+
+/* --- Render --- */
+function render() {
+  const op = getOp();
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
+
+  const x1 = mod(parseInt(document.getElementById('inp-x1').value) || 0, P);
+  const y1 = mod(parseInt(document.getElementById('inp-y1').value) || 0, P);
+  const x2 = mod(parseInt(document.getElementById('inp-x2').value) || 0, P);
+  const y2 = mod(parseInt(document.getElementById('inp-y2').value) || 0, P);
+
+  // --- Input block ---
+  let inputHtml = '';
+  inputHtml += '<div><span class="sum-label">P1</span> = <span class="sum-val">(' + x1 + ', ' + y1 + ')</span></div>';
+  if (op === 'add') {
+    inputHtml += '<div><span class="sum-label">P2</span> = <span class="sum-val">(' + x2 + ', ' + y2 + ')</span></div>';
+  }
+  inputHtml += '<div><span class="sum-label">Operation</span> <span class="sum-op">' + (op === 'add' ? 'EC_ADD_NE' : 'EC_DOUBLE') + '</span></div>';
+  document.getElementById('input-block').innerHTML = inputHtml;
+
+  // --- Point on curve check ---
+  const p1OnCurve = isOnCurve(x1, y1);
+  const lhs1 = mod(y1 * y1, P);
+  const rhs1 = mod(x1 * x1 * x1 + CURVE_A * x1 + CURVE_B, P);
+
+  let curveHtml = '';
+  curveHtml += '<div class="flag-row"><span class="flag-label">P1 on curve:</span>';
+  curveHtml += '<span class="flag-chip ' + (p1OnCurve ? 'flag-on' : 'flag-off') + '">' + (p1OnCurve ? 'YES' : 'NO') + '</span>';
+  curveHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">' + y1 + '&sup2; = ' + lhs1 + ', ' + x1 + '&sup3;+7 = ' + rhs1 + '</span>';
+  curveHtml += '</div>';
+
+  if (op === 'add') {
+    const p2OnCurve = isOnCurve(x2, y2);
+    const lhs2 = mod(y2 * y2, P);
+    const rhs2 = mod(x2 * x2 * x2 + CURVE_A * x2 + CURVE_B, P);
+    curveHtml += '<div class="flag-row"><span class="flag-label">P2 on curve:</span>';
+    curveHtml += '<span class="flag-chip ' + (p2OnCurve ? 'flag-on' : 'flag-off') + '">' + (p2OnCurve ? 'YES' : 'NO') + '</span>';
+    curveHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">' + y2 + '&sup2; = ' + lhs2 + ', ' + x2 + '&sup3;+7 = ' + rhs2 + '</span>';
+    curveHtml += '</div>';
+  }
+
+  const p3OnCurve = isOnCurve(editedX3, editedY3);
+  const lhs3 = mod(editedY3 * editedY3, P);
+  const rhs3 = mod(editedX3 * editedX3 * editedX3 + CURVE_A * editedX3 + CURVE_B, P);
+  curveHtml += '<div class="flag-row"><span class="flag-label">P3 on curve:</span>';
+  curveHtml += '<span class="flag-chip ' + (p3OnCurve ? 'flag-on' : 'flag-off') + '">' + (p3OnCurve ? 'YES' : 'NO') + '</span>';
+  curveHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">' + editedY3 + '&sup2; = ' + lhs3 + ', ' + editedX3 + '&sup3;+7 = ' + rhs3 + '</span>';
+  curveHtml += '</div>';
+
+  document.getElementById('curve-check').innerHTML = curveHtml;
+
+  // --- Lambda computation ---
+  let lambdaHtml = '';
+  if (op === 'add') {
+    const dy = mod(y2 - y1, P);
+    const dx = mod(x2 - x1, P);
+    const dxInv = modinv(dx, P);
+    document.getElementById('lambda-title').textContent = 'Lambda Computation (ADD)';
+    lambdaHtml += '<div><span class="sum-label">y2 - y1</span> = <span class="sum-val">' + dy + '</span><span class="sum-dim">(mod ' + P + ')</span></div>';
+    lambdaHtml += '<div><span class="sum-label">x2 - x1</span> = <span class="sum-val">' + dx + '</span><span class="sum-dim">(mod ' + P + ')</span></div>';
+    if (dxInv !== null) {
+      lambdaHtml += '<div><span class="sum-label">inv(x2-x1)</span> = <span class="sum-val">' + dxInv + '</span><span class="sum-dim">' + dx + ' * ' + dxInv + ' = ' + mod(dx * dxInv, P) + ' (mod ' + P + ')</span></div>';
+      lambdaHtml += '<div><span class="sum-label">lambda</span> = <span class="sum-val sum-op">' + cleanLambda + '</span><span class="sum-dim">= ' + dy + ' * ' + dxInv + ' (mod ' + P + ')</span></div>';
+    } else {
+      lambdaHtml += '<div style="color:var(--red)">Cannot compute: x2 - x1 = 0 (points have same x-coordinate)</div>';
+    }
+  } else {
+    const num = mod(3 * x1 * x1 + CURVE_A, P);
+    const den = mod(2 * y1, P);
+    const denInv = modinv(den, P);
+    document.getElementById('lambda-title').textContent = 'Lambda Computation (DOUBLE)';
+    lambdaHtml += '<div><span class="sum-label">3*x1^2 + a</span> = <span class="sum-val">' + num + '</span><span class="sum-dim">(a = ' + CURVE_A + ')</span></div>';
+    lambdaHtml += '<div><span class="sum-label">2*y1</span> = <span class="sum-val">' + den + '</span></div>';
+    if (denInv !== null) {
+      lambdaHtml += '<div><span class="sum-label">inv(2*y1)</span> = <span class="sum-val">' + denInv + '</span><span class="sum-dim">' + den + ' * ' + denInv + ' = ' + mod(den * denInv, P) + ' (mod ' + P + ')</span></div>';
+      lambdaHtml += '<div><span class="sum-label">lambda</span> = <span class="sum-val sum-op">' + cleanLambda + '</span><span class="sum-dim">= ' + num + ' * ' + denInv + ' (mod ' + P + ')</span></div>';
+    } else {
+      lambdaHtml += '<div style="color:var(--red)">Cannot compute: 2*y1 = 0 (point has y = 0)</div>';
+    }
+  }
+  document.getElementById('lambda-block').innerHTML = lambdaHtml;
+
+  // --- Result block ---
+  let resultHtml = '';
+  if (op === 'add') {
+    resultHtml += '<div><span class="sum-label">x3</span> = lambda&sup2; - x1 - x2 = <span class="sum-val">' + cleanLambda + '&sup2; - ' + x1 + ' - ' + x2 + ' = <span class="sum-op">' + cleanX3 + '</span></span><span class="sum-dim">(mod ' + P + ')</span></div>';
+  } else {
+    resultHtml += '<div><span class="sum-label">x3</span> = lambda&sup2; - 2*x1 = <span class="sum-val">' + cleanLambda + '&sup2; - 2*' + x1 + ' = <span class="sum-op">' + cleanX3 + '</span></span><span class="sum-dim">(mod ' + P + ')</span></div>';
+  }
+  resultHtml += '<div><span class="sum-label">y3</span> = lambda*(x1 - x3) - y1 = <span class="sum-val">' + cleanLambda + '*(' + x1 + ' - ' + cleanX3 + ') - ' + y1 + ' = <span class="sum-op">' + cleanY3 + '</span></span><span class="sum-dim">(mod ' + P + ')</span></div>';
+  resultHtml += '<div><span class="sum-label">P3</span> = <span class="sum-val sum-op">(' + cleanX3 + ', ' + cleanY3 + ')</span></div>';
+  document.getElementById('result-block').innerHTML = resultHtml;
+
+  // --- Constraint sidebar ---
+  const { c1, c2, c3, c1_desc, c2_desc, c3_desc } = evalConstraints();
+  let sidebarConstraints = '';
+  if (op === 'add') {
+    sidebarConstraints += '<li><span class="c-id">C1</span> <span class="c-desc">Slope relation</span>';
+    sidebarConstraints += '<span class="c-formula">lambda * (x2 - x1) - (y2 - y1) = 0</span>';
+    sidebarConstraints += '<span class="c-sel sel-all">all rows</span></li>';
+    sidebarConstraints += '<li><span class="c-id">C2</span> <span class="c-desc">x-coordinate result</span>';
+    sidebarConstraints += '<span class="c-formula">x3 = lambda&sup2; - x1 - x2</span>';
+    sidebarConstraints += '<span class="c-sel sel-all">all rows</span></li>';
+  } else {
+    sidebarConstraints += '<li><span class="c-id">C1</span> <span class="c-desc">Slope relation</span>';
+    sidebarConstraints += '<span class="c-formula">lambda * (2*y1) - (3*x1&sup2; + a) = 0</span>';
+    sidebarConstraints += '<span class="c-sel sel-all">all rows</span></li>';
+    sidebarConstraints += '<li><span class="c-id">C2</span> <span class="c-desc">x-coordinate result</span>';
+    sidebarConstraints += '<span class="c-formula">x3 = lambda&sup2; - 2*x1</span>';
+    sidebarConstraints += '<span class="c-sel sel-all">all rows</span></li>';
+  }
+  sidebarConstraints += '<li><span class="c-id">C3</span> <span class="c-desc">y-coordinate result</span>';
+  sidebarConstraints += '<span class="c-formula">y3 = lambda*(x1 - x3) - y1</span>';
+  sidebarConstraints += '<span class="c-sel sel-all">all rows</span></li>';
+  document.getElementById('constraint-list-sidebar').innerHTML = sidebarConstraints;
+
+  // --- Main table ---
+  let tblHtml = '<thead>';
+  tblHtml += '<tr>';
+  tblHtml += '<th class="group-header" colspan="1"></th>';
+  tblHtml += '<th class="col-sep"></th>';
+  if (op === 'add') {
+    tblHtml += '<th class="group-header" colspan="4">Inputs (fixed)</th>';
+  } else {
+    tblHtml += '<th class="group-header" colspan="2">Inputs (fixed)</th>';
+  }
+  tblHtml += '<th class="col-sep"></th>';
+  tblHtml += '<th class="group-header" colspan="3">Witnesses &amp; Outputs (editable)</th>';
+  tblHtml += '<th class="col-sep"></th>';
+  tblHtml += '<th class="group-header" colspan="3">Constraints (= 0)</th>';
+  tblHtml += '</tr>';
+  tblHtml += '<tr>';
+  tblHtml += '<th>Column</th>';
+  tblHtml += '<th class="col-sep"></th>';
+  if (op === 'add') {
+    tblHtml += '<th>x1</th><th>y1</th><th>x2</th><th>y2</th>';
+  } else {
+    tblHtml += '<th>x1</th><th>y1</th>';
+  }
+  tblHtml += '<th class="col-sep"></th>';
+  tblHtml += '<th>lambda</th><th>x3</th><th>y3</th>';
+  tblHtml += '<th class="col-sep"></th>';
+  tblHtml += '<th>C1</th><th>C2</th><th>C3</th>';
+  tblHtml += '</tr>';
+  tblHtml += '</thead><tbody>';
+
+  const anyViolation = c1 !== 0 || c2 !== 0 || c3 !== 0;
+  const lamModified = editedLambda !== cleanLambda;
+  const x3Modified = editedX3 !== cleanX3;
+  const y3Modified = editedY3 !== cleanY3;
+
+  tblHtml += '<tr' + (anyViolation ? ' class="affected-row"' : '') + '>';
+  tblHtml += '<td class="col-row">Row 0</td>';
+  tblHtml += '<td class="col-sep"></td>';
+  tblHtml += '<td class="col-trace">' + x1 + '</td>';
+  tblHtml += '<td class="col-trace">' + y1 + '</td>';
+  if (op === 'add') {
+    tblHtml += '<td class="col-trace">' + x2 + '</td>';
+    tblHtml += '<td class="col-trace">' + y2 + '</td>';
+  }
+  tblHtml += '<td class="col-sep"></td>';
+  tblHtml += '<td class="col-trace"><input type="number" class="cell-input' + (lamModified ? ' modified' : '') + '" value="' + editedLambda + '" onchange="onLambdaEdit(this.value)" min="0" max="96"></td>';
+  tblHtml += '<td class="col-trace"><input type="number" class="cell-input' + (x3Modified ? ' modified' : '') + '" value="' + editedX3 + '" onchange="onX3Edit(this.value)" min="0" max="96"></td>';
+  tblHtml += '<td class="col-trace"><input type="number" class="cell-input' + (y3Modified ? ' modified' : '') + '" value="' + editedY3 + '" onchange="onY3Edit(this.value)" min="0" max="96"></td>';
+  tblHtml += '<td class="col-sep"></td>';
+
+  if (c1 === 0) tblHtml += '<td class="c-pass">0</td>';
+  else tblHtml += '<td class="c-fail">' + c1 + '</td>';
+  if (c2 === 0) tblHtml += '<td class="c-pass">0</td>';
+  else tblHtml += '<td class="c-fail">' + c2 + '</td>';
+  if (c3 === 0) tblHtml += '<td class="c-pass">0</td>';
+  else tblHtml += '<td class="c-fail">' + c3 + '</td>';
+
+  tblHtml += '</tr>';
+  tblHtml += '</tbody>';
+  document.getElementById('main-table').innerHTML = tblHtml;
+
+  // --- Constraint summary ---
+  let sumHtml = '';
+  sumHtml += '<div class="flag-row"><span class="flag-label">C1 (slope):</span>';
+  sumHtml += c1 === 0
+    ? '<span class="c-pass">0 &#10003;</span>'
+    : '<span class="c-fail">' + c1 + '</span>';
+  sumHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">' + c1_desc + '</span>';
+  sumHtml += '</div>';
+
+  sumHtml += '<div class="flag-row"><span class="flag-label">C2 (x-coord):</span>';
+  sumHtml += c2 === 0
+    ? '<span class="c-pass">0 &#10003;</span>'
+    : '<span class="c-fail">' + c2 + '</span>';
+  sumHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">' + c2_desc + '</span>';
+  sumHtml += '</div>';
+
+  sumHtml += '<div class="flag-row"><span class="flag-label">C3 (y-coord):</span>';
+  sumHtml += c3 === 0
+    ? '<span class="c-pass">0 &#10003;</span>'
+    : '<span class="c-fail">' + c3 + '</span>';
+  sumHtml += '<span style="font-size:10px;color:var(--text-dim);margin-left:8px">' + c3_desc + '</span>';
+  sumHtml += '</div>';
+
+  document.getElementById('constraint-summary').innerHTML = sumHtml;
+
+  // Draw chart
+  drawChart();
+}
+
+// Event listeners
+document.getElementById('inp-x1').addEventListener('input', recompute);
+document.getElementById('inp-y1').addEventListener('input', recompute);
+document.getElementById('inp-x2').addEventListener('input', recompute);
+document.getElementById('inp-y2').addEventListener('input', recompute);
+document.querySelectorAll('input[name="op"]').forEach(function(r) {
+  r.addEventListener('change', recompute);
+});
+
+recompute();
+</script>
+</body>
+</html>

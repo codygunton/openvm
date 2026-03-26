@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System: Phantom Opcodes</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout.key-insight {
+    border-left-color: var(--green);
+  }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout.key-insight .callout-title {
+    color: var(--green);
+  }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 80px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio buttons --- */
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .radio-group label:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .radio-group input[type="radio"] {
+    display: none;
+  }
+
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-exec { background: var(--accent-dim); color: var(--accent); }
+  .sel-prog { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-all { background: var(--purple); color: #1a1d27; }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section {
+    margin-bottom: 32px;
+  }
+
+  /* --- Phantom instruction display --- */
+  .phantom-display {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+
+  .phantom-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+
+  .phantom-row:last-child { margin-bottom: 0; }
+
+  .phantom-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    width: 120px;
+    flex-shrink: 0;
+  }
+
+  .phantom-value {
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .phantom-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .badge-nop { background: var(--green-dim); color: var(--green); }
+  .badge-panic { background: var(--red-dim); color: var(--red); }
+  .badge-ct { background: var(--cyan-dim); color: var(--cyan); }
+  .badge-custom { background: var(--purple-dim); color: var(--purple); }
+
+  /* --- Comparison columns --- */
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .compare-col {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+
+  .compare-col h3 {
+    font-size: 12px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .compare-col.execution h3 { color: var(--orange); }
+  .compare-col.constraint h3 { color: var(--green); }
+
+  .compare-item {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.6;
+  }
+
+  .compare-item:last-child { border-bottom: none; }
+  .compare-item strong { color: var(--text); }
+  .compare-item .dim { color: var(--border); }
+
+  /* --- Constraint view --- */
+  .constraint-view {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+
+  .cv-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .cv-row:last-child { border-bottom: none; }
+
+  .cv-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    width: 180px;
+    flex-shrink: 0;
+  }
+
+  .cv-value {
+    font-weight: 600;
+  }
+
+  .cv-arrow {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  /* --- Bus table --- */
+  .bus-table th {
+    font-size: 10px;
+  }
+
+  .bus-table td {
+    font-size: 11px;
+  }
+
+  .badge-send { background: var(--green-dim); color: var(--green); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+
+  .balance-ok {
+    color: var(--green);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--green-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .balance-fail {
+    color: var(--red);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--red-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  /* --- Discriminant description --- */
+  .discr-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 6px 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    margin-top: 8px;
+    line-height: 1.6;
+  }
+
+  .discr-desc strong { color: var(--text); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    .comparison { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>System: Phantom Opcodes</h1>
+    <div class="intro">
+      The <strong>PhantomAir</strong> handles phantom instructions &mdash; operations that the prover
+      can execute freely with <strong>zero additional constraints</strong>. The constraint system only
+      sees a NOP: advance PC by 4 and increment timestamp by 1. Everything else the phantom does
+      (loading hints, debugging, profiling) is <strong>invisible to the verifier</strong>.
+    </div>
+
+    <div class="section">
+      <div class="callout key-insight">
+        <div class="callout-title">Key Insight</div>
+        <div class="callout-body">
+          Phantom instructions are <strong>"free" operations</strong> &mdash; they affect execution
+          but add <strong>NO constraints</strong> beyond PC increment. The prover can do arbitrary
+          computation in phantom handlers without adding constraints. This is safe because phantom
+          operations only affect prover-side state, not the public computation.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">ExecutionBridge</div>
+        <div class="callout-body">
+          The only bus interaction: <strong>ExecutionBridge.execute_and_increment_or_set_pc()</strong>.
+          It receives <strong>(pc, timestamp)</strong> and sends <strong>(pc + 4, timestamp + 1)</strong>.
+          The operands <strong>(a, b, c)</strong> are columns but are <strong>unconstrained</strong>
+          &mdash; the verifier never checks their values.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Discriminant</div>
+      <div class="radio-group" id="discr-group">
+        <label><input type="radio" name="discr" value="0" checked><span>Nop (0)</span></label>
+        <label><input type="radio" name="discr" value="1"><span>DebugPanic (1)</span></label>
+        <label><input type="radio" name="discr" value="2"><span>CtStart (2)</span></label>
+        <label><input type="radio" name="discr" value="3"><span>CtEnd (3)</span></label>
+      </div>
+      <div class="discr-desc" id="discr-desc"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>Start PC</label>
+        <input type="number" id="inp-pc" value="0" min="0" step="4">
+      </div>
+      <div class="control-row">
+        <label>Start TS</label>
+        <input type="number" id="inp-ts" value="1" min="1">
+      </div>
+      <div class="control-row">
+        <label>Rows</label>
+        <select id="inp-rows">
+          <option value="4" selected>4 rows</option>
+          <option value="6">6 rows</option>
+          <option value="8">8 rows</option>
+        </select>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Trace columns</span><span class="val">6</span></div>
+      <div class="stat-row"><span class="label">Layout</span><span class="val">pc, a, b, c, ts, is_valid</span></div>
+      <div class="stat-row"><span class="label">AIR constraints</span><span class="val">0 (all via bus)</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">1 (ExecutionBridge)</span></div>
+      <div class="stat-row"><span class="label">Max degree</span><span class="val">1</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">E1</span> <span class="c-desc">ExecutionBridge (receive from_state)</span>
+          <span class="c-formula">receive (opcode, a, b, c, pc, timestamp) on exec bus</span>
+          <span class="c-sel sel-exec">exec bus</span>
+        </li>
+        <li>
+          <span class="c-id">E2</span> <span class="c-desc">ExecutionBridge (send to_state)</span>
+          <span class="c-formula">send (pc + 4, timestamp + 1) on exec bus</span>
+          <span class="c-sel sel-exec">exec bus</span>
+        </li>
+        <li>
+          <span class="c-id">E3</span> <span class="c-desc">Program bus lookup</span>
+          <span class="c-formula">look up (pc, PHANTOM, a, b, c) in program ROM</span>
+          <span class="c-sel sel-prog">program bus</span>
+        </li>
+      </ul>
+      <div style="font-size:10px; color:var(--text-dim); margin-top:8px; line-height:1.6;">
+        Note: There are <strong style="color:var(--text)">zero local AIR constraints</strong>.
+        The PhantomAir's <code>eval()</code> only calls <code>execute_and_increment_or_set_pc()</code>,
+        which contributes bus interactions. The operand columns are present but unconstrained.
+      </div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Section 1: Phantom Instruction -->
+    <div class="main-section">
+      <h2>Phantom Instruction</h2>
+      <div class="phantom-display" id="phantom-display"></div>
+    </div>
+
+    <!-- Section 2: Constraint System View -->
+    <div class="main-section">
+      <h2>Constraint System View</h2>
+      <div class="hint">
+        Regardless of the discriminant selected, the constraint system only verifies two things:
+        <strong>pc_next = pc + 4</strong> and <strong>timestamp advances by 1</strong>.
+        The discriminant value stored in operand <strong>c</strong> is completely invisible to the verifier.
+      </div>
+      <div class="constraint-view" id="constraint-view"></div>
+    </div>
+
+    <!-- Section 3: Execution vs Constraint -->
+    <div class="main-section">
+      <h2>Execution vs. Constraint</h2>
+      <div class="hint">
+        Compare what happens at <span style="color:var(--orange)">prover execution time</span> vs.
+        what the <span class="g">constraint system</span> actually checks.
+      </div>
+      <div class="comparison" id="comparison"></div>
+    </div>
+
+    <!-- Section 4: Trace Table -->
+    <div class="main-section">
+      <h2>Trace Table (PhantomCols)</h2>
+      <div class="hint">
+        Edit <strong>pc</strong>, <strong>timestamp</strong>, or <strong>is_valid</strong> cells
+        to see which bus constraints break.
+        <span class="g">0</span> = satisfied,
+        <span class="r">nonzero</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="trace-wrapper">
+        <table id="trace-table"></table>
+      </div>
+    </div>
+
+    <!-- Section 5: Constraint Evaluation -->
+    <div class="main-section">
+      <h2>Constraint Evaluation</h2>
+      <div class="hint">
+        The execution bridge checks that consecutive phantom instructions form a valid chain:
+        each row's <strong>(pc_next, ts_next)</strong> must equal the next row's <strong>(pc, ts)</strong>.
+      </div>
+      <div class="trace-wrapper">
+        <table class="bus-table" id="constraint-table"></table>
+      </div>
+      <div id="constraint-result"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// Constants
+// ============================================================
+var DEFAULT_PC_STEP = 4;
+var DISCRIMINANTS = {
+  0: { name: 'Nop', badge: 'badge-nop', desc: 'Does nothing at constraint and runtime level besides advancing pc by DEFAULT_PC_STEP (4). A true no-op.' },
+  1: { name: 'DebugPanic', badge: 'badge-panic', desc: 'Causes the runtime to panic on the host machine and prints a backtrace. Used for debugging guest programs. The constraint system sees only a NOP.' },
+  2: { name: 'CtStart', badge: 'badge-ct', desc: 'Starts cycle tracking for performance profiling. Only handled during Preflight Execution. The constraint system sees only a NOP.' },
+  3: { name: 'CtEnd', badge: 'badge-ct', desc: 'Ends cycle tracking for performance profiling. Only handled during Preflight Execution. The constraint system sees only a NOP.' }
+};
+
+// ============================================================
+// State
+// ============================================================
+var startPc, startTs, numRows, discr;
+var cleanRows = [];
+var editedRows = [];
+
+function getDiscr() {
+  return parseInt(document.querySelector('input[name="discr"]:checked').value);
+}
+
+function buildCleanRows() {
+  var rows = [];
+  for (var i = 0; i < numRows; i++) {
+    rows.push({
+      pc: startPc + i * DEFAULT_PC_STEP,
+      a: 0,
+      b: 0,
+      c: discr,
+      timestamp: startTs + i,
+      is_valid: 1
+    });
+  }
+  return rows;
+}
+
+function recompute() {
+  startPc = parseInt(document.getElementById('inp-pc').value) || 0;
+  startTs = parseInt(document.getElementById('inp-ts').value) || 1;
+  numRows = parseInt(document.getElementById('inp-rows').value) || 4;
+  discr = getDiscr();
+
+  cleanRows = buildCleanRows();
+  editedRows = cleanRows.map(function(r) { return Object.assign({}, r); });
+  render();
+}
+
+function resetTrace() {
+  cleanRows = buildCleanRows();
+  editedRows = cleanRows.map(function(r) { return Object.assign({}, r); });
+  render();
+}
+
+function onCellEdit(rowIdx, field, value) {
+  editedRows[rowIdx][field] = parseInt(value) || 0;
+  render();
+}
+
+function hasEdits() {
+  for (var i = 0; i < editedRows.length; i++) {
+    if (editedRows[i].pc !== cleanRows[i].pc) return true;
+    if (editedRows[i].a !== cleanRows[i].a) return true;
+    if (editedRows[i].b !== cleanRows[i].b) return true;
+    if (editedRows[i].c !== cleanRows[i].c) return true;
+    if (editedRows[i].timestamp !== cleanRows[i].timestamp) return true;
+    if (editedRows[i].is_valid !== cleanRows[i].is_valid) return true;
+  }
+  return false;
+}
+
+// ============================================================
+// Constraint evaluation
+// ============================================================
+function evalConstraints() {
+  var results = [];
+  for (var i = 0; i < editedRows.length; i++) {
+    var row = editedRows[i];
+    var expectedPcNext = row.pc + DEFAULT_PC_STEP;
+    var expectedTsNext = row.timestamp + 1;
+
+    // Check if next row exists and matches
+    var pcNextOk = true;
+    var tsNextOk = true;
+    var actualPcNext = expectedPcNext;
+    var actualTsNext = expectedTsNext;
+
+    if (i < editedRows.length - 1) {
+      var nextRow = editedRows[i + 1];
+      actualPcNext = nextRow.pc;
+      actualTsNext = nextRow.timestamp;
+      pcNextOk = (expectedPcNext === actualPcNext);
+      tsNextOk = (expectedTsNext === actualTsNext);
+    }
+
+    var isValidOk = (row.is_valid === 0 || row.is_valid === 1);
+
+    results.push({
+      expectedPcNext: expectedPcNext,
+      expectedTsNext: expectedTsNext,
+      actualPcNext: actualPcNext,
+      actualTsNext: actualTsNext,
+      pcNextOk: pcNextOk,
+      tsNextOk: tsNextOk,
+      isValidOk: isValidOk,
+      allOk: pcNextOk && tsNextOk && isValidOk
+    });
+  }
+  return results;
+}
+
+// ============================================================
+// Render
+// ============================================================
+function render() {
+  var edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  renderDiscrDesc();
+  renderPhantomDisplay();
+  renderConstraintView();
+  renderComparison();
+  renderTraceTable();
+  renderConstraintTable();
+}
+
+function renderDiscrDesc() {
+  var d = getDiscr();
+  var info = DISCRIMINANTS[d];
+  document.getElementById('discr-desc').innerHTML = '<strong>' + info.name + ':</strong> ' + info.desc;
+}
+
+function renderPhantomDisplay() {
+  var d = getDiscr();
+  var info = DISCRIMINANTS[d];
+  var row = editedRows[0];
+
+  var html = '';
+  html += '<div class="phantom-row">';
+  html += '<span class="phantom-label">Opcode:</span>';
+  html += '<span class="phantom-value">PHANTOM</span>';
+  html += '</div>';
+
+  html += '<div class="phantom-row">';
+  html += '<span class="phantom-label">Discriminant:</span>';
+  html += '<span class="phantom-badge ' + info.badge + '">' + info.name + ' (' + d + ')</span>';
+  html += '</div>';
+
+  html += '<div class="phantom-row">';
+  html += '<span class="phantom-label">Operands:</span>';
+  html += '<span class="phantom-value" style="font-size:12px;color:var(--text-dim)">a=' + row.a + ', b=' + row.b + ', c=' + row.c + ' (c lower 16 bits = discriminant)</span>';
+  html += '</div>';
+
+  html += '<div class="phantom-row">';
+  html += '<span class="phantom-label">PC transition:</span>';
+  html += '<span class="phantom-value">' + row.pc + ' &rarr; ' + (row.pc + DEFAULT_PC_STEP) + ' (+' + DEFAULT_PC_STEP + ')</span>';
+  html += '</div>';
+
+  html += '<div class="phantom-row">';
+  html += '<span class="phantom-label">Timestamp:</span>';
+  html += '<span class="phantom-value">' + row.timestamp + ' &rarr; ' + (row.timestamp + 1) + ' (+1)</span>';
+  html += '</div>';
+
+  document.getElementById('phantom-display').innerHTML = html;
+}
+
+function renderConstraintView() {
+  var d = getDiscr();
+  var info = DISCRIMINANTS[d];
+  var row = editedRows[0];
+
+  var html = '';
+
+  html += '<div class="cv-row">';
+  html += '<span class="cv-label">Discriminant selected:</span>';
+  html += '<span class="phantom-badge ' + info.badge + '">' + info.name + ' (' + d + ')</span>';
+  html += '</div>';
+
+  html += '<div class="cv-row">';
+  html += '<span class="cv-label">What verifier checks:</span>';
+  html += '<span class="cv-value" style="color:var(--green)">pc_next = pc + 4, ts_next = ts + 1</span>';
+  html += '</div>';
+
+  html += '<div class="cv-row">';
+  html += '<span class="cv-label">Discriminant in constraints?</span>';
+  html += '<span class="cv-value" style="color:var(--red)">NO &mdash; completely invisible</span>';
+  html += '</div>';
+
+  html += '<div class="cv-row">';
+  html += '<span class="cv-label">Operands (a, b, c) constrained?</span>';
+  html += '<span class="cv-value" style="color:var(--red)">NO &mdash; unconstrained columns</span>';
+  html += '</div>';
+
+  html += '<div class="cv-row">';
+  html += '<span class="cv-label">Constraint count:</span>';
+  html += '<span class="cv-value" style="color:var(--accent)">0 local constraints (bus interactions only)</span>';
+  html += '</div>';
+
+  document.getElementById('constraint-view').innerHTML = html;
+}
+
+function renderComparison() {
+  var d = getDiscr();
+  var info = DISCRIMINANTS[d];
+
+  var execItems = [];
+  var constraintItems = [];
+
+  switch (d) {
+    case 0:
+      execItems = [
+        'Advances PC by 4',
+        'Increments timestamp by 1',
+        '<span class="dim">No other side effects</span>'
+      ];
+      break;
+    case 1:
+      execItems = [
+        '<strong style="color:var(--red)">Panics the runtime</strong>',
+        'Prints a backtrace (if metrics enabled)',
+        'Returns ExecutionError::Fail',
+        'Stops program execution'
+      ];
+      break;
+    case 2:
+      execItems = [
+        '<strong style="color:var(--cyan)">Starts cycle tracker</strong>',
+        'Records DSL instruction for profiling',
+        'Only in Preflight Execution mode',
+        'Advances PC by 4'
+      ];
+      break;
+    case 3:
+      execItems = [
+        '<strong style="color:var(--cyan)">Ends cycle tracker</strong>',
+        'Completes profiling for a code section',
+        'Only in Preflight Execution mode',
+        'Advances PC by 4'
+      ];
+      break;
+  }
+
+  constraintItems = [
+    '<strong style="color:var(--green)">pc_next = pc + 4</strong>',
+    '<strong style="color:var(--green)">ts_next = ts + 1</strong>',
+    '<span class="dim">Operands (a, b, c) are unconstrained</span>',
+    '<span class="dim">Discriminant is invisible</span>',
+    '<span class="dim">Identical for ALL phantom types</span>'
+  ];
+
+  var html = '';
+
+  html += '<div class="compare-col execution">';
+  html += '<h3>Execution Time (Prover)</h3>';
+  for (var i = 0; i < execItems.length; i++) {
+    html += '<div class="compare-item">' + execItems[i] + '</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="compare-col constraint">';
+  html += '<h3>Constraint System (Verifier)</h3>';
+  for (var j = 0; j < constraintItems.length; j++) {
+    html += '<div class="compare-item">' + constraintItems[j] + '</div>';
+  }
+  html += '</div>';
+
+  document.getElementById('comparison').innerHTML = html;
+}
+
+function renderTraceTable() {
+  var constraints = evalConstraints();
+
+  var html = '<thead>';
+  html += '<tr>';
+  html += '<th class="group-header" colspan="1"></th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="4">PhantomCols (editable)</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="2">Derived</th>';
+  html += '</tr>';
+  html += '<tr>';
+  html += '<th>Row</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>pc</th>';
+  html += '<th>a</th>';
+  html += '<th>b</th>';
+  html += '<th>c (discr)</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>timestamp</th>';
+  html += '<th>is_valid</th>';
+  html += '</tr>';
+  html += '</thead><tbody>';
+
+  for (var i = 0; i < editedRows.length; i++) {
+    var row = editedRows[i];
+    var clean = cleanRows[i];
+    var cr = constraints[i];
+    var violation = !cr.allOk;
+
+    var pcMod = row.pc !== clean.pc;
+    var aMod = row.a !== clean.a;
+    var bMod = row.b !== clean.b;
+    var cMod = row.c !== clean.c;
+    var tsMod = row.timestamp !== clean.timestamp;
+    var ivMod = row.is_valid !== clean.is_valid;
+
+    html += '<tr' + (violation ? ' class="affected-row"' : '') + '>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (pcMod ? ' modified' : '') + '" value="' + row.pc + '" onchange="onCellEdit(' + i + ',\'pc\',this.value)" style="width:60px"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (aMod ? ' modified' : '') + '" value="' + row.a + '" onchange="onCellEdit(' + i + ',\'a\',this.value)" style="width:50px"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (bMod ? ' modified' : '') + '" value="' + row.b + '" onchange="onCellEdit(' + i + ',\'b\',this.value)" style="width:50px"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (cMod ? ' modified' : '') + '" value="' + row.c + '" onchange="onCellEdit(' + i + ',\'c\',this.value)" style="width:50px"></td>';
+
+    html += '<td class="col-sep"></td>';
+
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (tsMod ? ' modified' : '') + '" value="' + row.timestamp + '" onchange="onCellEdit(' + i + ',\'timestamp\',this.value)" style="width:60px"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (ivMod ? ' modified' : '') + '" value="' + row.is_valid + '" onchange="onCellEdit(' + i + ',\'is_valid\',this.value)" style="width:40px"></td>';
+
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('trace-table').innerHTML = html;
+}
+
+function renderConstraintTable() {
+  var constraints = evalConstraints();
+
+  var html = '<thead><tr>';
+  html += '<th>Row</th>';
+  html += '<th>From (pc, ts)</th>';
+  html += '<th>Expected Next</th>';
+  html += '<th>Actual Next</th>';
+  html += '<th>PC chain</th>';
+  html += '<th>TS chain</th>';
+  html += '<th>is_valid</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < editedRows.length; i++) {
+    var row = editedRows[i];
+    var cr = constraints[i];
+    var isLast = (i === editedRows.length - 1);
+
+    html += '<tr' + (!cr.allOk ? ' class="affected-row"' : '') + '>';
+    html += '<td class="col-row">' + i + '</td>';
+    html += '<td>(' + row.pc + ', ' + row.timestamp + ')</td>';
+    html += '<td>(' + cr.expectedPcNext + ', ' + cr.expectedTsNext + ')</td>';
+
+    if (isLast) {
+      html += '<td style="color:var(--text-dim)">(end of trace)</td>';
+    } else {
+      html += '<td>(' + cr.actualPcNext + ', ' + cr.actualTsNext + ')</td>';
+    }
+
+    if (isLast) {
+      html += '<td class="c-pass" style="color:var(--text-dim)">&mdash;</td>';
+    } else {
+      html += '<td class="' + (cr.pcNextOk ? 'c-pass' : 'c-fail') + '">' + (cr.pcNextOk ? '0' : (cr.actualPcNext - cr.expectedPcNext)) + '</td>';
+    }
+
+    if (isLast) {
+      html += '<td class="c-pass" style="color:var(--text-dim)">&mdash;</td>';
+    } else {
+      html += '<td class="' + (cr.tsNextOk ? 'c-pass' : 'c-fail') + '">' + (cr.tsNextOk ? '0' : (cr.actualTsNext - cr.expectedTsNext)) + '</td>';
+    }
+
+    html += '<td class="' + (cr.isValidOk ? 'c-pass' : 'c-fail') + '">' + (cr.isValidOk ? '0' : row.is_valid) + '</td>';
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('constraint-table').innerHTML = html;
+
+  // Summary
+  var allOk = constraints.every(function(c) { return c.allOk; });
+  var resultDiv = document.getElementById('constraint-result');
+  if (allOk) {
+    resultDiv.innerHTML = '<div class="balance-ok">All constraints satisfied. Every phantom row advances PC by 4 and timestamp by 1. Chain is valid.</div>';
+  } else {
+    var failCount = constraints.filter(function(c) { return !c.allOk; }).length;
+    resultDiv.innerHTML = '<div class="balance-fail">CONSTRAINT VIOLATION: ' + failCount + ' row' + (failCount === 1 ? '' : 's') + ' with broken chain continuity.</div>';
+  }
+}
+
+// ============================================================
+// Event listeners
+// ============================================================
+document.getElementById('inp-pc').addEventListener('input', recompute);
+document.getElementById('inp-ts').addEventListener('input', recompute);
+document.getElementById('inp-rows').addEventListener('change', recompute);
+document.querySelectorAll('input[name="discr"]').forEach(function(r) {
+  r.addEventListener('change', recompute);
+});
+
+// ============================================================
+// Init
+// ============================================================
+recompute();
+</script>
+</body>
+</html>

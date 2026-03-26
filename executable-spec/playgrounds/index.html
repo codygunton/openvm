@@ -16,6 +16,8 @@
     --text-dim: #8b8fa7;
     --accent: #6c8cff;
     --green: #4ade80;
+    --purple: #c084fc;
+    --yellow: #facc15;
     --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   }
 
@@ -109,8 +111,14 @@
     line-height: 1.6;
   }
 
+  .card.sys { border-left: 3px solid var(--purple); }
+  .card.sys .num { color: var(--purple); }
+
   .card.rv32 { border-left: 3px solid var(--green); }
   .card.rv32 .num { color: var(--green); }
+
+  .card.crypto { border-left: 3px solid var(--yellow); }
+  .card.crypto .num { color: var(--yellow); }
 
 </style>
 </head>
@@ -186,6 +194,44 @@
     </p>
   </a>
 
+  <div class="section-header">System</div>
+  <div class="section-desc">
+    Infrastructure AIRs that are always present: instruction ROM, segment
+    boundaries, hint delivery, and memory consistency.
+  </div>
+
+  <a class="card sys" href="system-program.html">
+    <h2><span class="num">8.</span> Program Bus (Instruction ROM)</h2>
+    <p>
+      The ProgramAir lookup table: each instruction row is published to the program bus
+      with multiplicity = exec_freq. Ensures the VM can only execute authorized instructions.
+    </p>
+  </a>
+
+  <a class="card sys" href="system-connector.html">
+    <h2><span class="num">9.</span> VM Connector (Segment Boundaries)</h2>
+    <p>
+      A fixed 2-row AIR enforcing segment boundaries. Matches public values to
+      trace cells, closes the execution bus cycle, and handles TERMINATE lookups.
+    </p>
+  </a>
+
+  <a class="card sys" href="system-phantom.html">
+    <h2><span class="num">10.</span> Phantom Opcodes</h2>
+    <p>
+      "Free" operations invisible to the verifier. The constraint system only sees
+      a NOP (pc += 4) regardless of what the phantom handler does at execution time.
+    </p>
+  </a>
+
+  <a class="card sys" href="system-memory.html">
+    <h2><span class="num">11.</span> Memory Subsystem</h2>
+    <p>
+      Two cooperating AIRs: VolatileBoundaryAir bookkeeps touched memory locations,
+      AccessAdapterAir handles block-size conversion via split/merge operations.
+    </p>
+  </a>
+
   <div class="section-header">RISC-V (RV32IM)</div>
   <div class="section-desc">
     The actual instruction chips that execute RISC-V programs inside OpenVM.
@@ -193,7 +239,7 @@
   </div>
 
   <a class="card rv32" href="rv32im-alu.html">
-    <h2><span class="num">8.</span> ALU (ADD/SUB/XOR/OR/AND)</h2>
+    <h2><span class="num">12.</span> ALU (ADD/SUB/XOR/OR/AND)</h2>
     <p>
       The BaseAluCoreAir: five operations multiplexed in one chip via one-hot
       opcode flags. Carry chain for ADD/SUB, bitwise lookup bus for XOR/OR/AND.
@@ -201,7 +247,7 @@
   </a>
 
   <a class="card rv32" href="rv32im-shift.html">
-    <h2><span class="num">9.</span> Shift (SLL/SRL/SRA)</h2>
+    <h2><span class="num">13.</span> Shift (SLL/SRL/SRA)</h2>
     <p>
       Bit shifts decomposed into limb_shift (whole bytes) and bit_shift (intra-byte),
       each encoded as one-hot markers. Carry propagation between limbs.
@@ -209,7 +255,7 @@
   </a>
 
   <a class="card rv32" href="rv32im-multiply.html">
-    <h2><span class="num">10.</span> Multiply (MUL/MULH)</h2>
+    <h2><span class="num">14.</span> Multiply (MUL/MULH)</h2>
     <p>
       Schoolbook polynomial multiplication over 8-bit limbs with carry.
       MULH extends to upper 32 bits with sign extension.
@@ -217,7 +263,7 @@
   </a>
 
   <a class="card rv32" href="rv32im-divrem.html">
-    <h2><span class="num">11.</span> Divide/Remainder (DIV/REM)</h2>
+    <h2><span class="num">15.</span> Divide/Remainder (DIV/REM)</h2>
     <p>
       The most complex RV32IM chip: verify b = c*q + r via multiplication,
       prove r &lt; c, handle signed division and zero-divisor edge cases.
@@ -225,15 +271,31 @@
   </a>
 
   <a class="card rv32" href="rv32im-branch.html">
-    <h2><span class="num">12.</span> Branch (BEQ/BNE/BLT/BGE)</h2>
+    <h2><span class="num">16.</span> Branch (BEQ/BNE/BLT/BGE)</h2>
     <p>
       Equality via inverse-witness markers, less-than via MSB signed field
       manipulation and diff_marker scanning. Controls PC flow.
     </p>
   </a>
 
+  <a class="card rv32" href="rv32im-slt.html">
+    <h2><span class="num">17.</span> Set Less Than (SLT/SLTU)</h2>
+    <p>
+      Writes comparison result to a register instead of branching. Same diff_marker
+      MSB-to-LSB scan as Branch, but outputs a 0/1 bit to rd.
+    </p>
+  </a>
+
+  <a class="card rv32" href="rv32im-loadsignext.html">
+    <h2><span class="num">18.</span> Load Sign Extend (LB/LH)</h2>
+    <p>
+      Signed byte and halfword loads with sign extension. MSB determines
+      fill pattern (0x00 or 0xFF) for the upper bytes of the register.
+    </p>
+  </a>
+
   <a class="card rv32" href="rv32im-memory.html">
-    <h2><span class="num">13.</span> Load/Store (LW/LH/LB/SW/SH/SB)</h2>
+    <h2><span class="num">19.</span> Load/Store (LW/LH/LB/SW/SH/SB)</h2>
     <p>
       Byte and halfword masking with alignment shifts.
       Loads extract and optionally sign-extend; stores merge into existing data.
@@ -241,18 +303,40 @@
   </a>
 
   <a class="card rv32" href="rv32im-jump.html">
-    <h2><span class="num">14.</span> Jump (JAL/JALR/LUI/AUIPC)</h2>
+    <h2><span class="num">20.</span> Jump (JAL/JALR/LUI/AUIPC)</h2>
     <p>
       PC-relative and register-indirect jumps. LUI/AUIPC load upper immediates.
       JALR sign-extends a 12-bit immediate and clears the LSB.
     </p>
   </a>
 
-  <a class="card rv32" href="keccak256.html">
-    <h2><span class="num">15.</span> Keccak-256</h2>
+  <div class="section-header">Crypto Extensions</div>
+  <div class="section-desc">
+    Accelerator chips for cryptographic primitives used in Ethereum proving:
+    hashing, modular arithmetic, and elliptic curve operations.
+  </div>
+
+  <a class="card crypto" href="keccak256.html">
+    <h2><span class="num">21.</span> Keccak-256</h2>
     <p>
       Multi-row hash accelerator: 24 rows per Keccak-f permutation, sponge
       construction, XOR absorption via bitwise lookup bus. Used for Ethereum state proofs.
+    </p>
+  </a>
+
+  <a class="card crypto" href="modular-arithmetic.html">
+    <h2><span class="num">22.</span> Modular Field Arithmetic</h2>
+    <p>
+      ADD, SUB, MUL, DIV, IS_EQ over configurable prime fields. Runtime modulus
+      (secp256k1, BN254, etc.) set at SETUP, not hardcoded in the circuit.
+    </p>
+  </a>
+
+  <a class="card crypto" href="ecc-weierstrass.html">
+    <h2><span class="num">23.</span> Elliptic Curve (Weierstrass)</h2>
+    <p>
+      EC_ADD and EC_DOUBLE over short Weierstrass curves. The foundation of
+      ECDSA signature verification for Ethereum transaction proving.
     </p>
   </a>
 </div>

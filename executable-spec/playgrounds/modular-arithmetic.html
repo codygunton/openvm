@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto: Modular Field Arithmetic</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body strong { color: var(--text); }
+  .callout-body code {
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: var(--cyan);
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 50px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio buttons --- */
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .radio-group label:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .radio-group input[type="radio"] {
+    display: none;
+  }
+
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-all { background: var(--purple); color: #1a1d27; }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Summary block --- */
+  .summary-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .summary-block .sum-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 80px;
+  }
+
+  .summary-block .sum-val {
+    font-weight: 600;
+  }
+
+  .summary-block .sum-hex {
+    color: var(--accent);
+    margin-left: 6px;
+  }
+
+  .summary-block .sum-op {
+    color: var(--yellow);
+    font-weight: 700;
+  }
+
+  .summary-block .sum-dim {
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+
+  /* --- Modulus display --- */
+  .modulus-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    word-break: break-all;
+    line-height: 1.8;
+  }
+
+  .modulus-block .mod-label {
+    color: var(--accent);
+    font-weight: 700;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .modulus-block .mod-val {
+    color: var(--purple);
+    font-size: 10px;
+  }
+
+  .modulus-block .mod-note {
+    color: var(--text-dim);
+    font-size: 10px;
+    display: block;
+    margin-top: 6px;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; margin-bottom: 16px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Flag display --- */
+  .flag-display {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+  }
+
+  .flag-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+
+  .flag-row:last-child { margin-bottom: 0; }
+
+  .flag-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    width: 130px;
+    flex-shrink: 0;
+  }
+
+  .flag-chip {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .flag-on {
+    background: var(--green-dim);
+    color: var(--green);
+  }
+
+  .flag-off {
+    background: var(--surface2);
+    color: var(--border);
+  }
+
+  /* --- Carry chain visualization --- */
+  .carry-chain {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 11px;
+  }
+
+  .carry-chain .chain-title {
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .carry-step {
+    margin-bottom: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--surface2);
+    line-height: 1.6;
+  }
+
+  .carry-step .step-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 70px;
+  }
+
+  .carry-step .step-val {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .carry-step .step-carry {
+    color: var(--yellow);
+    margin-left: 8px;
+  }
+
+  .carry-step .step-mod {
+    color: var(--purple);
+    margin-left: 8px;
+    font-size: 10px;
+  }
+
+  /* --- Concept block --- */
+  .concept-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+  }
+
+  .concept-block strong { color: var(--text); }
+  .concept-block code {
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: var(--cyan);
+  }
+
+  .concept-block .cb-title {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Crypto: Modular Field Arithmetic</h1>
+    <div class="intro">
+      The <strong>FieldExpressionCoreAir</strong> proves modular arithmetic operations (ADD, SUB, MUL, DIV)
+      over large prime fields like <strong>secp256k1</strong>. The modulus is a <strong>runtime parameter</strong>
+      set during SETUP &mdash; the same circuit can prove arithmetic over ANY prime field. Values are
+      represented as <strong>32-byte limb arrays</strong> and verified using carry-chain constraints
+      and quotient witnesses.
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">Runtime-Configurable Modulus</div>
+        <div class="callout-body">
+          Unlike hardcoded circuits, OpenVM's modular arithmetic chip accepts the modulus at <strong>SETUP time</strong>.
+          The first row of each trace is a SETUP instruction that locks in the modulus <code>p</code>.
+          All subsequent rows verify operations <code>mod p</code>. This means one circuit handles
+          secp256k1, BN254, BLS12-381, or any other prime field.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Witness-Based Verification</div>
+        <div class="callout-body">
+          The prover provides the <strong>result</strong> and a <strong>quotient q</strong> as witnesses.
+          The constraint checks: <code>a op b - result - q * p = 0</code> at the limb level, using
+          carry propagation to handle overflow. The verifier never computes the modular operation
+          directly &mdash; it only checks the algebraic identity.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Carry-Chain Arithmetic</div>
+        <div class="callout-body">
+          256-bit arithmetic is done limb-by-limb (8-bit limbs). When adding two limbs, the sum
+          may exceed 255, producing a <strong>carry</strong> that propagates to the next limb.
+          Each carry is range-checked to ensure soundness.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>a</label>
+        <input type="number" id="inp-a" value="17" min="0" max="999999999">
+      </div>
+      <div class="control-row">
+        <label>b</label>
+        <input type="number" id="inp-b" value="23" min="0" max="999999999">
+      </div>
+      <div style="margin-bottom: 8px;">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Operation:</div>
+        <div class="radio-group">
+          <label><input type="radio" name="op" value="add" checked><span>ADD</span></label>
+          <label><input type="radio" name="op" value="sub"><span>SUB</span></label>
+          <label><input type="radio" name="op" value="mul"><span>MUL</span></label>
+          <label><input type="radio" name="op" value="div"><span>DIV</span></label>
+          <label><input type="radio" name="op" value="is_eq"><span>IS_EQ</span></label>
+        </div>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Operand limbs</span><span class="val">32 bytes each (256-bit)</span></div>
+      <div class="stat-row"><span class="label">Limb size</span><span class="val">8 bits (1 byte)</span></div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">inputs + vars + quotient + carries + flags</span></div>
+      <div class="stat-row"><span class="label">Opcode flags (ADD/SUB)</span><span class="val">is_add, is_sub (one-hot)</span></div>
+      <div class="stat-row"><span class="label">Opcode flags (MUL/DIV)</span><span class="val">is_mul, is_div (one-hot)</span></div>
+      <div class="stat-row"><span class="label">IS_EQ</span><span class="val">Separate ModularIsEqualCoreAir</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Modular identity</span>
+          <span class="c-formula">
+            ADD: a + b - result - q*p = 0 (limb-wise with carries)<br>
+            SUB: a - b - result - q*p = 0 (q may be negative)<br>
+            MUL: a * b - result - q*p = 0<br>
+            DIV: result * b - a - q*p = 0
+          </span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Result range</span>
+          <span class="c-formula">Each result limb in [0, 255] (range checked)</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Carry range</span>
+          <span class="c-formula">Each carry fits in allowed bit width</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">Operand range (IS_EQ)</span>
+          <span class="c-formula">b, c &lt; p proven via lt_marker/diff columns</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">Flag constraints</span>
+          <span class="c-formula">Flags are boolean; setup = is_valid - sum(flags)</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Modulus (Runtime Parameter)</h2>
+    <div class="modulus-block">
+      <span class="mod-label">secp256k1 field prime p</span>
+      <span class="mod-val">0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F</span>
+      <span class="mod-note">
+        This modulus is set during SETUP &mdash; the first trace row. The same AIR circuit works for
+        any prime: BN254, BLS12-381, or any custom field. The playground uses small numbers for clarity,
+        but the real circuit operates on full 256-bit values.
+      </span>
+    </div>
+
+    <h2>Operation &amp; Result</h2>
+    <div class="summary-block" id="summary-block"></div>
+
+    <h2>Modular Reduction</h2>
+    <div class="hint">
+      Shows how the raw arithmetic result is reduced mod p. For small numbers the quotient q is typically 0
+      (since a op b &lt; p). Try larger values to see non-zero quotients.
+    </div>
+    <div class="carry-chain" id="reduction-block"></div>
+
+    <h2>Limb Decomposition (first 8 of 32 bytes)</h2>
+    <div class="hint">
+      256-bit values are split into 32 byte-sized limbs (little-endian). For small numbers,
+      most high limbs are 0. Edit <strong>result limbs</strong> to see constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+    <div class="trace-wrapper">
+      <table id="limb-table"></table>
+    </div>
+
+    <h2>Carry Chain Verification</h2>
+    <div class="hint">
+      The constraint <code>expr(a,b) - result - q*p = 0</code> is checked limb-by-limb.
+      Each limb equation produces a carry that propagates to the next limb.
+    </div>
+    <div class="carry-chain" id="carry-block"></div>
+
+    <h2>Constraint Evaluation</h2>
+    <div class="flag-display" id="constraint-display"></div>
+
+    <h2>How It Works: Runtime Modulus</h2>
+    <div class="concept-block">
+      <div class="cb-title">Why is the modulus not hardcoded?</div>
+      <p>
+        Elliptic curve cryptography uses different prime fields: <strong>secp256k1</strong> for Bitcoin/Ethereum,
+        <strong>BN254</strong> for Ethereum pairings, <strong>BLS12-381</strong> for newer protocols.
+        Instead of building a separate circuit for each, OpenVM uses <strong>FieldExpressionCoreAir</strong> &mdash;
+        a generic arithmetic circuit parameterized by any prime modulus.
+      </p>
+      <p style="margin-top:8px;">
+        The <strong>SETUP</strong> instruction writes the modulus into the trace as the first row.
+        The constraint system reads <code>p</code> from this setup row and uses it in the identity
+        <code>expr(inputs) - output - q * p = 0</code>. The quotient <code>q</code> is provided by
+        the prover as a witness. Range checks ensure all values are properly reduced.
+      </p>
+      <p style="margin-top:8px;">
+        <strong>ADD/SUB</strong> share one chip (<code>ModularAddSub</code>) with flags <code>is_add</code>
+        and <code>is_sub</code>. <strong>MUL/DIV</strong> share another (<code>ModularMulDiv</code>)
+        with flags <code>is_mul</code> and <code>is_div</code>. <strong>IS_EQ</strong> uses a
+        separate chip (<code>ModularIsEqualCoreAir</code>) that proves <code>b == c</code> or
+        <code>b != c</code> while also proving both operands are less than <code>p</code> using
+        an <code>lt_marker</code> array.
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// secp256k1 prime as a BigInt
+const P_SECP = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F');
+const NUM_LIMBS = 32;
+const LIMB_BITS = 8;
+const LIMB_MAX = (1 << LIMB_BITS) - 1; // 255
+
+function getOp() {
+  return document.querySelector('input[name="op"]:checked').value;
+}
+
+// BigInt modular arithmetic
+function bigMod(a, p) {
+  return ((a % p) + p) % p;
+}
+
+function bigModInverse(a, p) {
+  // Extended Euclidean algorithm for modular inverse
+  if (a === 0n) return 0n;
+  let [old_r, r] = [bigMod(a, p), p];
+  let [old_s, s] = [1n, 0n];
+  while (r !== 0n) {
+    const q = old_r / r;
+    [old_r, r] = [r, old_r - q * r];
+    [old_s, s] = [s, old_s - q * s];
+  }
+  return bigMod(old_s, p);
+}
+
+function toLimbs(val) {
+  // Convert BigInt to little-endian byte array (NUM_LIMBS bytes)
+  const limbs = new Array(NUM_LIMBS).fill(0);
+  let v = val < 0n ? val + P_SECP : val;
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    limbs[i] = Number(v & 0xFFn);
+    v = v >> 8n;
+  }
+  return limbs;
+}
+
+function fromLimbs(limbs) {
+  let val = 0n;
+  for (let i = limbs.length - 1; i >= 0; i--) {
+    val = (val << 8n) + BigInt(limbs[i]);
+  }
+  return val;
+}
+
+function toHex(val) {
+  if (val < 0n) val = val + P_SECP;
+  const h = val.toString(16).toUpperCase();
+  return '0x' + h;
+}
+
+function computeOperation(aVal, bVal, op) {
+  const a = BigInt(aVal);
+  const b = BigInt(bVal);
+  let result, rawExpr, quotient;
+
+  switch (op) {
+    case 'add': {
+      rawExpr = a + b;
+      quotient = rawExpr / P_SECP;
+      result = bigMod(rawExpr, P_SECP);
+      break;
+    }
+    case 'sub': {
+      rawExpr = a - b;
+      // For sub, quotient can be -1 if a < b
+      if (rawExpr >= 0n) {
+        quotient = rawExpr / P_SECP;
+      } else {
+        quotient = -((-rawExpr + P_SECP - 1n) / P_SECP);
+      }
+      result = bigMod(rawExpr, P_SECP);
+      break;
+    }
+    case 'mul': {
+      rawExpr = a * b;
+      quotient = rawExpr / P_SECP;
+      result = bigMod(rawExpr, P_SECP);
+      break;
+    }
+    case 'div': {
+      // DIV: result = a / b mod p, constraint: result * b - a - q*p = 0
+      if (b === 0n) {
+        result = 0n;
+        rawExpr = 0n;
+        quotient = 0n;
+      } else {
+        const bInv = bigModInverse(b, P_SECP);
+        result = bigMod(a * bInv, P_SECP);
+        rawExpr = result * b;
+        quotient = (rawExpr - a) / P_SECP;
+      }
+      break;
+    }
+    case 'is_eq': {
+      result = (a === b) ? 1n : 0n;
+      rawExpr = 0n;
+      quotient = 0n;
+      break;
+    }
+    default: {
+      result = 0n;
+      rawExpr = 0n;
+      quotient = 0n;
+    }
+  }
+
+  return {
+    a, b, result, rawExpr, quotient,
+    aLimbs: toLimbs(a),
+    bLimbs: toLimbs(b),
+    resultLimbs: toLimbs(result),
+    qLimbs: toLimbs(quotient < 0n ? -quotient : quotient),
+    qNeg: quotient < 0n
+  };
+}
+
+// Verify the limb-level constraint: expr(a,b) - result - q*p = 0 with carries
+function computeCarryChain(op, aLimbs, bLimbs, resultLimbs, qLimbs, qNeg, pLimbs) {
+  // Compute expr limbs based on operation
+  const exprLimbs = new Array(NUM_LIMBS).fill(0);
+  const carries = new Array(NUM_LIMBS).fill(0);
+  const limbEq = new Array(NUM_LIMBS).fill(0);
+
+  // We check: expr(a,b)[i] - result[i] - q*p[i] + carry[i-1] - carry[i]*256 = 0
+  // For ADD: expr = a + b
+  // For SUB: expr = a - b (but we check a - b - result - q*p = 0)
+  // For MUL: expr = a * b (convolution at limb level - simplified here)
+  // For DIV: expr = result * b (verify result * b - a - q*p = 0)
+
+  let carry = 0;
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    let lhs;
+    switch (op) {
+      case 'add':
+        lhs = aLimbs[i] + bLimbs[i] - resultLimbs[i];
+        break;
+      case 'sub':
+        lhs = aLimbs[i] - bLimbs[i] - resultLimbs[i];
+        break;
+      case 'mul':
+        // Simplified: just check the identity at BigInt level for visualization
+        // Real implementation uses convolution
+        lhs = 0;
+        break;
+      case 'div':
+        // Check: result * b - a - q*p = 0 (simplified per-limb)
+        lhs = resultLimbs[i] * bLimbs[i] - aLimbs[i];
+        break;
+      default:
+        lhs = 0;
+    }
+
+    // Subtract q*p contribution at this limb
+    let qpContrib = 0;
+    if (op !== 'is_eq') {
+      // Simplified: q*p[i] for single-limb q (works for small numbers)
+      for (let j = 0; j <= i; j++) {
+        if (qNeg) {
+          qpContrib -= qLimbs[j] * pLimbs[i - j];
+        } else {
+          qpContrib += qLimbs[j] * pLimbs[i - j];
+        }
+      }
+    }
+
+    const total = lhs - qpContrib + carry;
+    carries[i] = Math.floor(total / 256);
+    limbEq[i] = total - carries[i] * 256;
+    carry = carries[i];
+  }
+
+  return { carries, limbEq };
+}
+
+// State
+let cleanResult = [];
+let editedResult = [];
+
+function recompute() {
+  const aVal = parseInt(document.getElementById('inp-a').value) || 0;
+  const bVal = parseInt(document.getElementById('inp-b').value) || 0;
+  const op = getOp();
+  const data = computeOperation(aVal, bVal, op);
+  cleanResult = [...data.resultLimbs];
+  editedResult = [...data.resultLimbs];
+  render();
+}
+
+function resetTrace() {
+  editedResult = [...cleanResult];
+  render();
+}
+
+function onResultEdit(i, value) {
+  editedResult[i] = parseInt(value) || 0;
+  render();
+}
+
+function hasEdits() {
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    if (editedResult[i] !== cleanResult[i]) return true;
+  }
+  return false;
+}
+
+// Simplified constraint evaluation for display
+function evalConstraints(op, aLimbs, bLimbs, resultLimbs, data) {
+  const constraints = {};
+
+  if (op === 'is_eq') {
+    // IS_EQ: check that result is 0 or 1, and matches equality
+    const isEqual = fromLimbs(aLimbs) === fromLimbs(bLimbs);
+    const claimedResult = resultLimbs[0];
+    constraints.equality = (isEqual && claimedResult === 1) || (!isEqual && claimedResult === 0);
+    constraints.resultBool = (claimedResult === 0 || claimedResult === 1);
+    constraints.highLimbsZero = resultLimbs.slice(1).every(l => l === 0);
+    return constraints;
+  }
+
+  // Check: expr(a,b) - result - q*p = 0 at the BigInt level
+  const a = fromLimbs(aLimbs);
+  const b = fromLimbs(bLimbs);
+  const result = fromLimbs(resultLimbs);
+  let identity;
+
+  switch (op) {
+    case 'add':
+      identity = a + b - result - data.quotient * P_SECP;
+      break;
+    case 'sub':
+      identity = a - b - result - data.quotient * P_SECP;
+      break;
+    case 'mul':
+      identity = a * b - result - data.quotient * P_SECP;
+      break;
+    case 'div':
+      identity = result * b - a - data.quotient * P_SECP;
+      break;
+    default:
+      identity = 0n;
+  }
+
+  constraints.identity = identity === 0n;
+
+  // Range check: each result limb in [0, 255]
+  constraints.resultRange = resultLimbs.every(l => l >= 0 && l <= LIMB_MAX);
+
+  // Result < p
+  constraints.resultLtP = fromLimbs(resultLimbs) < P_SECP;
+
+  return constraints;
+}
+
+function render() {
+  const aVal = parseInt(document.getElementById('inp-a').value) || 0;
+  const bVal = parseInt(document.getElementById('inp-b').value) || 0;
+  const op = getOp();
+  const opSymbols = { add: '+', sub: '-', mul: '*', div: '/', is_eq: '==' };
+  const opNames = { add: 'ADD', sub: 'SUB', mul: 'MUL', div: 'DIV', is_eq: 'IS_EQ' };
+  const data = computeOperation(aVal, bVal, op);
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
+
+  // Summary
+  let summaryHtml;
+  if (op === 'is_eq') {
+    const eq = data.a === data.b;
+    summaryHtml =
+      `<div><span class="sum-label">a</span> = <span class="sum-val">${data.a.toString()}</span><span class="sum-hex"> (${toHex(data.a)})</span></div>` +
+      `<div><span class="sum-label">b</span> = <span class="sum-val">${data.b.toString()}</span><span class="sum-hex"> (${toHex(data.b)})</span></div>` +
+      `<div><span class="sum-label">a == b?</span> <span class="sum-val">${eq ? '1 (equal)' : '0 (not equal)'}</span> <span class="sum-op">(${opNames[op]})</span></div>`;
+  } else {
+    summaryHtml =
+      `<div><span class="sum-label">a</span> = <span class="sum-val">${data.a.toString()}</span><span class="sum-hex"> (${toHex(data.a)})</span></div>` +
+      `<div><span class="sum-label">b</span> = <span class="sum-val">${data.b.toString()}</span><span class="sum-hex"> (${toHex(data.b)})</span></div>` +
+      `<div><span class="sum-label">a ${opSymbols[op]} b</span> = <span class="sum-val">${data.result.toString()}</span><span class="sum-hex"> (${toHex(data.result)})</span> <span class="sum-op">(${opNames[op]} mod p)</span></div>`;
+  }
+  document.getElementById('summary-block').innerHTML = summaryHtml;
+
+  // Modular reduction
+  let redHtml = `<div class="chain-title">Modular Reduction Steps</div>`;
+  if (op === 'is_eq') {
+    redHtml += `<div class="carry-step">
+      <span class="step-label">Compare:</span>
+      <span class="step-val">a ${data.a === data.b ? '==' : '!='} b</span>
+      <span class="step-mod">Result: ${data.a === data.b ? '1' : '0'}</span>
+    </div>`;
+    redHtml += `<div class="carry-step">
+      <span class="step-label">Prove:</span>
+      <span class="step-val">Both a, b &lt; p via lt_marker technique</span>
+    </div>`;
+  } else {
+    const rawLabel = op === 'div' ? `result * b` : `a ${opSymbols[op]} b`;
+    const rawVal = op === 'div' ? data.result * data.b : data.rawExpr;
+    redHtml += `<div class="carry-step">
+      <span class="step-label">Raw:</span>
+      <span class="step-val">${rawLabel} = ${rawVal.toString()}</span>
+    </div>`;
+    redHtml += `<div class="carry-step">
+      <span class="step-label">Quotient:</span>
+      <span class="step-val">q = ${data.quotient.toString()}</span>
+      <span class="step-mod">(how many times p fits)</span>
+    </div>`;
+    redHtml += `<div class="carry-step">
+      <span class="step-label">Verify:</span>
+      <span class="step-val">raw - result - q*p = ${(rawVal - data.result - data.quotient * P_SECP).toString()}</span>
+      <span class="step-carry">${(rawVal - data.result - data.quotient * P_SECP) === 0n ? 'OK' : 'FAIL'}</span>
+    </div>`;
+    redHtml += `<div class="carry-step">
+      <span class="step-label">Result:</span>
+      <span class="step-val">${data.result.toString()}</span>
+      <span class="step-mod">(= raw mod p)</span>
+    </div>`;
+  }
+  document.getElementById('reduction-block').innerHTML = redHtml;
+
+  // Limb table (show first 8 limbs for clarity)
+  const showLimbs = 8;
+  const pLimbs = toLimbs(P_SECP);
+
+  let limbHtml = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Inputs (fixed)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Result (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Modulus p</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Constraint</th>
+    </tr>
+    <tr>
+      <th>Limb</th>
+      <th class="col-sep"></th>
+      <th>a[i]</th><th>b[i]</th>
+      <th class="col-sep"></th>
+      <th>result[i]</th>
+      <th class="col-sep"></th>
+      <th>p[i]</th>
+      <th class="col-sep"></th>
+      <th>Range OK?</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < showLimbs; i++) {
+    const resModified = editedResult[i] !== cleanResult[i];
+    const rangeOk = editedResult[i] >= 0 && editedResult[i] <= LIMB_MAX;
+
+    limbHtml += `<tr${!rangeOk ? ' class="affected-row"' : ''}>`;
+    limbHtml += `<td class="col-row">${i}</td>`;
+    limbHtml += `<td class="col-sep"></td>`;
+    limbHtml += `<td class="col-trace">${data.aLimbs[i]}</td>`;
+    limbHtml += `<td class="col-trace">${data.bLimbs[i]}</td>`;
+    limbHtml += `<td class="col-sep"></td>`;
+    limbHtml += `<td class="col-trace"><input type="number" class="cell-input${resModified ? ' modified' : ''}" value="${editedResult[i]}" onchange="onResultEdit(${i},this.value)"></td>`;
+    limbHtml += `<td class="col-sep"></td>`;
+    limbHtml += `<td class="col-trace" style="color:var(--purple)">${pLimbs[i]}</td>`;
+    limbHtml += `<td class="col-sep"></td>`;
+    if (rangeOk) limbHtml += `<td class="c-pass">[0,255]</td>`;
+    else limbHtml += `<td class="c-fail">OUT</td>`;
+    limbHtml += `</tr>`;
+  }
+
+  // Show "..." row for remaining limbs
+  limbHtml += `<tr><td class="col-row" style="color:var(--text-dim)">...</td>`;
+  limbHtml += `<td class="col-sep"></td>`;
+  limbHtml += `<td class="col-trace" style="color:var(--text-dim)">0</td>`;
+  limbHtml += `<td class="col-trace" style="color:var(--text-dim)">0</td>`;
+  limbHtml += `<td class="col-sep"></td>`;
+  limbHtml += `<td class="col-trace" style="color:var(--text-dim)">0</td>`;
+  limbHtml += `<td class="col-sep"></td>`;
+  limbHtml += `<td class="col-trace" style="color:var(--purple);opacity:0.5">...</td>`;
+  limbHtml += `<td class="col-sep"></td>`;
+  limbHtml += `<td class="c-pass">[0,255]</td>`;
+  limbHtml += `</tr>`;
+
+  limbHtml += '</tbody>';
+  document.getElementById('limb-table').innerHTML = limbHtml;
+
+  // Carry chain (simplified for ADD/SUB)
+  let carryHtml = `<div class="chain-title">Carry Propagation (limb-by-limb for ${opNames[op]})</div>`;
+  if (op === 'add' || op === 'sub') {
+    let carry = 0;
+    for (let i = 0; i < showLimbs; i++) {
+      let lhs, desc;
+      if (op === 'add') {
+        lhs = data.aLimbs[i] + data.bLimbs[i] + carry;
+        desc = `a[${i}](${data.aLimbs[i]}) + b[${i}](${data.bLimbs[i]}) + carry_in(${carry})`;
+      } else {
+        lhs = data.aLimbs[i] - data.bLimbs[i] + carry;
+        desc = `a[${i}](${data.aLimbs[i]}) - b[${i}](${data.bLimbs[i]}) + carry_in(${carry})`;
+      }
+      const expectedLimb = ((lhs % 256) + 256) % 256;
+      const carryOut = Math.floor((lhs - expectedLimb) / 256);
+      const match = expectedLimb === editedResult[i];
+
+      carryHtml += `<div class="carry-step">
+        <span class="step-label">Limb ${i}:</span>
+        <span class="step-val">${desc} = ${lhs}</span>
+        <span class="step-carry">carry_out=${carryOut}</span>
+        <span class="${match ? 'c-pass' : 'c-fail'}" style="margin-left:8px;font-size:10px">
+          result[${i}]=${editedResult[i]} ${match ? '(OK)' : '(expected ' + expectedLimb + ')'}
+        </span>
+      </div>`;
+      carry = carryOut;
+    }
+  } else if (op === 'mul') {
+    carryHtml += `<div class="carry-step">
+      <span class="step-val">Multiplication uses convolution: result[k] = sum(a[i]*b[j] for i+j=k) + carry_in - q*p[k] contribution</span>
+    </div>`;
+    // Show simplified convolution for first few limbs
+    let carry = 0n;
+    for (let k = 0; k < Math.min(4, showLimbs); k++) {
+      let conv = carry;
+      for (let i = 0; i <= k; i++) {
+        conv += BigInt(data.aLimbs[i]) * BigInt(data.bLimbs[k - i]);
+      }
+      // subtract q*p contribution
+      let qpk = 0n;
+      for (let i = 0; i <= k; i++) {
+        qpk += BigInt(data.qLimbs[i]) * BigInt(pLimbs[k - i]);
+      }
+      if (data.qNeg) conv += qpk; else conv -= qpk;
+      const limb = Number(((conv % 256n) + 256n) % 256n);
+      carry = (conv - BigInt(limb)) / 256n;
+      const match = limb === editedResult[k];
+      carryHtml += `<div class="carry-step">
+        <span class="step-label">Limb ${k}:</span>
+        <span class="step-val">conv=${Number(conv + BigInt(limb))} - q*p=${Number(qpk)}</span>
+        <span class="step-carry">carry=${Number(carry)}</span>
+        <span class="${match ? 'c-pass' : 'c-fail'}" style="margin-left:8px;font-size:10px">
+          result[${k}]=${editedResult[k]} ${match ? '(OK)' : '(expected ' + limb + ')'}
+        </span>
+      </div>`;
+    }
+  } else if (op === 'div') {
+    carryHtml += `<div class="carry-step">
+      <span class="step-val">DIV verifies: result * b - a - q*p = 0 (same structure as MUL, reversed)</span>
+    </div>`;
+    carryHtml += `<div class="carry-step">
+      <span class="step-val">Prover computes result = a * b^(-1) mod p, then constraint checks result*b = a + q*p</span>
+    </div>`;
+  } else if (op === 'is_eq') {
+    carryHtml += `<div class="carry-step">
+      <span class="step-val">IS_EQ uses IsEqArraySubAir: compares all 32 limbs for equality</span>
+    </div>`;
+    carryHtml += `<div class="carry-step">
+      <span class="step-val">lt_marker array proves both operands &lt; p (see README for proof)</span>
+    </div>`;
+  }
+  document.getElementById('carry-block').innerHTML = carryHtml;
+
+  // Constraint evaluation
+  const constraints = evalConstraints(op, data.aLimbs, data.bLimbs, editedResult, data);
+  let conHtml = '';
+
+  if (op === 'is_eq') {
+    conHtml += `<div class="flag-row"><span class="flag-label">Equality check:</span>`;
+    conHtml += constraints.equality
+      ? `<span class="flag-chip flag-on">PASS</span>`
+      : `<span class="flag-chip" style="background:var(--red-dim);color:var(--red)">FAIL</span>`;
+    conHtml += `</div>`;
+
+    conHtml += `<div class="flag-row"><span class="flag-label">Result is bool:</span>`;
+    conHtml += constraints.resultBool
+      ? `<span class="flag-chip flag-on">PASS</span>`
+      : `<span class="flag-chip" style="background:var(--red-dim);color:var(--red)">FAIL</span>`;
+    conHtml += `</div>`;
+
+    conHtml += `<div class="flag-row"><span class="flag-label">High limbs = 0:</span>`;
+    conHtml += constraints.highLimbsZero
+      ? `<span class="flag-chip flag-on">PASS</span>`
+      : `<span class="flag-chip" style="background:var(--red-dim);color:var(--red)">FAIL</span>`;
+    conHtml += `</div>`;
+  } else {
+    conHtml += `<div class="flag-row"><span class="flag-label">C1: Identity = 0:</span>`;
+    conHtml += constraints.identity
+      ? `<span class="flag-chip flag-on">PASS</span>`
+      : `<span class="flag-chip" style="background:var(--red-dim);color:var(--red)">FAIL</span>`;
+    conHtml += `</div>`;
+
+    conHtml += `<div class="flag-row"><span class="flag-label">C2: Result range:</span>`;
+    conHtml += constraints.resultRange
+      ? `<span class="flag-chip flag-on">PASS (all limbs in [0,255])</span>`
+      : `<span class="flag-chip" style="background:var(--red-dim);color:var(--red)">FAIL (limb out of range)</span>`;
+    conHtml += `</div>`;
+
+    conHtml += `<div class="flag-row"><span class="flag-label">C3: Result &lt; p:</span>`;
+    conHtml += constraints.resultLtP
+      ? `<span class="flag-chip flag-on">PASS</span>`
+      : `<span class="flag-chip" style="background:var(--red-dim);color:var(--red)">FAIL (result >= p)</span>`;
+    conHtml += `</div>`;
+
+    // Show opcode flags
+    conHtml += `<div class="flag-row"><span class="flag-label">Operation:</span>`;
+    if (op === 'add' || op === 'sub') {
+      conHtml += `<span class="flag-chip ${op === 'add' ? 'flag-on' : 'flag-off'}">is_add=${op === 'add' ? 1 : 0}</span>`;
+      conHtml += `<span class="flag-chip ${op === 'sub' ? 'flag-on' : 'flag-off'}">is_sub=${op === 'sub' ? 1 : 0}</span>`;
+    } else {
+      conHtml += `<span class="flag-chip ${op === 'mul' ? 'flag-on' : 'flag-off'}">is_mul=${op === 'mul' ? 1 : 0}</span>`;
+      conHtml += `<span class="flag-chip ${op === 'div' ? 'flag-on' : 'flag-off'}">is_div=${op === 'div' ? 1 : 0}</span>`;
+    }
+    conHtml += `</div>`;
+
+    // Show the chip type
+    conHtml += `<div class="flag-row"><span class="flag-label">Chip:</span>`;
+    if (op === 'add' || op === 'sub') {
+      conHtml += `<span class="flag-chip" style="background:var(--cyan-dim);color:var(--cyan)">ModularAddSub</span>`;
+    } else {
+      conHtml += `<span class="flag-chip" style="background:var(--cyan-dim);color:var(--cyan)">ModularMulDiv</span>`;
+    }
+    conHtml += `</div>`;
+  }
+
+  document.getElementById('constraint-display').innerHTML = conHtml;
+}
+
+// Event listeners
+document.getElementById('inp-a').addEventListener('input', recompute);
+document.getElementById('inp-b').addEventListener('input', recompute);
+document.querySelectorAll('input[name="op"]').forEach(function(r) { r.addEventListener('change', recompute); });
+
+recompute();
+</script>
+</body>
+</html>

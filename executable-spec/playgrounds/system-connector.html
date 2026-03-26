@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System: VM Connector</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout.purple { border-left-color: var(--purple); }
+  .callout.green { border-left-color: var(--green); }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout.purple .callout-title { color: var(--purple); }
+  .callout.green .callout-title { color: var(--green); }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 90px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list li.pass { border-left-color: var(--green); }
+  .constraint-list li.fail { border-left-color: var(--red); }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .constraint-list .c-status {
+    float: right;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-bus { background: var(--purple-dim); color: var(--purple); }
+  .sel-range { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section {
+    margin-bottom: 32px;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .cell-select {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    border-radius: 3px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+
+  .cell-select:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-select.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  /* --- Segment boundary visualization --- */
+  .boundary-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 16px 0;
+    margin-bottom: 16px;
+  }
+
+  .boundary-box {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 180px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .boundary-box.begin { border-color: var(--green); }
+  .boundary-box.end { border-color: var(--orange); }
+  .boundary-box.end.terminated { border-color: var(--red); }
+
+  .boundary-box .box-title {
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .boundary-box.begin .box-title { color: var(--green); }
+  .boundary-box.end .box-title { color: var(--orange); }
+  .boundary-box.end.terminated .box-title { color: var(--red); }
+
+  .boundary-box .box-field {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+
+  .boundary-box .box-field strong { color: var(--text); }
+
+  .boundary-arrow {
+    font-size: 28px;
+    color: var(--accent);
+    padding: 0 12px;
+    flex-shrink: 0;
+    font-weight: 700;
+  }
+
+  .boundary-arrow .arrow-label {
+    display: block;
+    font-size: 9px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+
+  /* --- PV match display --- */
+  .pv-match-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .pv-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+
+  .pv-card.pass { border-color: var(--green); }
+  .pv-card.fail { border-color: var(--red); }
+  .pv-card.na { border-color: var(--border); }
+
+  .pv-card .pv-name {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+
+  .pv-card .pv-pv {
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 2px;
+  }
+
+  .pv-card .pv-trace {
+    font-size: 11px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .pv-card .pv-status {
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .pv-card.pass .pv-status { color: var(--green); }
+  .pv-card.fail .pv-status { color: var(--red); }
+  .pv-card.na .pv-status { color: var(--text-dim); }
+
+  /* --- Bus interaction table --- */
+  .badge-send { background: var(--green-dim); color: var(--green); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-lookup { background: var(--yellow-dim); color: var(--yellow); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-range { background: var(--cyan-dim); color: var(--cyan); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-exec { background: var(--accent-dim); color: var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-prog { background: var(--purple-dim); color: var(--purple); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+
+  .match-ok { color: var(--green); }
+  .match-fail { color: var(--red); font-weight: 700; }
+
+  .balance-ok {
+    color: var(--green);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--green-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .balance-fail {
+    color: var(--red);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--red-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    .pv-match-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>System: VM Connector</h1>
+    <div class="intro">
+      The <strong>VmConnectorAir</strong> is a tiny 2-row AIR that bookends every execution segment.
+      <strong>Row 0</strong> (begin) records the initial state; <strong>Row 1</strong> (end) records the
+      final state. It enforces that execution starts at the declared <strong>initial_pc</strong>,
+      ends at the declared <strong>final_pc</strong>, and properly signals termination.
+      In multi-segment proofs, the end state of segment N must match the begin state of segment N+1.
+    </div>
+
+    <div class="section">
+      <div class="callout purple">
+        <div class="callout-title">Segment Boundaries</div>
+        <div class="callout-body">
+          The connector links <strong>public values</strong> (initial_pc, final_pc, exit_code,
+          is_terminate) to trace cells. This is how the verifier knows the program ran correctly:
+          the public values are checked against the trace.
+        </div>
+      </div>
+      <div class="callout green">
+        <div class="callout-title">Execution Bus Cycle</div>
+        <div class="callout-body">
+          The connector <strong>sends</strong> the begin state <strong>(begin.pc, begin.ts)</strong>
+          to start the execution chain, and <strong>receives</strong> the end state
+          <strong>(end.pc, end.ts)</strong> from the last instruction. This closes the bus cycle.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Timestamp Range Check</div>
+        <div class="callout-body">
+          Each row's timestamp is decomposed into <strong>low_limb</strong> and <strong>high_limb</strong>
+          and range-checked via the <strong>VariableRangeCheckerBus</strong>. This constrains
+          timestamps to be within [0, 2^timestamp_max_bits).
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Public Values</div>
+      <div class="control-row">
+        <label>initial_pc</label>
+        <input type="number" id="pv-initial-pc" value="0" min="0">
+      </div>
+      <div class="control-row">
+        <label>final_pc</label>
+        <input type="number" id="pv-final-pc" value="8" min="0">
+      </div>
+      <div class="control-row">
+        <label>exit_code</label>
+        <input type="number" id="pv-exit-code" value="0" min="0">
+      </div>
+      <div class="control-row">
+        <label>is_terminate</label>
+        <select id="pv-is-terminate">
+          <option value="1" selected>1 (terminated)</option>
+          <option value="0">0 (suspended)</option>
+        </select>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Trace rows</span><span class="val">2 (fixed)</span></div>
+      <div class="stat-row"><span class="label">Main columns</span><span class="val">5</span></div>
+      <div class="stat-row"><span class="label">Preprocessed columns</span><span class="val">1</span></div>
+      <div class="stat-row"><span class="label">Public values</span><span class="val">4</span></div>
+      <div class="stat-row"><span class="label">Transition constraints</span><span class="val">5</span></div>
+      <div class="stat-row"><span class="label">Range checks</span><span class="val">4 (2 per row)</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val dynamic">3</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list" id="constraint-list"></ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Section 1: Connector Trace -->
+    <div class="main-section">
+      <h2>Connector Trace (2 Rows)</h2>
+      <div class="hint">
+        Edit any trace cell to see which constraints break.
+        <span class="g">Green</span> = satisfied,
+        <span class="r">red</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+        The preprocessed column (prep) is read-only: 0 for row 0, 1 for row 1.
+      </div>
+      <div class="trace-wrapper">
+        <table id="trace-table"></table>
+      </div>
+    </div>
+
+    <!-- Section 2: Segment Boundary Visualization -->
+    <div class="main-section">
+      <h2>Segment Boundary</h2>
+      <div class="hint">
+        The connector bootstraps execution at the begin state and closes it at the end state.
+        In multi-segment proofs, end(N) feeds into begin(N+1).
+      </div>
+      <div class="boundary-flow" id="boundary-flow"></div>
+    </div>
+
+    <!-- Section 3: Public Value Matching -->
+    <div class="main-section">
+      <h2>Public Value Matching</h2>
+      <div class="hint">
+        Each public value must match its corresponding trace cell.
+        The exit_code match is only enforced when <strong>is_terminate = 1</strong>.
+      </div>
+      <div class="pv-match-grid" id="pv-match-grid"></div>
+    </div>
+
+    <!-- Section 4: Bus Interactions -->
+    <div class="main-section">
+      <h2>Bus Interactions</h2>
+      <div class="hint">
+        The connector interacts with <span class="g">ExecutionBus</span> (send begin state, receive
+        end state) and the <span style="color:var(--purple)">ProgramBus</span> (TERMINATE instruction
+        lookup, only when is_terminate=1).
+      </div>
+      <div class="trace-wrapper">
+        <table id="bus-table"></table>
+      </div>
+    </div>
+
+    <!-- Section 5: Constraint Evaluation -->
+    <div class="main-section">
+      <h2>Constraint Evaluation</h2>
+      <div class="hint">
+        All constraints evaluated against current trace and public values.
+        Each must equal <span class="g">0</span> to be satisfied.
+      </div>
+      <div class="trace-wrapper">
+        <table id="eval-table"></table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// Constants
+// ============================================================
+const RANGE_MAX_BITS = 16;
+const TIMESTAMP_MAX_BITS = 29;
+const TERMINATE_OPCODE = 28; // TERMINATE global opcode in OpenVM
+
+// ============================================================
+// State
+// ============================================================
+// Trace: row 0 = begin, row 1 = end
+// Columns: pc, timestamp, is_terminate, exit_code, timestamp_low_limb
+let trace = [
+  { pc: 0, timestamp: 1, is_terminate: 0, exit_code: 0, timestamp_low_limb: 1 },
+  { pc: 8, timestamp: 10, is_terminate: 1, exit_code: 0, timestamp_low_limb: 10 },
+];
+
+let cleanTrace = [
+  { pc: 0, timestamp: 1, is_terminate: 0, exit_code: 0, timestamp_low_limb: 1 },
+  { pc: 8, timestamp: 10, is_terminate: 1, exit_code: 0, timestamp_low_limb: 10 },
+];
+
+// Preprocessed trace (read-only)
+const prep = [0, 1];
+
+// ============================================================
+// Helpers
+// ============================================================
+function cloneTrace(t) {
+  return t.map(function(row) { return Object.assign({}, row); });
+}
+
+function getVal(id) {
+  return parseInt(document.getElementById(id).value) || 0;
+}
+
+function getPvs() {
+  return {
+    initial_pc: getVal('pv-initial-pc'),
+    final_pc: getVal('pv-final-pc'),
+    exit_code: getVal('pv-exit-code'),
+    is_terminate: parseInt(document.getElementById('pv-is-terminate').value),
+  };
+}
+
+function computeTimestampLowLimb(ts) {
+  return ts & ((1 << RANGE_MAX_BITS) - 1);
+}
+
+function computeTimestampHighLimb(ts) {
+  return ts >>> RANGE_MAX_BITS;
+}
+
+function timestampLimbBits() {
+  if (TIMESTAMP_MAX_BITS <= RANGE_MAX_BITS) {
+    return { lowBits: TIMESTAMP_MAX_BITS, highBits: 0 };
+  }
+  return { lowBits: RANGE_MAX_BITS, highBits: TIMESTAMP_MAX_BITS - RANGE_MAX_BITS };
+}
+
+function fitsInBits(val, bits) {
+  if (bits === 0) return val === 0;
+  return val >= 0 && val < (1 << bits);
+}
+
+// ============================================================
+// Default valid trace
+// ============================================================
+function makeValidTrace() {
+  var pvs = getPvs();
+  var beginTs = 1;
+  var endTs = 10;
+  var beginLowLimb = computeTimestampLowLimb(beginTs);
+  var endLowLimb = computeTimestampLowLimb(endTs);
+
+  return [
+    { pc: pvs.initial_pc, timestamp: beginTs, is_terminate: 0, exit_code: 0, timestamp_low_limb: beginLowLimb },
+    { pc: pvs.final_pc, timestamp: endTs, is_terminate: pvs.is_terminate, exit_code: pvs.exit_code, timestamp_low_limb: endLowLimb },
+  ];
+}
+
+// ============================================================
+// Constraint evaluation
+// ============================================================
+function evalConstraints() {
+  var pvs = getPvs();
+  var begin = trace[0];
+  var end = trace[1];
+  var results = [];
+
+  // C1: begin.pc == initial_pc (transition constraint)
+  var c1 = begin.pc - pvs.initial_pc;
+  results.push({
+    id: 'C1', desc: 'begin.pc == initial_pc',
+    formula: begin.pc + ' - ' + pvs.initial_pc + ' = ' + c1,
+    value: c1, pass: c1 === 0,
+    type: 'transition',
+  });
+
+  // C2: end.pc == final_pc (transition constraint)
+  var c2 = end.pc - pvs.final_pc;
+  results.push({
+    id: 'C2', desc: 'end.pc == final_pc',
+    formula: end.pc + ' - ' + pvs.final_pc + ' = ' + c2,
+    value: c2, pass: c2 === 0,
+    type: 'transition',
+  });
+
+  // C3: when(end.is_terminate): end.exit_code == exit_code (conditional)
+  var c3raw = end.exit_code - pvs.exit_code;
+  var c3 = end.is_terminate * c3raw;
+  var c3active = end.is_terminate !== 0;
+  results.push({
+    id: 'C3', desc: 'end.exit_code == exit_code (when is_terminate)',
+    formula: c3active
+      ? end.is_terminate + ' * (' + end.exit_code + ' - ' + pvs.exit_code + ') = ' + c3
+      : 'inactive (is_terminate=0)',
+    value: c3, pass: c3 === 0,
+    type: 'transition',
+    conditional: true,
+    active: c3active,
+  });
+
+  // C4: end.is_terminate == is_terminate (PV)
+  var c4 = end.is_terminate - pvs.is_terminate;
+  results.push({
+    id: 'C4', desc: 'end.is_terminate == is_terminate (PV)',
+    formula: end.is_terminate + ' - ' + pvs.is_terminate + ' = ' + c4,
+    value: c4, pass: c4 === 0,
+    type: 'transition',
+  });
+
+  // C5: begin.timestamp == 1
+  var c5 = begin.timestamp - 1;
+  results.push({
+    id: 'C5', desc: 'begin.timestamp == 1',
+    formula: begin.timestamp + ' - 1 = ' + c5,
+    value: c5, pass: c5 === 0,
+    type: 'transition',
+  });
+
+  // C6-C7: Timestamp decomposition (per row)
+  // timestamp = timestamp_low_limb + high_limb * 2^range_max_bits
+  for (var r = 0; r < 2; r++) {
+    var row = trace[r];
+    var rname = r === 0 ? 'begin' : 'end';
+    var expectedLow = computeTimestampLowLimb(row.timestamp);
+    var high = computeTimestampHighLimb(row.timestamp);
+    var recomposed = row.timestamp_low_limb + (high * (1 << RANGE_MAX_BITS));
+    // The constraint is: timestamp = low_limb + high_limb * 2^range_max_bits
+    // where high_limb = (timestamp - low_limb) / 2^range_max_bits
+    // This means low_limb must equal the low bits of timestamp
+    var decomp = row.timestamp - row.timestamp_low_limb;
+    var highFromTrace = decomp / (1 << RANGE_MAX_BITS);
+    var isIntegerHigh = Number.isInteger(highFromTrace) && highFromTrace >= 0;
+
+    var bits = timestampLimbBits();
+    var lowOk = fitsInBits(row.timestamp_low_limb, bits.lowBits);
+    var highOk = isIntegerHigh && fitsInBits(highFromTrace, bits.highBits);
+    var decompOk = isIntegerHigh && lowOk && highOk;
+
+    results.push({
+      id: 'C' + (6 + r * 2), desc: rname + '.timestamp_low_limb range check',
+      formula: rname + '.low_limb=' + row.timestamp_low_limb + ' in [0, 2^' + bits.lowBits + ')',
+      value: lowOk ? 0 : 1, pass: lowOk,
+      type: 'range',
+    });
+
+    results.push({
+      id: 'C' + (7 + r * 2), desc: rname + '.timestamp_high_limb range check',
+      formula: 'high=(' + row.timestamp + '-' + row.timestamp_low_limb + ')/' + (1 << RANGE_MAX_BITS) +
+               '=' + (isIntegerHigh ? highFromTrace : 'non-integer') +
+               ' in [0, 2^' + bits.highBits + ')',
+      value: highOk ? 0 : 1, pass: isIntegerHigh && highOk,
+      type: 'range',
+    });
+  }
+
+  return results;
+}
+
+// ============================================================
+// Edit handlers
+// ============================================================
+function onTraceEdit(row, col, value) {
+  trace[row][col] = parseInt(value) || 0;
+  renderAll();
+}
+
+function onPvChange() {
+  renderAll();
+}
+
+function resetAll() {
+  trace = makeValidTrace();
+  cleanTrace = cloneTrace(trace);
+  renderAll();
+}
+
+function hasEdits() {
+  for (var r = 0; r < 2; r++) {
+    var keys = Object.keys(trace[r]);
+    for (var k = 0; k < keys.length; k++) {
+      if (trace[r][keys[k]] !== cleanTrace[r][keys[k]]) return true;
+    }
+  }
+  return false;
+}
+
+// ============================================================
+// Render all
+// ============================================================
+function renderAll() {
+  var edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  renderTrace();
+  renderBoundary();
+  renderPvMatch();
+  renderBus();
+  renderEval();
+  renderConstraintList();
+}
+
+// ============================================================
+// Render: Trace Table
+// ============================================================
+function renderTrace() {
+  var cols = ['pc', 'timestamp', 'is_terminate', 'exit_code', 'timestamp_low_limb'];
+  var labels = ['pc', 'timestamp', 'is_terminate', 'exit_code', 'ts_low_limb'];
+  var rowLabels = ['Row 0 (begin)', 'Row 1 (end)'];
+
+  var html = '<thead>';
+  html += '<tr>';
+  html += '<th class="group-header"></th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header">Preprocessed</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th class="group-header" colspan="5">Main Trace (editable)</th>';
+  html += '</tr>';
+  html += '<tr>';
+  html += '<th>Row</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>prep</th>';
+  html += '<th class="col-sep"></th>';
+  for (var c = 0; c < labels.length; c++) {
+    html += '<th>' + labels[c] + '</th>';
+  }
+  html += '</tr></thead><tbody>';
+
+  for (var r = 0; r < 2; r++) {
+    html += '<tr>';
+    html += '<td style="color:var(--text-dim); font-size:11px; text-align:left; padding-left:10px">' + rowLabels[r] + '</td>';
+    html += '<td class="col-sep"></td>';
+    html += '<td style="color:var(--text-dim)">' + prep[r] + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    for (var c = 0; c < cols.length; c++) {
+      var col = cols[c];
+      var val = trace[r][col];
+      var cleanVal = cleanTrace[r][col];
+      var mod = val !== cleanVal;
+
+      if (col === 'is_terminate') {
+        html += '<td><select class="cell-select' + (mod ? ' modified' : '') + '" onchange="onTraceEdit(' + r + ',\'' + col + '\',this.value)">';
+        html += '<option value="0"' + (val === 0 ? ' selected' : '') + '>0</option>';
+        html += '<option value="1"' + (val === 1 ? ' selected' : '') + '>1</option>';
+        html += '</select></td>';
+      } else {
+        html += '<td><input type="number" class="cell-input' + (mod ? ' modified' : '') + '" value="' + val + '" onchange="onTraceEdit(' + r + ',\'' + col + '\',this.value)" style="width:80px"></td>';
+      }
+    }
+
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('trace-table').innerHTML = html;
+}
+
+// ============================================================
+// Render: Segment Boundary Visualization
+// ============================================================
+function renderBoundary() {
+  var begin = trace[0];
+  var end = trace[1];
+  var isTerminated = end.is_terminate === 1;
+
+  var html = '';
+
+  // Begin box
+  html += '<div class="boundary-box begin">';
+  html += '<div class="box-title">Begin State (Row 0)</div>';
+  html += '<div class="box-field">pc = <strong>' + begin.pc + '</strong></div>';
+  html += '<div class="box-field">timestamp = <strong>' + begin.timestamp + '</strong></div>';
+  html += '</div>';
+
+  // Arrow
+  html += '<div class="boundary-arrow" style="text-align:center">';
+  html += '<span class="arrow-label">execution</span>';
+  html += '&#8594;';
+  html += '<span class="arrow-label">' + (end.timestamp - begin.timestamp) + ' ts units</span>';
+  html += '</div>';
+
+  // End box
+  html += '<div class="boundary-box end' + (isTerminated ? ' terminated' : '') + '">';
+  html += '<div class="box-title">End State (Row 1)' + (isTerminated ? ' [TERMINATED]' : ' [SUSPENDED]') + '</div>';
+  html += '<div class="box-field">pc = <strong>' + end.pc + '</strong></div>';
+  html += '<div class="box-field">timestamp = <strong>' + end.timestamp + '</strong></div>';
+  if (isTerminated) {
+    html += '<div class="box-field">exit_code = <strong>' + end.exit_code + '</strong></div>';
+  }
+  html += '</div>';
+
+  if (!isTerminated) {
+    html += '<div class="boundary-arrow" style="text-align:center">';
+    html += '<span class="arrow-label">continues to</span>';
+    html += '&#8594;';
+    html += '<span class="arrow-label">next segment</span>';
+    html += '</div>';
+
+    html += '<div class="boundary-box begin" style="border-style:dashed; opacity:0.6">';
+    html += '<div class="box-title">Next Segment Begin</div>';
+    html += '<div class="box-field">pc = <strong>' + end.pc + '</strong></div>';
+    html += '<div class="box-field">timestamp = <strong>1</strong> (reset)</div>';
+    html += '</div>';
+  }
+
+  document.getElementById('boundary-flow').innerHTML = html;
+}
+
+// ============================================================
+// Render: Public Value Matching
+// ============================================================
+function renderPvMatch() {
+  var pvs = getPvs();
+  var begin = trace[0];
+  var end = trace[1];
+
+  var matches = [
+    {
+      name: 'initial_pc',
+      pvVal: pvs.initial_pc,
+      traceVal: begin.pc,
+      traceSource: 'begin.pc',
+      pass: begin.pc === pvs.initial_pc,
+    },
+    {
+      name: 'final_pc',
+      pvVal: pvs.final_pc,
+      traceVal: end.pc,
+      traceSource: 'end.pc',
+      pass: end.pc === pvs.final_pc,
+    },
+    {
+      name: 'is_terminate',
+      pvVal: pvs.is_terminate,
+      traceVal: end.is_terminate,
+      traceSource: 'end.is_terminate',
+      pass: end.is_terminate === pvs.is_terminate,
+    },
+    {
+      name: 'exit_code',
+      pvVal: pvs.exit_code,
+      traceVal: end.exit_code,
+      traceSource: 'end.exit_code',
+      pass: end.is_terminate === 0 || end.exit_code === pvs.exit_code,
+      conditional: true,
+      active: end.is_terminate !== 0,
+    },
+    {
+      name: 'begin.timestamp',
+      pvVal: 1,
+      traceVal: begin.timestamp,
+      traceSource: 'begin.timestamp',
+      pass: begin.timestamp === 1,
+      note: 'hardcoded = 1',
+    },
+  ];
+
+  var html = '';
+  for (var i = 0; i < matches.length; i++) {
+    var m = matches[i];
+    var cls = m.pass ? 'pass' : 'fail';
+    if (m.conditional && !m.active) cls = m.pass ? 'pass' : 'fail';
+
+    html += '<div class="pv-card ' + cls + '">';
+    html += '<div class="pv-name">' + m.name + '</div>';
+    html += '<div class="pv-pv">PV: ' + m.pvVal + (m.note ? ' (' + m.note + ')' : '') + '</div>';
+    html += '<div class="pv-trace">' + m.traceSource + ': ' + m.traceVal + '</div>';
+    if (m.conditional && !m.active) {
+      html += '<div class="pv-status">N/A (is_terminate=0)</div>';
+    } else {
+      html += '<div class="pv-status">' + (m.pass ? 'MATCH' : 'MISMATCH') + '</div>';
+    }
+    html += '</div>';
+  }
+
+  document.getElementById('pv-match-grid').innerHTML = html;
+}
+
+// ============================================================
+// Render: Bus Interactions
+// ============================================================
+function renderBus() {
+  var begin = trace[0];
+  var end = trace[1];
+  var bits = timestampLimbBits();
+
+  var html = '<thead><tr>';
+  html += '<th>Bus</th><th>Direction</th><th>Enabled</th><th>Fields</th><th>Notes</th>';
+  html += '</tr></thead><tbody>';
+
+  // ExecutionBus: receive end state (prev_state in code)
+  // In the Rust code: execution_bus.execute(builder, 1-prep[0], prev_state=end, next_state=begin)
+  // execute() does: receive(prev_state), send(next_state)
+  // So: receive(end.pc, end.ts), send(begin.pc, begin.ts)
+  var execEnabled = 1 - prep[0]; // = 1 on the [row0, row1] window
+
+  html += '<tr>';
+  html += '<td><span class="badge-exec">ExecutionBus</span></td>';
+  html += '<td><span class="badge-recv">receive</span></td>';
+  html += '<td>' + execEnabled + '</td>';
+  html += '<td>(pc=' + end.pc + ', ts=' + end.timestamp + ')</td>';
+  html += '<td style="font-size:10px;color:var(--text-dim)">Receives end state from last instruction</td>';
+  html += '</tr>';
+
+  html += '<tr>';
+  html += '<td><span class="badge-exec">ExecutionBus</span></td>';
+  html += '<td><span class="badge-send">send</span></td>';
+  html += '<td>' + execEnabled + '</td>';
+  html += '<td>(pc=' + begin.pc + ', ts=' + begin.timestamp + ')</td>';
+  html += '<td style="font-size:10px;color:var(--text-dim)">Sends begin state to first instruction</td>';
+  html += '</tr>';
+
+  // ProgramBus: TERMINATE lookup
+  // enabled = (1 - prep[0]) * end.is_terminate
+  var progEnabled = (1 - prep[0]) * end.is_terminate;
+  html += '<tr>';
+  html += '<td><span class="badge-prog">ProgramBus</span></td>';
+  html += '<td><span class="badge-lookup">lookup</span></td>';
+  html += '<td>' + progEnabled + '</td>';
+  html += '<td>(pc=' + end.pc + ', opcode=TERMINATE, operands=[0, 0, ' + end.exit_code + '])</td>';
+  html += '<td style="font-size:10px;color:var(--text-dim)">Verifies TERMINATE instruction exists at end.pc' + (progEnabled === 0 ? ' (disabled)' : '') + '</td>';
+  html += '</tr>';
+
+  // Range checks (per row)
+  for (var r = 0; r < 2; r++) {
+    var row = trace[r];
+    var rname = r === 0 ? 'begin' : 'end';
+    var lowOk = fitsInBits(row.timestamp_low_limb, bits.lowBits);
+    var decomp = row.timestamp - row.timestamp_low_limb;
+    var highFromTrace = decomp / (1 << RANGE_MAX_BITS);
+    var isIntegerHigh = Number.isInteger(highFromTrace) && highFromTrace >= 0;
+    var highOk = isIntegerHigh && fitsInBits(highFromTrace, bits.highBits);
+
+    html += '<tr>';
+    html += '<td><span class="badge-range">RangeCheck</span></td>';
+    html += '<td><span class="badge-lookup">lookup</span></td>';
+    html += '<td>1</td>';
+    html += '<td>' + rname + '.ts_low_limb=' + row.timestamp_low_limb + ', bits=' + bits.lowBits + '</td>';
+    html += '<td style="font-size:10px" class="' + (lowOk ? 'match-ok' : 'match-fail') + '">' + (lowOk ? 'in range' : 'OUT OF RANGE') + '</td>';
+    html += '</tr>';
+
+    html += '<tr>';
+    html += '<td><span class="badge-range">RangeCheck</span></td>';
+    html += '<td><span class="badge-lookup">lookup</span></td>';
+    html += '<td>1</td>';
+    html += '<td>' + rname + '.ts_high_limb=' + (isIntegerHigh ? highFromTrace : 'N/A') + ', bits=' + bits.highBits + '</td>';
+    html += '<td style="font-size:10px" class="' + (highOk ? 'match-ok' : 'match-fail') + '">' + (highOk ? 'in range' : 'OUT OF RANGE') + '</td>';
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('bus-table').innerHTML = html;
+}
+
+// ============================================================
+// Render: Constraint Evaluation Table
+// ============================================================
+function renderEval() {
+  var constraints = evalConstraints();
+
+  var html = '<thead><tr>';
+  html += '<th>ID</th><th>Description</th><th>Evaluation</th><th>Status</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < constraints.length; i++) {
+    var c = constraints[i];
+    var cls = c.pass ? '' : ' class="affected-row"';
+
+    html += '<tr' + cls + '>';
+    html += '<td style="color:var(--accent); font-weight:700">' + c.id + '</td>';
+    html += '<td style="text-align:left; font-size:11px">' + c.desc + '</td>';
+    html += '<td style="font-size:10px; color:var(--text-dim)">' + c.formula + '</td>';
+    html += '<td class="' + (c.pass ? 'c-pass' : 'c-fail') + '">' + (c.pass ? '0 (pass)' : c.value + ' (FAIL)') + '</td>';
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('eval-table').innerHTML = html;
+}
+
+// ============================================================
+// Render: Constraint List (sidebar, with live pass/fail)
+// ============================================================
+function renderConstraintList() {
+  var constraints = evalConstraints();
+  var html = '';
+
+  for (var i = 0; i < constraints.length; i++) {
+    var c = constraints[i];
+    var cls = c.pass ? 'pass' : 'fail';
+
+    html += '<li class="' + cls + '">';
+    html += '<span class="c-status ' + (c.pass ? 'c-pass' : 'c-fail') + '">' + (c.pass ? 'PASS' : 'FAIL') + '</span>';
+    html += '<span class="c-id">' + c.id + '</span> <span class="c-desc">' + c.desc + '</span>';
+    html += '<span class="c-formula">' + c.formula + '</span>';
+
+    if (c.type === 'transition') {
+      html += '<span class="c-sel sel-trans">transition</span>';
+    } else if (c.type === 'range') {
+      html += '<span class="c-sel sel-range">range check</span>';
+    } else if (c.type === 'bus') {
+      html += '<span class="c-sel sel-bus">bus</span>';
+    }
+
+    html += '</li>';
+  }
+
+  document.getElementById('constraint-list').innerHTML = html;
+}
+
+// ============================================================
+// Event listeners
+// ============================================================
+document.getElementById('pv-initial-pc').addEventListener('input', onPvChange);
+document.getElementById('pv-final-pc').addEventListener('input', onPvChange);
+document.getElementById('pv-exit-code').addEventListener('input', onPvChange);
+document.getElementById('pv-is-terminate').addEventListener('change', onPvChange);
+
+// ============================================================
+// Init
+// ============================================================
+cleanTrace = cloneTrace(trace);
+renderAll();
+</script>
+</body>
+</html>
