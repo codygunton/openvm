@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RV32IM Branch AIR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .callout .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout .callout-body code {
+    color: var(--text);
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 70px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    transition: all 0.15s;
+  }
+
+  .radio-group input[type="radio"] { display: none; }
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-all { background: var(--accent-dim); color: var(--accent); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Sections in main panel --- */
+  .panel-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+
+  .panel-section h3 {
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .decomp {
+    font-size: 12px;
+    color: var(--text);
+    margin-bottom: 12px;
+    line-height: 1.8;
+  }
+
+  .decomp .dim { color: var(--text-dim); }
+  .decomp .val { color: var(--green); font-weight: 600; }
+  .decomp .lbl { color: var(--accent); }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  .result-line {
+    font-size: 12px;
+    margin: 6px 0;
+    line-height: 1.8;
+  }
+
+  .result-line .pass { color: var(--green); font-weight: 700; }
+  .result-line .fail { color: var(--red); font-weight: 700; }
+  .result-line .lbl { color: var(--accent); }
+  .result-line .dim { color: var(--text-dim); }
+  .result-line .val { color: var(--text); font-weight: 600; }
+
+  .msb-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin: 10px 0;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+
+  .msb-box .title {
+    color: var(--purple);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>RV32IM Branch</h1>
+    <div class="intro">
+      Branch instructions compare two register values and conditionally jump.
+      <strong>BEQ/BNE</strong> use an <strong>inverse-witness marker</strong> technique to prove equality or inequality.
+      <strong>BLT/BGE</strong> (and unsigned variants BLTU/BGEU) scan limbs from MSB to find the first difference,
+      handling <strong>signed comparison</strong> by transforming the most-significant byte.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Concepts</div>
+      <div class="callout">
+        <div class="callout-title">Inverse Witness (BEQ/BNE)</div>
+        <div class="callout-body">
+          To prove <code>a != b</code>, find the first limb where they differ and provide
+          <code>inv = 1/(a[i]-b[i])</code>. The constraint
+          <code>cmp_eq + sum((a[i]-b[i]) * marker[i]) = 1</code>
+          can only be satisfied if at least one limb differs.
+          For <code>a = b</code>, all differences are 0, so no inverse exists.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">MSB Signed Comparison (BLT/BGE)</div>
+        <div class="callout-body">
+          For signed comparison, the MSB (most significant byte) is transformed:
+          <code>a_msb_f = a[3] - sign_bit * 256</code>.
+          This maps signed range [-128,127] to unsigned [0,255] after adding 128 offset,
+          so unsigned comparison of transformed MSBs gives correct signed ordering.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>a (rs1)</label>
+        <input type="number" id="inp-a" value="42" min="-2147483648" max="2147483647">
+      </div>
+      <div class="control-row">
+        <label>b (rs2)</label>
+        <input type="number" id="inp-b" value="42" min="-2147483648" max="2147483647">
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">
+        Branch type:
+      </div>
+      <div class="radio-group" id="branch-type">
+        <label><input type="radio" name="btype" value="BEQ" checked><span>BEQ</span></label>
+        <label><input type="radio" name="btype" value="BNE"><span>BNE</span></label>
+        <label><input type="radio" name="btype" value="BLT"><span>BLT</span></label>
+        <label><input type="radio" name="btype" value="BLTU"><span>BLTU</span></label>
+        <label><input type="radio" name="btype" value="BGE"><span>BGE</span></label>
+        <label><input type="radio" name="btype" value="BGEU"><span>BGEU</span></label>
+      </div>
+      <div class="control-row">
+        <label>imm</label>
+        <input type="number" id="inp-imm" value="16" min="-2048" max="2047">
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset to valid</button>
+    </div>
+
+    <div class="section" id="air-section-eq" style="display:block;">
+      <div class="section-title">AIR Structure (BEQ/BNE)</div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">14 (a[4]+b[4]+cmp_result+imm+2 flags+marker[4])</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">4</span></div>
+      <div class="stat-row"><span class="label">Interactions</span><span class="val">none</span></div>
+    </div>
+
+    <div class="section" id="air-section-lt" style="display:none;">
+      <div class="section-title">AIR Structure (BLT/BGE)</div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">19 (a[4]+b[4]+cmp_result+imm+4 flags+a_msb_f+b_msb_f+cmp_lt+marker[4]+diff_val)</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">7</span></div>
+      <div class="stat-row"><span class="label">Interactions</span><span class="val">BitwiseOperationLookup (range checks)</span></div>
+    </div>
+
+    <div class="section" id="constraints-eq" style="display:block;">
+      <div class="section-title">Constraints (BEQ/BNE)</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">cmp_result is boolean</span>
+          <span class="c-formula">cmp_result &times; (1 &minus; cmp_result) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">When cmp_eq: all limbs equal</span>
+          <span class="c-formula">cmp_eq &times; (a[i] &minus; b[i]) = 0 for each i</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Inverse witness sum</span>
+          <span class="c-formula">cmp_eq + &Sigma;((a[i]&minus;b[i]) &times; marker[i]) = 1</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">PC next</span>
+          <span class="c-formula">to_pc = from_pc + cmp_result&times;imm + (1&minus;cmp_result)&times;4</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="section" id="constraints-lt" style="display:none;">
+      <div class="section-title">Constraints (BLT/BGE)</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">cmp_result is boolean</span>
+          <span class="c-formula">cmp_result &times; (1 &minus; cmp_result) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">cmp_lt consistency</span>
+          <span class="c-formula">cmp_lt = cmp_result&times;lt_flag + (1&minus;cmp_result)&times;ge_flag</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">MSB transformation valid</span>
+          <span class="c-formula">(a[3]&minus;a_msb_f) &times; (2<sup>8</sup>&minus;(a[3]&minus;a_msb_f)) = 0 (and same for b)</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">diff_marker is one-hot or zero</span>
+          <span class="c-formula">&Sigma;marker[i] is boolean; each marker[i] is boolean</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">Prefix scan: no diff before marker</span>
+          <span class="c-formula">(1 &minus; prefix_sum) &times; diff = 0 for each limb (MSB to LSB)</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C6</span> <span class="c-desc">At marker: diff_val matches</span>
+          <span class="c-formula">marker[i] &times; (diff_val &minus; (b[i]&minus;a[i])&times;(2&times;cmp_lt&minus;1)) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C7</span> <span class="c-desc">PC next</span>
+          <span class="c-formula">to_pc = from_pc + cmp_result&times;imm + (1&minus;cmp_result)&times;4</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Branch Constraint Evaluation</h2>
+    <div class="hint">
+      Edit limb values in the table to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+
+    <div id="panel-eq">
+      <!-- Equality check panel rendered by JS -->
+    </div>
+
+    <div id="panel-lt">
+      <!-- Less-than check panel rendered by JS -->
+    </div>
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+const PC_STEP = 4;
+
+function mod(x, m) {
+  return ((x % m) + m) % m;
+}
+
+function modInv(a, p) {
+  a = mod(a, p);
+  if (a === 0) return 0;
+  let [old_r, r] = [a, p];
+  let [old_s, s] = [1, 0];
+  while (r !== 0) {
+    const q = Math.floor(old_r / r);
+    [old_r, r] = [r, old_r - q * r];
+    [old_s, s] = [s, old_s - q * s];
+  }
+  return mod(old_s, p);
+}
+
+// Decompose a 32-bit value into 4 bytes (little-endian limbs)
+function toLimbs(val) {
+  // Handle negative values via two's complement
+  if (val < 0) val = val + 0x100000000;
+  val = val >>> 0; // ensure unsigned 32-bit
+  return [val & 0xFF, (val >> 8) & 0xFF, (val >> 16) & 0xFF, (val >> 24) & 0xFF];
+}
+
+function fromLimbs(limbs) {
+  return (limbs[0] | (limbs[1] << 8) | (limbs[2] << 16) | (limbs[3] << 24)) >>> 0;
+}
+
+function toSigned32(u) {
+  return (u | 0); // reinterpret as signed
+}
+
+// ========== BEQ/BNE Logic ==========
+
+function evalBranchEq(a_limbs, b_limbs, branchType) {
+  const is_beq = branchType === 'BEQ';
+  let first_diff = -1;
+  const markers = [0, 0, 0, 0];
+
+  for (let i = 0; i < 4; i++) {
+    if (a_limbs[i] !== b_limbs[i] && first_diff === -1) {
+      first_diff = i;
+      const diff = mod(a_limbs[i] - b_limbs[i], P);
+      markers[i] = modInv(diff, P);
+    }
+  }
+
+  const cmp_eq = first_diff === -1 ? 1 : 0;
+  const cmp_result = is_beq ? cmp_eq : (1 - cmp_eq);
+
+  return { cmp_result, cmp_eq, markers, first_diff };
+}
+
+function evalEqConstraints(a_limbs, b_limbs, cmp_result, cmp_eq, markers) {
+  const results = [];
+
+  // C1: cmp_result is boolean
+  results.push({
+    name: 'C1',
+    value: mod(cmp_result * (1 - cmp_result), P),
+    desc: 'cmp_result is boolean'
+  });
+
+  // C2: cmp_eq * (a[i] - b[i]) = 0 for each i
+  let c2_val = 0;
+  for (let i = 0; i < 4; i++) {
+    c2_val = mod(c2_val + Math.abs(mod(cmp_eq * mod(a_limbs[i] - b_limbs[i], P), P)), P);
+  }
+  results.push({
+    name: 'C2',
+    value: c2_val,
+    desc: 'cmp_eq * (a[i]-b[i]) = 0',
+    perLimb: [0,1,2,3].map(i => mod(cmp_eq * mod(a_limbs[i] - b_limbs[i], P), P))
+  });
+
+  // C3: cmp_eq + sum((a[i]-b[i]) * marker[i]) = 1
+  let inv_sum = cmp_eq;
+  for (let i = 0; i < 4; i++) {
+    inv_sum = mod(inv_sum + mod(mod(a_limbs[i] - b_limbs[i], P) * markers[i], P), P);
+  }
+  results.push({
+    name: 'C3',
+    value: mod(inv_sum - 1, P),
+    desc: 'inverse witness sum = 1',
+    sum: inv_sum
+  });
+
+  // C4: PC next
+  const to_pc = mod(0 + cmp_result * parseInt(document.getElementById('inp-imm').value) + (1 - cmp_result) * PC_STEP, P);
+  results.push({
+    name: 'C4',
+    value: 0, // always satisfied by construction in display
+    desc: 'PC next',
+    pc: to_pc
+  });
+
+  return results;
+}
+
+// ========== BLT/BGE Logic ==========
+
+function evalBranchLt(a_limbs, b_limbs, branchType) {
+  const is_signed = branchType === 'BLT' || branchType === 'BGE';
+  const is_ge = branchType === 'BGE' || branchType === 'BGEU';
+
+  let a_sign = false, b_sign = false;
+  if (is_signed) {
+    a_sign = a_limbs[3] >= 128;
+    b_sign = b_limbs[3] >= 128;
+  }
+
+  // Compute a_msb_f and b_msb_f
+  let a_msb_f, b_msb_f;
+  if (a_sign) {
+    // negative: a_msb_f = a[3] - 256 (in field)
+    a_msb_f = mod(a_limbs[3] - 256, P);
+  } else {
+    a_msb_f = a_limbs[3];
+  }
+  if (b_sign) {
+    b_msb_f = mod(b_limbs[3] - 256, P);
+  } else {
+    b_msb_f = b_limbs[3];
+  }
+
+  // Scan from MSB to find first difference
+  let marker_pos = -1;
+  let cmp_lt = 0;
+  const diff_marker = [0, 0, 0, 0];
+
+  for (let i = 3; i >= 0; i--) {
+    let ai, bi;
+    if (i === 3) {
+      // Use transformed MSB values for comparison
+      // For signed: a_sign means a_msb_f is negative in field
+      // We need actual numeric comparison
+      let a_cmp = a_sign ? (a_limbs[3] - 256) : a_limbs[3];
+      let b_cmp = b_sign ? (b_limbs[3] - 256) : b_limbs[3];
+      if (a_cmp !== b_cmp) {
+        marker_pos = i;
+        cmp_lt = a_cmp < b_cmp ? 1 : 0;
+        diff_marker[i] = 1;
+        break;
+      }
+    } else {
+      if (a_limbs[i] !== b_limbs[i]) {
+        marker_pos = i;
+        cmp_lt = a_limbs[i] < b_limbs[i] ? 1 : 0;
+        diff_marker[i] = 1;
+        break;
+      }
+    }
+  }
+
+  // diff_val: always positive = |b_eff - a_eff| at marker position
+  let diff_val = 0;
+  if (marker_pos >= 0) {
+    if (marker_pos === 3) {
+      let a_cmp = a_sign ? (a_limbs[3] - 256) : a_limbs[3];
+      let b_cmp = b_sign ? (b_limbs[3] - 256) : b_limbs[3];
+      // diff_val = (b_msb_f - a_msb_f) * (2*cmp_lt - 1) in field, but for display use abs
+      diff_val = cmp_lt ? (b_cmp - a_cmp) : (a_cmp - b_cmp);
+    } else {
+      diff_val = cmp_lt ? (b_limbs[marker_pos] - a_limbs[marker_pos]) : (a_limbs[marker_pos] - b_limbs[marker_pos]);
+    }
+  }
+
+  // cmp_result
+  const cmp_result = is_ge ? (1 - cmp_lt) : cmp_lt;
+  // If equal, cmp_lt = 0, cmp_result for ge = 1, for lt = 0
+  if (marker_pos === -1) {
+    // equal
+    return {
+      cmp_result: is_ge ? 1 : 0,
+      cmp_lt: 0,
+      marker_pos: -1,
+      diff_marker: [0,0,0,0],
+      diff_val: 0,
+      a_msb_f, b_msb_f, a_sign, b_sign, is_signed, is_ge
+    };
+  }
+
+  return {
+    cmp_result, cmp_lt, marker_pos, diff_marker, diff_val,
+    a_msb_f, b_msb_f, a_sign, b_sign, is_signed, is_ge
+  };
+}
+
+function evalLtConstraints(a_limbs, b_limbs, r) {
+  const results = [];
+
+  // C1: cmp_result is boolean
+  results.push({
+    name: 'C1',
+    value: mod(r.cmp_result * (1 - r.cmp_result), P),
+    desc: 'cmp_result is boolean'
+  });
+
+  // C2: cmp_lt consistency: cmp_lt = cmp_result*lt + (1-cmp_result)*ge
+  const lt_flag = (!r.is_ge) ? 1 : 0;
+  const ge_flag = r.is_ge ? 1 : 0;
+  const expected_cmp_lt = mod(r.cmp_result * lt_flag + (1 - r.cmp_result) * ge_flag, P);
+  results.push({
+    name: 'C2',
+    value: mod(r.cmp_lt - expected_cmp_lt, P),
+    desc: 'cmp_lt consistency'
+  });
+
+  // C3: MSB transformation valid
+  // (a[3] - a_msb_f) * (256 - (a[3] - a_msb_f)) = 0
+  const a_diff_raw = mod(a_limbs[3] - r.a_msb_f, P);
+  const b_diff_raw = mod(b_limbs[3] - r.b_msb_f, P);
+  const c3a = mod(a_diff_raw * mod(256 - a_diff_raw, P), P);
+  const c3b = mod(b_diff_raw * mod(256 - b_diff_raw, P), P);
+  results.push({
+    name: 'C3',
+    value: mod(c3a + c3b, P),
+    desc: 'MSB transformation',
+    c3a, c3b
+  });
+
+  // C4: diff_marker one-hot or zero + boolean
+  let prefix_sum = 0;
+  let c4_val = 0;
+  for (let i = 0; i < 4; i++) {
+    c4_val = mod(c4_val + mod(r.diff_marker[i] * (1 - r.diff_marker[i]), P), P);
+  }
+  const marker_sum = r.diff_marker.reduce((a, b) => a + b, 0);
+  c4_val = mod(c4_val + mod(marker_sum * (1 - marker_sum), P), P);
+  results.push({
+    name: 'C4',
+    value: c4_val,
+    desc: 'diff_marker one-hot/zero'
+  });
+
+  // C5: prefix scan constraint
+  let c5_val = 0;
+  prefix_sum = 0;
+  for (let i = 3; i >= 0; i--) {
+    let diff;
+    if (i === 3) {
+      diff = mod(mod(r.b_msb_f - r.a_msb_f, P) * mod(2 * r.cmp_lt - 1, P), P);
+    } else {
+      diff = mod(mod(b_limbs[i] - a_limbs[i], P) * mod(2 * r.cmp_lt - 1, P), P);
+    }
+    prefix_sum += r.diff_marker[i];
+    const not_prefix = mod(1 - prefix_sum, P);
+    c5_val = mod(c5_val + mod(not_prefix * diff, P), P);
+  }
+  results.push({
+    name: 'C5',
+    value: c5_val,
+    desc: 'prefix scan'
+  });
+
+  // C6: at marker, diff_val matches
+  let c6_val = 0;
+  for (let i = 0; i < 4; i++) {
+    if (r.diff_marker[i]) {
+      let diff;
+      if (i === 3) {
+        diff = mod(mod(r.b_msb_f - r.a_msb_f, P) * mod(2 * r.cmp_lt - 1, P), P);
+      } else {
+        diff = mod(mod(b_limbs[i] - a_limbs[i], P) * mod(2 * r.cmp_lt - 1, P), P);
+      }
+      c6_val = mod(c6_val + mod(r.diff_marker[i] * mod(r.diff_val - diff, P), P), P);
+    }
+  }
+  results.push({
+    name: 'C6',
+    value: c6_val,
+    desc: 'diff_val at marker'
+  });
+
+  // C7: PC next
+  const imm = parseInt(document.getElementById('inp-imm').value) || 0;
+  const to_pc = mod(0 + r.cmp_result * imm + (1 - r.cmp_result) * PC_STEP, P);
+  results.push({
+    name: 'C7',
+    value: 0,
+    desc: 'PC next',
+    pc: to_pc
+  });
+
+  return results;
+}
+
+// ========== State ==========
+
+let branchType = 'BEQ';
+let cleanLimbs = { a: [42, 0, 0, 0], b: [42, 0, 0, 0] };
+let editedLimbs = { a: [42, 0, 0, 0], b: [42, 0, 0, 0] };
+
+function isEqMode() {
+  return branchType === 'BEQ' || branchType === 'BNE';
+}
+
+function getInputValues() {
+  const a = parseInt(document.getElementById('inp-a').value) || 0;
+  const b = parseInt(document.getElementById('inp-b').value) || 0;
+  return { a, b };
+}
+
+function recompute() {
+  const { a, b } = getInputValues();
+  branchType = document.querySelector('input[name="btype"]:checked').value;
+  cleanLimbs = { a: toLimbs(a), b: toLimbs(b) };
+  editedLimbs = { a: [...cleanLimbs.a], b: [...cleanLimbs.b] };
+  updateVisibility();
+  render();
+}
+
+function resetAll() {
+  recompute();
+}
+
+function updateVisibility() {
+  const eq = isEqMode();
+  document.getElementById('air-section-eq').style.display = eq ? 'block' : 'none';
+  document.getElementById('air-section-lt').style.display = eq ? 'none' : 'block';
+  document.getElementById('constraints-eq').style.display = eq ? 'block' : 'none';
+  document.getElementById('constraints-lt').style.display = eq ? 'none' : 'block';
+  document.getElementById('panel-eq').style.display = eq ? 'block' : 'none';
+  document.getElementById('panel-lt').style.display = eq ? 'none' : 'block';
+}
+
+function hasEdits() {
+  for (let i = 0; i < 4; i++) {
+    if (editedLimbs.a[i] !== cleanLimbs.a[i]) return true;
+    if (editedLimbs.b[i] !== cleanLimbs.b[i]) return true;
+  }
+  return false;
+}
+
+function onLimbEdit(reg, idx, value) {
+  const v = parseInt(value);
+  if (isNaN(v)) return;
+  editedLimbs[reg][idx] = mod(v, 256);
+  render();
+}
+
+// ========== Rendering ==========
+
+function formatFieldVal(v) {
+  if (v === 0) return '0';
+  if (v <= 999999) return v.toString();
+  if (v > P - 999999) return '-' + (P - v).toString();
+  return v.toString();
+}
+
+function renderEqPanel() {
+  const a = editedLimbs.a;
+  const b = editedLimbs.b;
+  const aVal = fromLimbs(a);
+  const bVal = fromLimbs(b);
+
+  const result = evalBranchEq(a, b, branchType);
+  const constraints = evalEqConstraints(a, b, result.cmp_result, result.cmp_eq, result.markers);
+  const imm = parseInt(document.getElementById('inp-imm').value) || 0;
+
+  let html = '<div class="panel-section">';
+  html += '<h3>Equality Check (' + branchType + ')</h3>';
+
+  // Decomposition
+  html += '<div class="decomp">';
+  html += '<span class="lbl">a (rs1)</span> <span class="dim">=</span> <span class="val">' + toSigned32(aVal) + '</span>';
+  html += ' <span class="dim">= [' + a.join(', ') + ']</span><br>';
+  html += '<span class="lbl">b (rs2)</span> <span class="dim">=</span> <span class="val">' + toSigned32(bVal) + '</span>';
+  html += ' <span class="dim">= [' + b.join(', ') + ']</span>';
+  html += '</div>';
+
+  // Limb table
+  html += '<div class="trace-wrapper"><table>';
+  html += '<thead><tr>';
+  html += '<th>Limb</th><th class="col-sep"></th>';
+  html += '<th>a[i]</th><th>b[i]</th><th class="col-sep"></th>';
+  html += '<th>diff = a[i]-b[i]</th><th class="col-sep"></th>';
+  html += '<th>marker[i]</th>';
+  html += '</tr></thead><tbody>';
+
+  for (let i = 0; i < 4; i++) {
+    const diff = mod(a[i] - b[i], P);
+    const marker = result.markers[i];
+    const aModified = a[i] !== cleanLimbs.a[i];
+    const bModified = b[i] !== cleanLimbs.b[i];
+
+    html += '<tr>';
+    html += '<td class="col-row">' + i + '</td><td class="col-sep"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (aModified ? ' modified' : '') + '" value="' + a[i] + '" min="0" max="255" onchange="onLimbEdit(\'a\',' + i + ',this.value)"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (bModified ? ' modified' : '') + '" value="' + b[i] + '" min="0" max="255" onchange="onLimbEdit(\'b\',' + i + ',this.value)"></td>';
+    html += '<td class="col-sep"></td>';
+    html += '<td>' + formatFieldVal(diff) + '</td>';
+    html += '<td class="col-sep"></td>';
+    html += '<td>' + formatFieldVal(marker) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+
+  // Results
+  const branchTaken = result.cmp_result === 1;
+  const pc_next = mod(0 + result.cmp_result * imm + (1 - result.cmp_result) * PC_STEP, P);
+
+  html += '<div class="result-line">';
+  html += '<span class="lbl">cmp_eq</span> = <span class="val">' + result.cmp_eq + '</span>';
+  html += ' <span class="dim">(' + branchType + ': ';
+  if (branchType === 'BEQ') {
+    html += result.cmp_eq ? 'a==b, branch taken' : 'a!=b, branch not taken';
+  } else {
+    html += result.cmp_eq ? 'a==b, branch not taken' : 'a!=b, branch taken';
+  }
+  html += ')</span></div>';
+
+  html += '<div class="result-line">';
+  html += '<span class="lbl">cmp_result</span> = <span class="val">' + result.cmp_result + '</span>';
+  html += '</div>';
+
+  // Inverse witness sum
+  let inv_parts = result.cmp_eq.toString();
+  for (let i = 0; i < 4; i++) {
+    const diff = mod(a[i] - b[i], P);
+    const prod = mod(diff * result.markers[i], P);
+    if (prod !== 0) inv_parts += ' + ' + formatFieldVal(prod);
+  }
+  const inv_sum = constraints[2].sum;
+  html += '<div class="result-line">';
+  html += '<span class="lbl">Inverse witness sum</span> <span class="dim">= cmp_eq + &Sigma;(diff*marker) = </span>';
+  html += '<span class="val">' + inv_parts + ' = ' + formatFieldVal(inv_sum) + '</span> ';
+  html += inv_sum === 1 ? '<span class="pass">PASS</span>' : '<span class="fail">FAIL (must = 1)</span>';
+  html += '</div>';
+
+  html += '<div class="result-line">';
+  html += '<span class="lbl">PC next</span> = <span class="val">' + formatFieldVal(pc_next) + '</span>';
+  html += ' <span class="dim">(from_pc=0 + ' + result.cmp_result + '*' + imm + ' + ' + (1 - result.cmp_result) + '*4)</span>';
+  html += '</div>';
+
+  // Constraint summary table
+  html += '<div style="margin-top:14px;">';
+  html += '<div class="trace-wrapper"><table>';
+  html += '<thead><tr><th>Constraint</th><th>Description</th><th>Value</th><th>Status</th></tr></thead>';
+  html += '<tbody>';
+  for (const c of constraints) {
+    const pass = c.value === 0;
+    html += '<tr' + (!pass ? ' class="affected-row"' : '') + '>';
+    html += '<td style="color:var(--accent);font-weight:700">' + c.name + '</td>';
+    html += '<td style="text-align:left;color:var(--text-dim);font-size:11px">' + c.desc + '</td>';
+    html += '<td>' + formatFieldVal(c.value) + '</td>';
+    html += '<td class="' + (pass ? 'c-pass' : 'c-fail') + '">' + (pass ? 'PASS' : 'FAIL') + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  html += '</div>';
+
+  html += '</div>';
+  document.getElementById('panel-eq').innerHTML = html;
+}
+
+function renderLtPanel() {
+  const a = editedLimbs.a;
+  const b = editedLimbs.b;
+  const aVal = fromLimbs(a);
+  const bVal = fromLimbs(b);
+
+  const result = evalBranchLt(a, b, branchType);
+  const constraints = evalLtConstraints(a, b, result);
+  const imm = parseInt(document.getElementById('inp-imm').value) || 0;
+
+  let html = '<div class="panel-section">';
+  html += '<h3>Less-Than Check (' + branchType + ')</h3>';
+
+  // Decomposition
+  html += '<div class="decomp">';
+  html += '<span class="lbl">a (rs1)</span> <span class="dim">=</span> <span class="val">' + (result.is_signed ? toSigned32(aVal) : aVal) + '</span>';
+  html += ' <span class="dim">= [' + a.join(', ') + ']</span><br>';
+  html += '<span class="lbl">b (rs2)</span> <span class="dim">=</span> <span class="val">' + (result.is_signed ? toSigned32(bVal) : bVal) + '</span>';
+  html += ' <span class="dim">= [' + b.join(', ') + ']</span>';
+  html += '</div>';
+
+  // Signed MSB transformation box
+  if (result.is_signed) {
+    html += '<div class="msb-box">';
+    html += '<div class="title">Signed Mode MSB Transformation</div>';
+    html += 'a_msb_f = a[3] - sign_a * 256 = ' + a[3] + ' - ' + (result.a_sign ? 1 : 0) + ' * 256 = <strong>' + formatFieldVal(result.a_msb_f) + '</strong><br>';
+    html += 'b_msb_f = b[3] - sign_b * 256 = ' + b[3] + ' - ' + (result.b_sign ? 1 : 0) + ' * 256 = <strong>' + formatFieldVal(result.b_msb_f) + '</strong>';
+    html += '</div>';
+  }
+
+  // Scanning table (MSB to LSB)
+  html += '<div class="trace-wrapper"><table>';
+  html += '<thead><tr>';
+  html += '<th>Limb</th><th class="col-sep"></th>';
+  html += '<th>a[i]' + (result.is_signed ? ' / a_msb_f' : '') + '</th>';
+  html += '<th>b[i]' + (result.is_signed ? ' / b_msb_f' : '') + '</th>';
+  html += '<th class="col-sep"></th>';
+  html += '<th>marker[i]</th><th class="col-sep"></th>';
+  html += '<th>diff</th>';
+  html += '</tr></thead><tbody>';
+
+  // Display from MSB (3) to LSB (0)
+  for (let idx = 0; idx < 4; idx++) {
+    const i = 3 - idx; // scan MSB first
+    const aModified = a[i] !== cleanLimbs.a[i];
+    const bModified = b[i] !== cleanLimbs.b[i];
+
+    let a_display, b_display;
+    if (i === 3 && result.is_signed) {
+      a_display = formatFieldVal(result.a_msb_f);
+      b_display = formatFieldVal(result.b_msb_f);
+    } else {
+      a_display = null;
+      b_display = null;
+    }
+
+    const isMarker = result.diff_marker[i] === 1;
+
+    html += '<tr' + (isMarker ? ' style="background:rgba(108,140,255,0.08)"' : '') + '>';
+    html += '<td class="col-row">' + i + '</td><td class="col-sep"></td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (aModified ? ' modified' : '') + '" value="' + a[i] + '" min="0" max="255" onchange="onLimbEdit(\'a\',' + i + ',this.value)">';
+    if (a_display !== null) html += '<span style="font-size:9px;color:var(--purple);margin-left:2px">(' + a_display + ')</span>';
+    html += '</td>';
+    html += '<td class="col-trace"><input type="number" class="cell-input' + (bModified ? ' modified' : '') + '" value="' + b[i] + '" min="0" max="255" onchange="onLimbEdit(\'b\',' + i + ',this.value)">';
+    if (b_display !== null) html += '<span style="font-size:9px;color:var(--purple);margin-left:2px">(' + b_display + ')</span>';
+    html += '</td>';
+    html += '<td class="col-sep"></td>';
+    html += '<td class="' + (isMarker ? 'sel-on' : 'sel-off') + '">' + result.diff_marker[i] + '</td>';
+    html += '<td class="col-sep"></td>';
+
+    if (isMarker) {
+      const diffSign = result.cmp_lt ? '(b-a)' : '(a-b)';
+      html += '<td style="color:var(--green);font-weight:600">' + result.diff_val + ' ' + diffSign + '</td>';
+    } else {
+      html += '<td style="color:var(--border)">&mdash;</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+
+  // Results
+  const branchTaken = result.cmp_result === 1;
+  const pc_next = mod(0 + result.cmp_result * imm + (1 - result.cmp_result) * PC_STEP, P);
+
+  html += '<div class="result-line">';
+  html += '<span class="lbl">cmp_lt</span> = <span class="val">' + result.cmp_lt + '</span>';
+  html += ' <span class="dim">(';
+  if (result.marker_pos === -1) {
+    html += 'a == b';
+  } else {
+    html += result.cmp_lt ? 'a < b' : 'a >= b';
+  }
+  html += ')</span></div>';
+
+  html += '<div class="result-line">';
+  html += '<span class="lbl">cmp_result</span> = <span class="val">' + result.cmp_result + '</span>';
+  html += ' <span class="dim">(' + branchType + ': ' + (branchTaken ? 'branch taken' : 'branch not taken') + ')</span>';
+  html += '</div>';
+
+  html += '<div class="result-line">';
+  html += '<span class="lbl">PC next</span> = <span class="val">' + formatFieldVal(pc_next) + '</span>';
+  html += ' <span class="dim">(from_pc=0 + ' + result.cmp_result + '*' + imm + ' + ' + (1 - result.cmp_result) + '*4)</span>';
+  html += '</div>';
+
+  // Constraint summary table
+  html += '<div style="margin-top:14px;">';
+  html += '<div class="trace-wrapper"><table>';
+  html += '<thead><tr><th>Constraint</th><th>Description</th><th>Value</th><th>Status</th></tr></thead>';
+  html += '<tbody>';
+  for (const c of constraints) {
+    const pass = c.value === 0;
+    html += '<tr' + (!pass ? ' class="affected-row"' : '') + '>';
+    html += '<td style="color:var(--accent);font-weight:700">' + c.name + '</td>';
+    html += '<td style="text-align:left;color:var(--text-dim);font-size:11px">' + c.desc + '</td>';
+    html += '<td>' + formatFieldVal(c.value) + '</td>';
+    html += '<td class="' + (pass ? 'c-pass' : 'c-fail') + '">' + (pass ? 'PASS' : 'FAIL') + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  html += '</div>';
+
+  html += '</div>';
+  document.getElementById('panel-lt').innerHTML = html;
+}
+
+function render() {
+  const edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  if (isEqMode()) {
+    renderEqPanel();
+  } else {
+    renderLtPanel();
+  }
+}
+
+// ========== Event Listeners ==========
+
+document.getElementById('inp-a').addEventListener('input', recompute);
+document.getElementById('inp-b').addEventListener('input', recompute);
+document.getElementById('inp-imm').addEventListener('input', () => render());
+document.querySelectorAll('input[name="btype"]').forEach(r => {
+  r.addEventListener('change', recompute);
+});
+
+recompute();
+</script>
+</body>
+</html>

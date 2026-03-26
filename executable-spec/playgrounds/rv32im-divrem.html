@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RV32IM DivRem AIR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+
+  .callout .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .callout .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout .callout-body code {
+    color: var(--text);
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 10px;
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio group --- */
+  .radio-group {
+    display: flex;
+    gap: 2px;
+    width: 100%;
+  }
+
+  .radio-group label {
+    flex: 1;
+    text-align: center;
+    font-size: 11px;
+    padding: 5px 4px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-dim);
+    width: auto;
+    background: var(--surface2);
+    transition: all 0.15s;
+  }
+
+  .radio-group input[type="radio"] { display: none; }
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-always { background: var(--accent-dim); color: var(--accent); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+
+  .panel h3 {
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .equation {
+    font-size: 14px;
+    line-height: 2;
+    margin-bottom: 8px;
+  }
+
+  .equation .val { color: var(--green); font-weight: 700; }
+  .equation .op { color: var(--text-dim); }
+  .equation .check-pass { color: var(--green); font-weight: 700; }
+  .equation .check-fail { color: var(--red); font-weight: 700; }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  .lt-scan-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 11px;
+    padding: 3px 0;
+  }
+
+  .lt-scan-row .limb-idx { color: var(--text-dim); width: 60px; }
+  .lt-scan-row .lt-detail { color: var(--text); }
+  .lt-scan-row .lt-equal { color: var(--text-dim); }
+  .lt-scan-row .lt-found { color: var(--green); font-weight: 600; }
+  .lt-scan-row .lt-fail { color: var(--red); font-weight: 600; }
+
+  .edge-case-box {
+    background: var(--surface2);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 11px;
+    line-height: 1.8;
+    margin-top: 8px;
+  }
+
+  .edge-case-box .ec-label { color: var(--text-dim); }
+  .edge-case-box .ec-val { color: var(--yellow); font-weight: 600; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>RV32IM Divide / Remainder</h1>
+    <div class="intro">
+      The <strong>DivRemCoreAir</strong> is the most complex instruction in RV32IM. Division is hard to constrain directly, so instead we verify the equation <strong>b = c &times; q + r</strong> and prove <strong>r &lt; c</strong> (proper remainder). This turns a division problem into multiplication (which we know how to constrain) plus a comparison.
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">Division by Verification</div>
+        <div class="callout-body">
+          Instead of dividing, the prover provides <code>q</code> (quotient) and <code>r</code> (remainder) as witnesses, then constrains: (1) <code>b = c*q + r</code> via polynomial multiplication, (2) <code>0 &le; r &lt; c</code> via a less-than check. If both hold, then <code>q = b/c</code> and <code>r = b%c</code>.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Edge Cases</div>
+        <div class="callout-body">
+          Division by zero: RISC-V spec says <code>b/0 = 0xFFFFFFFF</code> and <code>b%0 = b</code>. Signed division: signs of q and r follow RISC-V conventions (<code>q_sign = b_sign XOR c_sign</code> when q&ne;0).
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>b (dvnd)</label>
+        <input type="number" id="inp-b" value="1000000" min="0" max="4294967295">
+      </div>
+      <div class="control-row">
+        <label>c (dvsr)</label>
+        <input type="number" id="inp-c" value="7" min="0" max="4294967295">
+      </div>
+      <div class="control-row">
+        <label>Mode</label>
+        <div class="radio-group">
+          <label><input type="radio" name="mode" value="DIVU" checked><span>DIVU</span></label>
+          <label><input type="radio" name="mode" value="DIV"><span>DIV</span></label>
+          <label><input type="radio" name="mode" value="REMU"><span>REMU</span></label>
+          <label><input type="radio" name="mode" value="REM"><span>REM</span></label>
+        </div>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">41</span></div>
+      <div class="stat-row"><span class="label">Limbs</span><span class="val">4 &times; 8-bit</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val dynamic" id="stat-constraints">9 groups</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">RangeTuple + BitwiseLookup</span></div>
+      <div class="stat-row"><span class="label">Mode</span><span class="val dynamic" id="stat-mode">DIVU</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraint Groups</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1-C4</span> <span class="c-desc">Multiplication verify (lower)</span>
+          <span class="c-formula">c[j]*q[k] + r[i] + carry[i-1] - b[i] = carry[i]*256</span>
+          <span class="c-sel sel-always">always</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">Zero divisor: c=0 implies q=0xFF..FF</span>
+          <span class="c-formula">zero_divisor &rArr; c[i]=0, q[i]=255</span>
+          <span class="c-sel sel-always">always</span>
+        </li>
+        <li>
+          <span class="c-id">C6</span> <span class="c-desc">Remainder bound: r_prime &lt; c</span>
+          <span class="c-formula">lt_marker scan from MSB, lt_diff = c[i] - r_prime[i]</span>
+          <span class="c-sel sel-always">always</span>
+        </li>
+        <li>
+          <span class="c-id">C7</span> <span class="c-desc">Sign consistency</span>
+          <span class="c-formula">sign_xor = b_sign XOR c_sign; q_sign = sign_xor when q&ne;0</span>
+          <span class="c-sel sel-always">always</span>
+        </li>
+        <li>
+          <span class="c-id">C8</span> <span class="c-desc">Opcode flags: exactly one set</span>
+          <span class="c-formula">sum(flags) &isin; {0,1}, each flag &isin; {0,1}</span>
+          <span class="c-sel sel-always">always</span>
+        </li>
+        <li>
+          <span class="c-id">C9</span> <span class="c-desc">Special case flags</span>
+          <span class="c-formula">zero_divisor + r_zero &isin; {0,1}</span>
+          <span class="c-sel sel-always">always</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Division Equation: b = c &times; q + r</h2>
+    <div class="hint">
+      Edit <span style="color:var(--yellow)">q[i]</span> or <span style="color:var(--yellow)">r[i]</span> limbs below to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="r">nonzero</span> = violated.
+    </div>
+
+    <!-- Equation display -->
+    <div class="panel" id="equation-panel"></div>
+
+    <!-- Limb-by-limb table -->
+    <div class="panel">
+      <h3>Limb-by-Limb Verification (Lower 4 Limbs)</h3>
+      <div class="hint">
+        Constraints C1-C4: For each limb i, compute cross-product sum of c*q at position i, add r[i] and carry from previous limb.
+        The result mod 256 must equal b[i], and the quotient is carry[i].
+      </div>
+      <div class="trace-wrapper">
+        <table id="limb-table"></table>
+      </div>
+    </div>
+
+    <!-- Upper limb carry check -->
+    <div class="panel">
+      <h3>Upper Limb Carry Chain (Sign Extension)</h3>
+      <div class="hint">
+        The upper 4 limbs of the full 8-limb product c*q+r must all equal the sign extension of b.
+        For unsigned ops, this means they must be zero. For signed ops, they must be 0xFF if b is negative.
+      </div>
+      <div class="trace-wrapper">
+        <table id="upper-table"></table>
+      </div>
+    </div>
+
+    <!-- Remainder bound -->
+    <div class="panel">
+      <h3>Remainder Bound: r_prime &lt; c</h3>
+      <div class="hint">
+        Constraint C6: Scan from MSB to LSB to find first limb where r_prime and c differ.
+        At that limb, c must be strictly greater (unsigned case) or r_prime must be strictly greater (signed negative c case).
+      </div>
+      <div id="remainder-bound"></div>
+    </div>
+
+    <!-- Edge cases -->
+    <div class="panel">
+      <h3>Edge Cases</h3>
+      <div id="edge-cases"></div>
+    </div>
+
+    <!-- Full witness columns -->
+    <div class="panel">
+      <h3>Full Witness Row (All 41 Core Columns)</h3>
+      <div class="hint">
+        The complete set of columns the prover must fill for this DivRem operation.
+        q[i] and r[i] are editable.
+      </div>
+      <div class="trace-wrapper">
+        <table id="witness-table"></table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+const NUM_LIMBS = 4;
+const LIMB_BITS = 8;
+const LIMB_MAX = (1 << LIMB_BITS) - 1; // 255
+
+function mod(x, m) { return ((x % m) + m) % m; }
+
+// Convert a 32-bit unsigned integer to 4 byte limbs (little-endian)
+function toLimbs(val) {
+  val = val >>> 0;
+  return [val & 0xFF, (val >> 8) & 0xFF, (val >> 16) & 0xFF, (val >> 24) & 0xFF];
+}
+
+// Convert 4 byte limbs back to a 32-bit unsigned integer
+function fromLimbs(limbs) {
+  return ((limbs[0] | (limbs[1] << 8) | (limbs[2] << 16) | (limbs[3] << 24)) >>> 0);
+}
+
+// Negate in 2's complement limb form
+function negateLimbs(x) {
+  let carry = 1;
+  const result = [];
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    const val = (1 << LIMB_BITS) + carry - 1 - x[i];
+    carry = val >> LIMB_BITS;
+    result.push(val % (1 << LIMB_BITS));
+  }
+  return result;
+}
+
+// Compute division/remainder following the Rust implementation exactly
+function computeDivRem(b_val, c_val, mode) {
+  const is_signed = (mode === 'DIV' || mode === 'REM');
+  const is_div = (mode === 'DIV' || mode === 'DIVU');
+
+  b_val = b_val >>> 0;
+  c_val = c_val >>> 0;
+
+  const b_limbs = toLimbs(b_val);
+  const c_limbs = toLimbs(c_val);
+
+  const b_sign = is_signed && ((b_limbs[NUM_LIMBS - 1] >> (LIMB_BITS - 1)) === 1);
+  const c_sign = is_signed && ((c_limbs[NUM_LIMBS - 1] >> (LIMB_BITS - 1)) === 1);
+
+  const zero_divisor = c_limbs.every(v => v === 0);
+
+  // Check for signed overflow: INT_MIN / -1
+  const overflow = is_signed && b_sign && c_sign &&
+    b_limbs[NUM_LIMBS - 1] === (1 << (LIMB_BITS - 1)) &&
+    b_limbs.slice(0, NUM_LIMBS - 1).every(v => v === 0) &&
+    c_limbs.every(v => v === LIMB_MAX);
+
+  if (zero_divisor) {
+    return {
+      q_limbs: [LIMB_MAX, LIMB_MAX, LIMB_MAX, LIMB_MAX],
+      r_limbs: [...b_limbs],
+      b_sign, c_sign,
+      q_sign: is_signed, // Rust sets q_sign=signed for zero divisor
+      sign_xor: b_sign !== c_sign,
+      zero_divisor: true,
+      r_zero: false,
+      case: 'ZeroDivisor'
+    };
+  }
+
+  if (overflow) {
+    return {
+      q_limbs: [...b_limbs], // q = b (INT_MIN)
+      r_limbs: [0, 0, 0, 0],
+      b_sign, c_sign,
+      q_sign: false,
+      sign_xor: false, // b_sign XOR c_sign = true XOR true = false
+      zero_divisor: false,
+      r_zero: true,
+      case: 'SignedOverflow'
+    };
+  }
+
+  // Normal case: compute using absolute values
+  const b_abs = b_sign ? fromLimbs(negateLimbs(b_limbs)) : b_val;
+  const c_abs = c_sign ? fromLimbs(negateLimbs(c_limbs)) : c_val;
+
+  let q_abs = Math.floor(b_abs / c_abs);
+  let r_abs = b_abs - c_abs * q_abs;
+
+  // Apply signs
+  let q_unsigned, r_unsigned;
+  if (b_sign !== c_sign) {
+    // Negate quotient
+    q_unsigned = ((-q_abs) >>> 0) & 0xFFFFFFFF;
+    if (q_abs === 0) q_unsigned = 0;
+    else q_unsigned = fromLimbs(negateLimbs(toLimbs(q_abs)));
+  } else {
+    q_unsigned = q_abs >>> 0;
+  }
+
+  if (b_sign) {
+    // Remainder has same sign as dividend
+    if (r_abs === 0) r_unsigned = 0;
+    else r_unsigned = fromLimbs(negateLimbs(toLimbs(r_abs)));
+  } else {
+    r_unsigned = r_abs >>> 0;
+  }
+
+  const q_limbs = toLimbs(q_unsigned);
+  const r_limbs = toLimbs(r_unsigned);
+  const q_sign_val = is_signed && ((q_limbs[NUM_LIMBS - 1] >> (LIMB_BITS - 1)) === 1);
+
+  const r_is_zero = r_limbs.every(v => v === 0);
+
+  return {
+    q_limbs, r_limbs,
+    b_sign, c_sign,
+    q_sign: q_sign_val,
+    sign_xor: b_sign !== c_sign,
+    zero_divisor: false,
+    r_zero: r_is_zero,
+    case: 'None'
+  };
+}
+
+// Compute the lower carry chain: c*q + r must equal b (mod 2^32)
+function computeLowerCarries(c_limbs, q_limbs, r_limbs, b_limbs) {
+  const carries = [];
+  const constraints = [];
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    let sum = r_limbs[i] + (i > 0 ? carries[i - 1] : 0);
+    for (let j = 0; j <= i; j++) {
+      sum += c_limbs[j] * q_limbs[i - j];
+    }
+    const carry_val = (sum - b_limbs[i]) / 256;
+    carries.push(carry_val);
+    // Constraint: sum - b[i] - carry[i]*256 = 0
+    const c_val = sum - b_limbs[i] - Math.floor(carry_val) * 256;
+    constraints.push(c_val);
+  }
+  return { carries, constraints };
+}
+
+// Compute upper carry chain for sign extension verification
+// Mirrors the AIR constraint exactly: the remainder contribution is (1 - r_zero) * b_ext
+function computeUpperCarries(c_limbs, q_limbs, r_limbs, b_sign, c_sign, q_sign, r_zero, lower_carries, is_signed) {
+  const b_ext = b_sign ? LIMB_MAX : 0;
+  const c_ext = c_sign ? LIMB_MAX : 0;
+  const q_ext = q_sign ? LIMB_MAX : 0;
+
+  const carries = [];
+  const constraints = [];
+
+  for (let j = 0; j < NUM_LIMBS; j++) {
+    let prev_carry = j === 0 ? lower_carries[NUM_LIMBS - 1] : carries[j - 1];
+
+    let sum = prev_carry;
+
+    // Cross terms from upper portion of c*q: c[k]*q[NUM_LIMBS+j-k] for k in (j+1)..NUM_LIMBS
+    for (let k = j + 1; k < NUM_LIMBS; k++) {
+      sum += c_limbs[k] * q_limbs[NUM_LIMBS + j - k];
+    }
+
+    // Sign extension contributions: sum of c[k]*q_ext + q[k]*c_ext for k in 0..=j
+    for (let k = 0; k <= j; k++) {
+      sum += c_limbs[k] * q_ext + q_limbs[k] * c_ext;
+    }
+
+    // Remainder sign extension: (1 - r_zero) * b_ext per the AIR constraint
+    // (the sign of r matches sign of b when r is nonzero)
+    sum += (r_zero ? 0 : 1) * b_ext;
+
+    const carry_val = (sum - b_ext) / 256;
+    carries.push(carry_val);
+    const c_val = sum - b_ext - Math.floor(carry_val) * 256;
+    constraints.push(c_val);
+  }
+
+  return { carries, constraints, b_ext };
+}
+
+// Find the lt_marker position and lt_diff value
+function computeLtCheck(c_limbs, r_prime, c_sign, is_special, r_zero) {
+  if (is_special || r_zero) {
+    return { marker: [-1, -1, -1, -1], lt_diff: 0, satisfied: true, details: [] };
+  }
+
+  const details = [];
+  let marker_idx = -1;
+  let lt_diff = 0;
+
+  for (let i = NUM_LIMBS - 1; i >= 0; i--) {
+    let diff;
+    if (c_sign) {
+      diff = r_prime[i] - c_limbs[i]; // when c negative, want r_prime > c
+    } else {
+      diff = c_limbs[i] - r_prime[i]; // when c positive, want c > r_prime
+    }
+
+    if (r_prime[i] === c_limbs[i]) {
+      details.push({ limb: i, r_val: r_prime[i], c_val: c_limbs[i], status: 'equal' });
+    } else {
+      marker_idx = i;
+      lt_diff = diff;
+      details.push({ limb: i, r_val: r_prime[i], c_val: c_limbs[i], status: diff > 0 ? 'pass' : 'fail', diff });
+      break;
+    }
+  }
+
+  // Fill remaining lower limbs as "skipped"
+  for (let i = marker_idx - 1; i >= 0; i--) {
+    details.push({ limb: i, r_val: r_prime[i], c_val: c_limbs[i], status: 'skipped' });
+  }
+
+  return {
+    marker: Array.from({length: NUM_LIMBS}, (_, i) => i === marker_idx ? 1 : 0),
+    lt_diff,
+    satisfied: lt_diff > 0,
+    details: details.reverse()
+  };
+}
+
+// ---- State ----
+let state = {};
+let editedQ = [];
+let editedR = [];
+
+function getMode() {
+  return document.querySelector('input[name="mode"]:checked').value;
+}
+
+function recompute() {
+  const b_val = parseInt(document.getElementById('inp-b').value) || 0;
+  const c_val = parseInt(document.getElementById('inp-c').value) || 0;
+  const mode = getMode();
+
+  state = computeDivRem(b_val >>> 0, c_val >>> 0, mode);
+  state.b_val = b_val >>> 0;
+  state.c_val = c_val >>> 0;
+  state.b_limbs = toLimbs(b_val >>> 0);
+  state.c_limbs = toLimbs(c_val >>> 0);
+  state.mode = mode;
+  state.is_signed = (mode === 'DIV' || mode === 'REM');
+  state.is_div = (mode === 'DIV' || mode === 'DIVU');
+
+  // Reset editable values
+  editedQ = [...state.q_limbs];
+  editedR = [...state.r_limbs];
+
+  document.getElementById('stat-mode').textContent = mode;
+  render();
+}
+
+function resetTrace() {
+  editedQ = [...state.q_limbs];
+  editedR = [...state.r_limbs];
+  render();
+}
+
+function onQEdit(i, val) {
+  editedQ[i] = Math.max(0, Math.min(255, parseInt(val) || 0));
+  render();
+}
+
+function onREdit(i, val) {
+  editedR[i] = Math.max(0, Math.min(255, parseInt(val) || 0));
+  render();
+}
+
+function hasEdits() {
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    if (editedQ[i] !== state.q_limbs[i]) return true;
+    if (editedR[i] !== state.r_limbs[i]) return true;
+  }
+  return false;
+}
+
+function render() {
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
+
+  const b_limbs = state.b_limbs;
+  const c_limbs = state.c_limbs;
+  const q_limbs = editedQ;
+  const r_limbs = editedR;
+  const { is_signed, is_div, mode, b_sign, c_sign } = state;
+
+  // Recompute q_sign for edited values
+  const q_sign_edited = is_signed && ((q_limbs[NUM_LIMBS - 1] >> (LIMB_BITS - 1)) === 1);
+  const sign_xor_edited = b_sign !== c_sign;
+
+  const r_is_zero_edited = r_limbs.every(v => v === 0);
+  const c_is_zero = c_limbs.every(v => v === 0);
+  const zero_divisor = state.zero_divisor;
+  const r_zero_edited = r_is_zero_edited && !zero_divisor;
+
+  // Compute r_prime
+  let r_prime;
+  if (sign_xor_edited) {
+    r_prime = negateLimbs(r_limbs);
+  } else {
+    r_prime = [...r_limbs];
+  }
+
+  // Lower carries
+  const lower = computeLowerCarries(c_limbs, q_limbs, r_limbs, b_limbs);
+
+  // Upper carries
+  const upper = computeUpperCarries(c_limbs, q_limbs, r_limbs, b_sign, c_sign, q_sign_edited, r_zero_edited, lower.carries, is_signed);
+
+  // LT check
+  const is_special = zero_divisor || state.case === 'SignedOverflow';
+  const lt = computeLtCheck(c_limbs, r_prime, c_sign, is_special, r_zero_edited);
+
+  // Verify equation
+  const q_val = fromLimbs(q_limbs);
+  const r_val = fromLimbs(r_limbs);
+  const product = fromLimbs(b_limbs);
+  const check_val = ((c_limbs[0] | (c_limbs[1] << 8) | (c_limbs[2] << 16) | (c_limbs[3] << 24)) >>> 0);
+
+  // Check: c*q + r mod 2^32 = b
+  const cq_plus_r = (Math.imul(check_val, q_val) + r_val) >>> 0;
+  const eq_pass = cq_plus_r === product;
+
+  // Also check upper carries all land correctly
+  const upper_pass = upper.constraints.every(c => c === 0);
+  const lower_pass = lower.constraints.every(c => c === 0);
+
+  // All constraints check
+  const all_lower_pass = lower_pass;
+  const all_upper_pass = upper_pass;
+  const all_lt_pass = lt.satisfied;
+
+  // ---- Render equation panel ----
+  const eqPanel = document.getElementById('equation-panel');
+  let eqHtml = '<h3>Computed Values</h3>';
+  eqHtml += `<div class="equation">`;
+  eqHtml += `<span class="op">b</span> = <span class="val">${state.b_val}</span>`;
+  if (is_signed && b_sign) eqHtml += ` <span class="op">(signed: ${(state.b_val | 0)})</span>`;
+  eqHtml += `<br>`;
+  eqHtml += `<span class="op">c</span> = <span class="val">${state.c_val}</span>`;
+  if (is_signed && c_sign) eqHtml += ` <span class="op">(signed: ${(state.c_val | 0)})</span>`;
+  eqHtml += `<br>`;
+  eqHtml += `<span class="op">q</span> = <span class="val">${q_val}</span>`;
+  if (is_signed && q_sign_edited) eqHtml += ` <span class="op">(signed: ${(q_val | 0)})</span>`;
+  eqHtml += `<br>`;
+  eqHtml += `<span class="op">r</span> = <span class="val">${r_val}</span>`;
+  if (is_signed && r_limbs[NUM_LIMBS - 1] >= 128) eqHtml += ` <span class="op">(signed: ${(r_val | 0)})</span>`;
+  eqHtml += `<br><br>`;
+  eqHtml += `<span class="op">Verify: ${state.c_val} &times; ${q_val} + ${r_val} = ${cq_plus_r}</span> `;
+  if (eq_pass) {
+    eqHtml += `<span class="check-pass">&#10003;</span>`;
+  } else {
+    eqHtml += `<span class="check-fail">&#10007; (expected ${product})</span>`;
+  }
+  eqHtml += `<br>`;
+  eqHtml += `<span class="op">Output (${is_div ? mode + ' &rarr; q' : mode + ' &rarr; r'})</span> = <span class="val">${is_div ? q_val : r_val}</span>`;
+  eqHtml += `</div>`;
+  eqPanel.innerHTML = eqHtml;
+
+  // ---- Render limb table (lower) ----
+  let limbHtml = `<thead><tr>
+    <th>Limb i</th>
+    <th class="col-sep"></th>
+    <th>c&times;q cross-sum</th>
+    <th>+ r[i]</th>
+    <th>+ carry_in</th>
+    <th>Total</th>
+    <th class="col-sep"></th>
+    <th>b[i] (expected)</th>
+    <th>carry[i]</th>
+    <th class="col-sep"></th>
+    <th>C(i)</th>
+  </tr></thead><tbody>`;
+
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    let cross_sum = 0;
+    let cross_terms = [];
+    for (let j = 0; j <= i; j++) {
+      cross_sum += c_limbs[j] * q_limbs[i - j];
+      cross_terms.push(`c[${j}]*q[${i-j}]`);
+    }
+    const carry_in = i > 0 ? lower.carries[i - 1] : 0;
+    const total = cross_sum + r_limbs[i] + carry_in;
+    const constraint_val = lower.constraints[i];
+    const isIntCarry = Number.isInteger(lower.carries[i]);
+    const cClass = (constraint_val === 0 && isIntCarry) ? 'c-pass' : 'c-fail';
+
+    limbHtml += `<tr>`;
+    limbHtml += `<td class="col-row">${i}</td>`;
+    limbHtml += `<td class="col-sep"></td>`;
+    limbHtml += `<td style="font-size:10px;color:var(--text-dim)">${cross_sum} <span style="font-size:9px">(${cross_terms.join('+')})</span></td>`;
+    limbHtml += `<td class="col-trace"><input type="number" class="cell-input${editedR[i] !== state.r_limbs[i] ? ' modified' : ''}" value="${r_limbs[i]}" min="0" max="255" onchange="onREdit(${i},this.value)" style="width:60px"></td>`;
+    limbHtml += `<td>${i > 0 ? Math.floor(lower.carries[i-1]) : 0}</td>`;
+    limbHtml += `<td style="font-weight:600">${total}</td>`;
+    limbHtml += `<td class="col-sep"></td>`;
+    limbHtml += `<td>${b_limbs[i]}</td>`;
+    limbHtml += `<td>${isIntCarry ? Math.floor(lower.carries[i]) : lower.carries[i].toFixed(2)}</td>`;
+    limbHtml += `<td class="col-sep"></td>`;
+    limbHtml += `<td class="${cClass}">${constraint_val === 0 && isIntCarry ? '0' : (isIntCarry ? constraint_val : 'non-int carry')}</td>`;
+    limbHtml += `</tr>`;
+  }
+  limbHtml += '</tbody>';
+  document.getElementById('limb-table').innerHTML = limbHtml;
+
+  // ---- Render upper table ----
+  let upperHtml = `<thead><tr>
+    <th>Limb j</th>
+    <th class="col-sep"></th>
+    <th>Expected ext</th>
+    <th>Computed</th>
+    <th>carry_ext[j]</th>
+    <th class="col-sep"></th>
+    <th>C(j)</th>
+  </tr></thead><tbody>`;
+
+  for (let j = 0; j < NUM_LIMBS; j++) {
+    const cVal = upper.constraints[j];
+    const isIntCarry = Number.isInteger(upper.carries[j]);
+    const cClass = (cVal === 0 && isIntCarry) ? 'c-pass' : 'c-fail';
+
+    upperHtml += `<tr>`;
+    upperHtml += `<td class="col-row">${j}</td>`;
+    upperHtml += `<td class="col-sep"></td>`;
+    upperHtml += `<td>${upper.b_ext}</td>`;
+    upperHtml += `<td>${Math.floor(upper.b_ext + (isIntCarry ? Math.floor(upper.carries[j]) : upper.carries[j]) * 256)}</td>`;
+    upperHtml += `<td>${isIntCarry ? Math.floor(upper.carries[j]) : upper.carries[j].toFixed(2)}</td>`;
+    upperHtml += `<td class="col-sep"></td>`;
+    upperHtml += `<td class="${cClass}">${cVal === 0 && isIntCarry ? '0' : (isIntCarry ? cVal : 'non-int')}</td>`;
+    upperHtml += `</tr>`;
+  }
+  upperHtml += '</tbody>';
+  document.getElementById('upper-table').innerHTML = upperHtml;
+
+  // ---- Render remainder bound ----
+  const rbDiv = document.getElementById('remainder-bound');
+  let rbHtml = '';
+
+  if (is_special) {
+    rbHtml += `<div class="edge-case-box">`;
+    rbHtml += `<span class="ec-label">Remainder bound check skipped (special case: ${state.case})</span>`;
+    rbHtml += `</div>`;
+  } else if (r_zero_edited) {
+    rbHtml += `<div class="edge-case-box">`;
+    rbHtml += `<span class="ec-label">r = 0, remainder bound trivially satisfied</span>`;
+    rbHtml += `</div>`;
+  } else {
+    rbHtml += `<div style="margin-bottom:8px;font-size:11px;">`;
+    rbHtml += `r_prime = [${r_prime.join(', ')}]`;
+    if (sign_xor_edited) rbHtml += ` <span style="color:var(--text-dim)">(negated from r because signs differ)</span>`;
+    rbHtml += `<br>c = [${c_limbs.join(', ')}]`;
+    rbHtml += `<br>Scanning from MSB:`;
+    rbHtml += `</div>`;
+
+    for (const d of lt.details) {
+      rbHtml += `<div class="lt-scan-row">`;
+      rbHtml += `<span class="limb-idx">Limb ${d.limb}:</span>`;
+      if (d.status === 'equal') {
+        rbHtml += `<span class="lt-equal">r_prime[${d.limb}]=${d.r_val} vs c[${d.limb}]=${d.c_val} (equal, continue)</span>`;
+      } else if (d.status === 'pass') {
+        if (c_sign) {
+          rbHtml += `<span class="lt-found">r_prime[${d.limb}]=${d.r_val} > c[${d.limb}]=${d.c_val} &#10003; (diff=${d.diff})</span>`;
+        } else {
+          rbHtml += `<span class="lt-found">r_prime[${d.limb}]=${d.r_val} < c[${d.limb}]=${d.c_val} &#10003; (diff=${d.diff})</span>`;
+        }
+      } else if (d.status === 'fail') {
+        if (c_sign) {
+          rbHtml += `<span class="lt-fail">r_prime[${d.limb}]=${d.r_val} < c[${d.limb}]=${d.c_val} &#10007; (diff=${d.diff})</span>`;
+        } else {
+          rbHtml += `<span class="lt-fail">r_prime[${d.limb}]=${d.r_val} > c[${d.limb}]=${d.c_val} &#10007; (diff=${d.diff})</span>`;
+        }
+      } else {
+        rbHtml += `<span class="lt-equal">Limb ${d.limb}: (below marker, not checked)</span>`;
+      }
+      rbHtml += `</div>`;
+    }
+  }
+  rbDiv.innerHTML = rbHtml;
+
+  // ---- Render edge cases ----
+  const ecDiv = document.getElementById('edge-cases');
+  let ecHtml = '';
+
+  if (c_is_zero) {
+    ecHtml += `<div class="edge-case-box">`;
+    ecHtml += `<span class="ec-label">Division by zero detected!</span><br>`;
+    ecHtml += `<span class="ec-label">q =</span> <span class="ec-val">0xFFFFFFFF</span> <span class="ec-label">(all limbs = 255, RISC-V convention)</span><br>`;
+    ecHtml += `<span class="ec-label">r =</span> <span class="ec-val">b = ${state.b_val}</span> <span class="ec-label">(remainder = dividend)</span>`;
+    ecHtml += `</div>`;
+  } else if (state.case === 'SignedOverflow') {
+    ecHtml += `<div class="edge-case-box">`;
+    ecHtml += `<span class="ec-label">Signed overflow: INT_MIN / -1</span><br>`;
+    ecHtml += `<span class="ec-label">q =</span> <span class="ec-val">INT_MIN = ${(state.b_val | 0)}</span> <span class="ec-label">(overflow wraps)</span><br>`;
+    ecHtml += `<span class="ec-label">r =</span> <span class="ec-val">0</span>`;
+    ecHtml += `</div>`;
+  } else {
+    ecHtml += `<div class="edge-case-box">`;
+    ecHtml += `<span class="ec-label">No edge case active. Normal division.</span><br>`;
+    ecHtml += `<span class="ec-label">zero_divisor =</span> <span class="ec-val">0</span>, `;
+    ecHtml += `<span class="ec-label">r_zero =</span> <span class="ec-val">${r_zero_edited ? 1 : 0}</span>`;
+    if (is_signed) {
+      ecHtml += `<br><span class="ec-label">b_sign =</span> <span class="ec-val">${b_sign ? 1 : 0}</span>, `;
+      ecHtml += `<span class="ec-label">c_sign =</span> <span class="ec-val">${c_sign ? 1 : 0}</span>, `;
+      ecHtml += `<span class="ec-label">q_sign =</span> <span class="ec-val">${q_sign_edited ? 1 : 0}</span>, `;
+      ecHtml += `<span class="ec-label">sign_xor =</span> <span class="ec-val">${sign_xor_edited ? 1 : 0}</span>`;
+    }
+    ecHtml += `</div>`;
+  }
+  ecDiv.innerHTML = ecHtml;
+
+  // ---- Render full witness table ----
+  // Compute all auxiliary columns
+  const c_sum = c_limbs.reduce((a, b) => a + b, 0);
+  const c_sum_inv_val = c_sum !== 0 ? modInverse(c_sum, P) : 0;
+  const r_sum = r_limbs.reduce((a, b) => a + b, 0);
+  const r_sum_inv_val = r_sum !== 0 ? modInverse(r_sum, P) : 0;
+
+  const r_inv = r_prime.map(v => modInverse(mod(v - 256, P), P));
+
+  let witHtml = `<thead><tr>
+    <th>Column</th><th>Value</th><th>Column</th><th>Value</th><th>Column</th><th>Value</th>
+  </tr></thead><tbody>`;
+
+  const cols = [];
+  for (let i = 0; i < NUM_LIMBS; i++) cols.push({ name: `b[${i}]`, val: b_limbs[i], edit: false });
+  for (let i = 0; i < NUM_LIMBS; i++) cols.push({ name: `c[${i}]`, val: c_limbs[i], edit: false });
+  for (let i = 0; i < NUM_LIMBS; i++) cols.push({ name: `q[${i}]`, val: q_limbs[i], edit: true, editFn: `onQEdit(${i},this.value)`, modified: editedQ[i] !== state.q_limbs[i] });
+  for (let i = 0; i < NUM_LIMBS; i++) cols.push({ name: `r[${i}]`, val: r_limbs[i], edit: true, editFn: `onREdit(${i},this.value)`, modified: editedR[i] !== state.r_limbs[i] });
+  cols.push({ name: 'zero_divisor', val: zero_divisor ? 1 : 0, edit: false });
+  cols.push({ name: 'r_zero', val: r_zero_edited ? 1 : 0, edit: false });
+  cols.push({ name: 'b_sign', val: b_sign ? 1 : 0, edit: false });
+  cols.push({ name: 'c_sign', val: c_sign ? 1 : 0, edit: false });
+  cols.push({ name: 'q_sign', val: q_sign_edited ? 1 : 0, edit: false });
+  cols.push({ name: 'sign_xor', val: sign_xor_edited ? 1 : 0, edit: false });
+  cols.push({ name: 'c_sum_inv', val: c_sum_inv_val, edit: false });
+  cols.push({ name: 'r_sum_inv', val: r_sum_inv_val, edit: false });
+  for (let i = 0; i < NUM_LIMBS; i++) cols.push({ name: `r_prime[${i}]`, val: r_prime[i], edit: false });
+  for (let i = 0; i < NUM_LIMBS; i++) cols.push({ name: `r_inv[${i}]`, val: r_inv[i], edit: false });
+  for (let i = 0; i < NUM_LIMBS; i++) cols.push({ name: `lt_marker[${i}]`, val: (is_special || r_zero_edited) ? 0 : (lt.marker[i] || 0), edit: false });
+  cols.push({ name: 'lt_diff', val: lt.lt_diff, edit: false });
+  cols.push({ name: 'div_flag', val: mode === 'DIV' ? 1 : 0, edit: false });
+  cols.push({ name: 'divu_flag', val: mode === 'DIVU' ? 1 : 0, edit: false });
+  cols.push({ name: 'rem_flag', val: mode === 'REM' ? 1 : 0, edit: false });
+  cols.push({ name: 'remu_flag', val: mode === 'REMU' ? 1 : 0, edit: false });
+
+  const numCols = 3;
+  const rowsPer = Math.ceil(cols.length / numCols);
+  for (let r = 0; r < rowsPer; r++) {
+    witHtml += '<tr>';
+    for (let c = 0; c < numCols; c++) {
+      const idx = r + c * rowsPer;
+      if (idx < cols.length) {
+        const col = cols[idx];
+        witHtml += `<td style="text-align:left;color:var(--text-dim);font-size:10px">${col.name}</td>`;
+        if (col.edit) {
+          witHtml += `<td class="col-trace"><input type="number" class="cell-input${col.modified ? ' modified' : ''}" value="${col.val}" min="0" max="255" onchange="${col.editFn}" style="width:60px"></td>`;
+        } else {
+          let displayVal = col.val;
+          if (typeof displayVal === 'number' && displayVal > 99999) {
+            displayVal = displayVal.toString().slice(0, 8) + '...';
+          }
+          witHtml += `<td style="font-weight:600">${displayVal}</td>`;
+        }
+      } else {
+        witHtml += '<td></td><td></td>';
+      }
+    }
+    witHtml += '</tr>';
+  }
+  witHtml += '</tbody>';
+  document.getElementById('witness-table').innerHTML = witHtml;
+}
+
+// Modular inverse using extended Euclidean algorithm
+function modInverse(a, m) {
+  a = mod(a, m);
+  if (a === 0) return 0;
+  let [old_r, r] = [a, m];
+  let [old_s, s] = [1, 0];
+  while (r !== 0) {
+    const q = Math.floor(old_r / r);
+    [old_r, r] = [r, old_r - q * r];
+    [old_s, s] = [s, old_s - q * s];
+  }
+  return mod(old_s, m);
+}
+
+// Event listeners
+document.getElementById('inp-b').addEventListener('input', recompute);
+document.getElementById('inp-c').addEventListener('input', recompute);
+document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', recompute));
+
+recompute();
+</script>
+</body>
+</html>

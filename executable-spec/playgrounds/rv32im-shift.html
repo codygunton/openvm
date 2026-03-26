@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RV32IM Shift AIR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 11px;
+  }
+
+  .callout .callout-title {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+
+  .callout .callout-body {
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout .callout-body code {
+    color: var(--text);
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 70px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], input[type="text"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .radio-group {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+  }
+
+  .radio-group label {
+    width: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    color: var(--text);
+  }
+
+  .radio-group input[type="radio"] {
+    width: auto;
+    accent-color: var(--accent);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-last { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section {
+    margin-bottom: 24px;
+  }
+
+  /* --- One-hot marker array --- */
+  .marker-array {
+    display: flex;
+    gap: 0;
+    margin-bottom: 6px;
+  }
+
+  .marker-cell {
+    width: 32px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+  }
+
+  .marker-cell:first-child { border-radius: 4px 0 0 4px; }
+  .marker-cell:last-child { border-radius: 0 4px 4px 0; }
+
+  .marker-cell.active {
+    background: var(--green-dim);
+    color: var(--green);
+    border-color: var(--green);
+    font-weight: 700;
+  }
+
+  .marker-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+
+  .marker-indices {
+    display: flex;
+    gap: 0;
+    margin-bottom: 2px;
+  }
+
+  .marker-idx {
+    width: 32px;
+    text-align: center;
+    font-size: 9px;
+    color: var(--text-dim);
+  }
+
+  /* --- Decomposition box --- */
+  .decomp-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 12px;
+    line-height: 2;
+  }
+
+  .decomp-box .val-highlight {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .decomp-box .val-green {
+    color: var(--green);
+    font-weight: 700;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  /* --- 32-bit view --- */
+  .word-view {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 12px;
+    line-height: 2;
+  }
+
+  .word-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 100px;
+  }
+
+  .word-hex {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .word-limbs {
+    color: var(--text-dim);
+  }
+
+  .constraint-eval-label {
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>RV32IM Shift</h1>
+    <div class="intro">
+      The <strong>ShiftCoreAir</strong> handles SLL (shift left logical), SRL (shift right logical), and SRA (shift right arithmetic).
+      The shift amount is decomposed into a <strong>limb shift</strong> (whole 8-bit byte positions, 0-3) and a <strong>bit shift</strong> (intra-byte, 0-7),
+      each encoded as <strong>one-hot markers</strong>.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Concepts</div>
+      <div class="callout">
+        <div class="callout-title">Shift Decomposition</div>
+        <div class="callout-body">
+          A shift amount <code>s</code> is split: <code>limb_shift = s / 8</code>, <code>bit_shift = s % 8</code>.
+          One-hot markers <code>limb_shift_marker[4]</code> and <code>bit_shift_marker[8]</code> encode these.
+          This avoids variable exponents in constraints.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Bit Multiplier</div>
+        <div class="callout-body">
+          For SLL, <code>bit_multiplier_left = 2^bit_shift</code>.
+          For SRL/SRA, <code>bit_multiplier_right = 2^bit_shift</code>.
+          Multiplying a limb by the bit multiplier performs the intra-byte shift.
+          The carry between limbs captures overflow.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>value (b)</label>
+        <input type="text" id="inp-value" value="0x12345678">
+      </div>
+      <div class="control-row">
+        <label>shift amt</label>
+        <input type="number" id="inp-shift" value="5" min="0" max="31">
+      </div>
+      <div class="control-row">
+        <label>operation</label>
+        <div class="radio-group">
+          <label><input type="radio" name="op" value="SLL" checked> SLL</label>
+          <label><input type="radio" name="op" value="SRL"> SRL</label>
+          <label><input type="radio" name="op" value="SRA"> SRA</label>
+        </div>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">34</span></div>
+      <div class="stat-row"><span class="label">Layout</span><span class="val">a[4]+b[4]+c[4]+3 flags +2 muls +b_sign +bsm[8]+lsm[4]+carry[4]</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val dynamic" id="stat-constraints">~12</span></div>
+      <div class="stat-row"><span class="label">Bus</span><span class="val">BitwiseOpLookup + VarRangeChecker</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">bit_shift_marker is one-hot</span>
+          <span class="c-formula">each boolean, sum = 1</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">limb_shift_marker is one-hot</span>
+          <span class="c-formula">each boolean, sum = 1</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">bit_shift recovered from marker</span>
+          <span class="c-formula">bit_shift = &Sigma;(i &times; bit_shift_marker[i])</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">limb_shift recovered from marker</span>
+          <span class="c-formula">limb_shift = &Sigma;(i &times; limb_shift_marker[i])</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">shift amount decomposition</span>
+          <span class="c-formula">c[0] = limb_shift&times;8 + bit_shift + k&times;32, k range-checked</span>
+        </li>
+        <li>
+          <span class="c-id">C6-C9</span> <span class="c-desc">carry propagation per limb</span>
+          <span class="c-formula">SLL: a[j]&times;sll = (carry_below + b[j-ls]&times;mul_left - 256&times;carry[j-ls])&times;sll</span>
+          <span class="c-formula">SRL/SRA: a[j]&times;mul_right = (carry_above&times;256 + b[j+ls] - carry[j+ls])&times;right_shift</span>
+        </li>
+        <li>
+          <span class="c-id">C10</span> <span class="c-desc">SRA sign bit</span>
+          <span class="c-formula">b_sign = MSB of b[3]; 0 when not SRA</span>
+        </li>
+        <li>
+          <span class="c-id">C11</span> <span class="c-desc">Opcode flags: exactly one set</span>
+          <span class="c-formula">each boolean, sum = 1</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <div class="main-section">
+      <h2>Shift Decomposition</h2>
+      <div class="decomp-box" id="decomp-box"></div>
+    </div>
+
+    <div class="main-section">
+      <h2>One-Hot Markers</h2>
+      <div class="marker-label">bit_shift_marker[8]</div>
+      <div class="marker-indices" id="bsm-indices"></div>
+      <div class="marker-array" id="bsm-array"></div>
+
+      <div style="margin-top:12px">
+        <div class="marker-label">limb_shift_marker[4]</div>
+        <div class="marker-indices" id="lsm-indices"></div>
+        <div class="marker-array" id="lsm-array"></div>
+      </div>
+    </div>
+
+    <div class="main-section">
+      <h2>Limb-by-Limb Computation</h2>
+      <div class="hint">
+        Edit <span style="color:var(--accent)">a[i]</span> and <span style="color:var(--accent)">carry[i]</span> values to see which constraints break.
+        <span class="g">0</span> = satisfied,
+        <span class="r">nonzero</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="trace-wrapper">
+        <table id="limb-table"></table>
+      </div>
+    </div>
+
+    <div class="main-section">
+      <h2>32-bit View</h2>
+      <div class="word-view" id="word-view"></div>
+    </div>
+
+    <div class="main-section">
+      <h2>All Constraint Evaluations</h2>
+      <div class="trace-wrapper">
+        <table id="constraint-table"></table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+const NUM_LIMBS = 4;
+const LIMB_BITS = 8;
+
+function mod(x, m) { return ((x % m) + m) % m; }
+function modP(x) { return mod(x, P); }
+
+// --- State ---
+let inputValue = 0x12345678;
+let inputShift = 5;
+let inputOp = 'SLL';
+
+// Clean computed values
+let clean = {};
+// Edited a[i] and carry[i]
+let editedA = [0,0,0,0];
+let editedCarry = [0,0,0,0];
+let userEdited = false;
+
+function parseHexOrDec(s) {
+  s = s.trim();
+  if (s.startsWith('0x') || s.startsWith('0X')) return parseInt(s, 16) || 0;
+  return parseInt(s, 10) || 0;
+}
+
+function toLimbs(val) {
+  val = val >>> 0; // force unsigned 32-bit
+  return [val & 0xFF, (val >> 8) & 0xFF, (val >> 16) & 0xFF, (val >> 24) & 0xFF];
+}
+
+function fromLimbs(limbs) {
+  return ((limbs[3] & 0xFF) << 24 | (limbs[2] & 0xFF) << 16 | (limbs[1] & 0xFF) << 8 | (limbs[0] & 0xFF)) >>> 0;
+}
+
+function hex32(val) {
+  return '0x' + (val >>> 0).toString(16).padStart(8, '0').toUpperCase();
+}
+
+function hex8(val) {
+  return '0x' + (val & 0xFF).toString(16).padStart(2, '0').toUpperCase();
+}
+
+function computeClean() {
+  inputValue = parseHexOrDec(document.getElementById('inp-value').value);
+  inputShift = Math.max(0, Math.min(31, parseInt(document.getElementById('inp-shift').value) || 0));
+  const radios = document.querySelectorAll('input[name="op"]');
+  radios.forEach(r => { if (r.checked) inputOp = r.value; });
+
+  const b = toLimbs(inputValue);
+  const shiftAmount = inputShift;
+  const limbShift = Math.floor(shiftAmount / LIMB_BITS);
+  const bitShift = shiftAmount % LIMB_BITS;
+
+  const bitMultiplierLeft = inputOp === 'SLL' ? (1 << bitShift) : 0;
+  const bitMultiplierRight = (inputOp === 'SRL' || inputOp === 'SRA') ? (1 << bitShift) : 0;
+
+  const bSign = inputOp === 'SRA' ? ((b[3] >> 7) & 1) : 0;
+
+  // Compute a[i] and carry[i]
+  let a = [0,0,0,0];
+  let carry = [0,0,0,0];
+
+  if (inputOp === 'SLL') {
+    // carry[i] = high bits shifted out of b[i]
+    for (let i = 0; i < NUM_LIMBS; i++) {
+      carry[i] = bitShift === 0 ? 0 : (b[i] >> (LIMB_BITS - bitShift));
+    }
+    for (let j = 0; j < NUM_LIMBS; j++) {
+      if (j < limbShift) {
+        a[j] = 0;
+      } else {
+        const srcIdx = j - limbShift;
+        const product = b[srcIdx] * (1 << bitShift);
+        const carryBelow = srcIdx > 0 ? carry[srcIdx - 1] : 0;
+        a[j] = (product + carryBelow) & 0xFF;
+      }
+    }
+  } else {
+    // SRL or SRA - matching Rust run_shift_right exactly
+    const fill = bSign * 0xFF;
+    // carry[i] = low bits of b[i] (bits that shift out below)
+    for (let i = 0; i < NUM_LIMBS; i++) {
+      carry[i] = bitShift === 0 ? 0 : (b[i] % (1 << bitShift));
+    }
+    for (let j = 0; j < NUM_LIMBS; j++) {
+      if (j + limbShift >= NUM_LIMBS) {
+        a[j] = fill;
+      } else {
+        const srcIdx = j + limbShift;
+        if (bitShift === 0) {
+          a[j] = b[srcIdx];
+        } else {
+          const fromAbove = (srcIdx + 1 < NUM_LIMBS) ? b[srcIdx + 1] : fill;
+          a[j] = (((b[srcIdx] >> bitShift) | (fromAbove << (LIMB_BITS - bitShift)))) & 0xFF;
+        }
+      }
+    }
+  }
+
+  // c limbs: shift amount in c[0], rest 0
+  const c = [shiftAmount, 0, 0, 0];
+
+  // bit_shift_marker & limb_shift_marker
+  const bitShiftMarker = Array(LIMB_BITS).fill(0);
+  bitShiftMarker[bitShift] = 1;
+  const limbShiftMarker = Array(NUM_LIMBS).fill(0);
+  limbShiftMarker[limbShift] = 1;
+
+  // Opcode flags
+  const sllFlag = inputOp === 'SLL' ? 1 : 0;
+  const srlFlag = inputOp === 'SRL' ? 1 : 0;
+  const sraFlag = inputOp === 'SRA' ? 1 : 0;
+
+  clean = {
+    a, b, c, carry,
+    limbShift, bitShift,
+    bitMultiplierLeft, bitMultiplierRight,
+    bSign,
+    bitShiftMarker, limbShiftMarker,
+    sllFlag, srlFlag, sraFlag,
+  };
+
+  return clean;
+}
+
+function recompute() {
+  computeClean();
+  editedA = [...clean.a];
+  editedCarry = [...clean.carry];
+  userEdited = false;
+  renderAll();
+}
+
+function resetTrace() {
+  computeClean();
+  editedA = [...clean.a];
+  editedCarry = [...clean.carry];
+  userEdited = false;
+  renderAll();
+}
+
+function onEditA(i, val) {
+  editedA[i] = modP(parseInt(val) || 0);
+  userEdited = true;
+  renderAll();
+}
+
+function onEditCarry(i, val) {
+  editedCarry[i] = modP(parseInt(val) || 0);
+  userEdited = true;
+  renderAll();
+}
+
+function hasEdits() {
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    if (editedA[i] !== clean.a[i] || editedCarry[i] !== clean.carry[i]) return true;
+  }
+  return false;
+}
+
+// --- Constraint evaluation ---
+// Evaluate the carry propagation constraint for limb j, given the active limb_shift = ls.
+// Returns constraint value mod P (0 if satisfied).
+function evalSllConstraint(j, ls) {
+  const { b, bitMultiplierLeft, sllFlag } = clean;
+  if (sllFlag === 0) return null; // not SLL
+
+  if (j < ls) {
+    // a[j] * sll_flag should be 0
+    return modP(editedA[j] * sllFlag);
+  } else {
+    const srcIdx = j - ls;
+    const carryBelow = srcIdx > 0 ? editedCarry[srcIdx - 1] : 0;
+    // expected_a_left = carryBelow * sllFlag + b[srcIdx] * bit_multiplier_left - 256 * carry[srcIdx] * sllFlag
+    const expected = modP(carryBelow * sllFlag + b[srcIdx] * bitMultiplierLeft - 256 * editedCarry[srcIdx] * sllFlag);
+    const actual = modP(editedA[j] * sllFlag);
+    return modP(actual - expected);
+  }
+}
+
+function evalSrlSraConstraint(j, ls) {
+  const { b, bitMultiplierRight, bSign, srlFlag, sraFlag } = clean;
+  const rightShift = srlFlag + sraFlag;
+  if (rightShift === 0) return null;
+
+  if (j + ls > NUM_LIMBS - 1) {
+    // a[j] * right_shift should equal b_sign * 255
+    const actual = modP(editedA[j] * rightShift);
+    const expected = modP(bSign * 255);
+    return modP(actual - expected);
+  } else {
+    const srcIdx = j + ls;
+    let carryAboveTerm;
+    if (srcIdx === NUM_LIMBS - 1) {
+      // bSign * (bit_multiplier_right - 1)
+      carryAboveTerm = modP(bSign * (bitMultiplierRight - 1));
+    } else {
+      carryAboveTerm = modP(editedCarry[srcIdx + 1] * rightShift);
+    }
+    // expected = carryAboveTerm * 256 + rightShift * (b[srcIdx] - carry[srcIdx])
+    const expected = modP(carryAboveTerm * 256 + rightShift * modP(b[srcIdx] - editedCarry[srcIdx]));
+    const actual = modP(editedA[j] * bitMultiplierRight);
+    return modP(actual - expected);
+  }
+}
+
+function evalAllConstraints() {
+  const { bitShiftMarker, limbShiftMarker, bitShift, limbShift,
+          bitMultiplierLeft, bitMultiplierRight,
+          sllFlag, srlFlag, sraFlag, bSign, b, c } = clean;
+
+  const results = {};
+
+  // C1: bit_shift_marker is one-hot (each boolean, sum=1)
+  let bsmSum = 0;
+  let bsmBool = true;
+  for (let i = 0; i < LIMB_BITS; i++) {
+    bsmSum += bitShiftMarker[i];
+    if (bitShiftMarker[i] !== 0 && bitShiftMarker[i] !== 1) bsmBool = false;
+  }
+  results.C1 = (bsmBool && bsmSum === 1) ? 0 : modP(bsmSum - 1);
+
+  // C2: limb_shift_marker is one-hot
+  let lsmSum = 0;
+  let lsmBool = true;
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    lsmSum += limbShiftMarker[i];
+    if (limbShiftMarker[i] !== 0 && limbShiftMarker[i] !== 1) lsmBool = false;
+  }
+  results.C2 = (lsmBool && lsmSum === 1) ? 0 : modP(lsmSum - 1);
+
+  // C3: bit_shift = sum(i * marker[i])
+  let recoveredBitShift = 0;
+  for (let i = 0; i < LIMB_BITS; i++) recoveredBitShift += i * bitShiftMarker[i];
+  results.C3 = modP(recoveredBitShift - bitShift);
+
+  // C4: limb_shift = sum(i * marker[i])
+  let recoveredLimbShift = 0;
+  for (let i = 0; i < NUM_LIMBS; i++) recoveredLimbShift += i * limbShiftMarker[i];
+  results.C4 = modP(recoveredLimbShift - limbShift);
+
+  // C5: c[0] = limb_shift*8 + bit_shift + k*32, k in range
+  const k = Math.floor((c[0] - limbShift * 8 - bitShift) / 32);
+  results.C5 = modP(c[0] - limbShift * 8 - bitShift - k * 32);
+
+  // C6-C9: per-limb carry propagation
+  for (let j = 0; j < NUM_LIMBS; j++) {
+    const cLabel = 'C' + (6 + j);
+    const sllRes = evalSllConstraint(j, limbShift);
+    const srlSraRes = evalSrlSraConstraint(j, limbShift);
+
+    if (sllRes !== null) {
+      results[cLabel] = sllRes;
+    } else if (srlSraRes !== null) {
+      results[cLabel] = srlSraRes;
+    } else {
+      results[cLabel] = 0;
+    }
+  }
+
+  // C10: b_sign = MSB of b[3] for SRA, 0 otherwise
+  if (sraFlag) {
+    const expectedBSign = (b[3] >> 7) & 1;
+    results.C10 = modP(bSign - expectedBSign);
+  } else {
+    results.C10 = modP(bSign); // must be 0
+  }
+
+  // C11: opcode flags exactly one set
+  const flagSum = sllFlag + srlFlag + sraFlag;
+  let flagsBool = true;
+  for (const f of [sllFlag, srlFlag, sraFlag]) {
+    if (f !== 0 && f !== 1) flagsBool = false;
+  }
+  results.C11 = (flagsBool && flagSum === 1) ? 0 : modP(flagSum - 1);
+
+  return results;
+}
+
+// --- Rendering ---
+function renderDecomp() {
+  const { limbShift, bitShift, bitMultiplierLeft, bitMultiplierRight } = clean;
+  const shiftAmount = inputShift;
+
+  let mulLine = '';
+  if (inputOp === 'SLL') {
+    mulLine = `bit_multiplier_left  = <span class="val-green">${bitMultiplierLeft}</span> (= 2^${bitShift})  [for SLL]`;
+  } else {
+    mulLine = `bit_multiplier_right = <span class="val-green">${bitMultiplierRight}</span> (= 2^${bitShift})  [for ${inputOp}]`;
+  }
+
+  document.getElementById('decomp-box').innerHTML =
+    `shift_amount = <span class="val-highlight">${shiftAmount}</span><br>` +
+    `&nbsp;&nbsp;limb_shift = <span class="val-highlight">${limbShift}</span> (shift by ${limbShift} whole byte${limbShift !== 1 ? 's' : ''})<br>` +
+    `&nbsp;&nbsp;bit_shift&nbsp; = <span class="val-highlight">${bitShift}</span> (shift by ${bitShift} bit${bitShift !== 1 ? 's' : ''} within byte)<br>` +
+    `&nbsp;&nbsp;${mulLine}`;
+}
+
+function renderMarkers() {
+  const { bitShiftMarker, limbShiftMarker, bitShift, limbShift } = clean;
+
+  // bit_shift_marker indices
+  let idxHtml = '';
+  for (let i = 0; i < LIMB_BITS; i++) {
+    idxHtml += `<div class="marker-idx">${i}</div>`;
+  }
+  document.getElementById('bsm-indices').innerHTML = idxHtml;
+
+  // bit_shift_marker cells
+  let cellHtml = '';
+  for (let i = 0; i < LIMB_BITS; i++) {
+    cellHtml += `<div class="marker-cell${bitShiftMarker[i] ? ' active' : ''}">${bitShiftMarker[i]}</div>`;
+  }
+  document.getElementById('bsm-array').innerHTML = cellHtml;
+
+  // limb_shift_marker indices
+  idxHtml = '';
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    idxHtml += `<div class="marker-idx">${i}</div>`;
+  }
+  document.getElementById('lsm-indices').innerHTML = idxHtml;
+
+  // limb_shift_marker cells
+  cellHtml = '';
+  for (let i = 0; i < NUM_LIMBS; i++) {
+    cellHtml += `<div class="marker-cell${limbShiftMarker[i] ? ' active' : ''}">${limbShiftMarker[i]}</div>`;
+  }
+  document.getElementById('lsm-array').innerHTML = cellHtml;
+}
+
+function renderLimbTable() {
+  const { b, limbShift, bitShift, bitMultiplierLeft, bitMultiplierRight,
+          sllFlag, srlFlag, sraFlag, bSign } = clean;
+  const ls = limbShift;
+  const rightShift = srlFlag + sraFlag;
+  const edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Input</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Output (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Constraint</th>
+    </tr>
+    <tr>
+      <th>Limb</th>
+      <th class="col-sep"></th>
+      <th>b[i]</th>
+      <th class="col-sep"></th>
+      <th>a[i]</th>
+      <th>carry[i]</th>
+      <th class="col-sep"></th>
+      <th>Eval</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let j = 0; j < NUM_LIMBS; j++) {
+    const cLabel = 'C' + (6 + j);
+
+    // Evaluate constraint for this limb
+    let cVal;
+    if (sllFlag) {
+      cVal = evalSllConstraint(j, ls);
+    } else {
+      cVal = evalSrlSraConstraint(j, ls);
+    }
+    if (cVal === null) cVal = 0;
+
+    const hasViolation = cVal !== 0;
+    const aModified = editedA[j] !== clean.a[j];
+    const cModified = editedCarry[j] !== clean.carry[j];
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${j}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace">${hex8(b[j])} (${b[j]})</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${aModified ? ' modified' : ''}" value="${editedA[j]}" onchange="onEditA(${j},this.value)" style="width:70px"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${cModified ? ' modified' : ''}" value="${editedCarry[j]}" onchange="onEditCarry(${j},this.value)" style="width:70px"></td>`;
+    html += `<td class="col-sep"></td>`;
+
+    if (cVal === 0) {
+      html += `<td class="col-constraint c-pass">${cLabel}: 0</td>`;
+    } else {
+      html += `<td class="col-constraint c-fail">${cLabel}: ${cVal}</td>`;
+    }
+
+    html += `</tr>`;
+  }
+
+  // Add a description row
+  html += `<tr><td colspan="8" style="text-align:left;padding:8px;font-size:10px;color:var(--text-dim);border-bottom:none;">`;
+  if (sllFlag) {
+    html += `SLL formula: a[j] &times; sll = (carry[src-1] &times; sll + b[src] &times; ${bitMultiplierLeft} - 256 &times; carry[src] &times; sll), where src = j - ${ls}`;
+  } else {
+    html += `${inputOp} formula: a[j] &times; ${bitMultiplierRight} = (carry_above &times; 256 + b[src] - carry[src]) &times; right_shift, where src = j + ${ls}`;
+  }
+  html += `</td></tr>`;
+
+  html += '</tbody>';
+  document.getElementById('limb-table').innerHTML = html;
+}
+
+function renderWordView() {
+  const { b } = clean;
+  const bVal = fromLimbs(b);
+  const aVal = fromLimbs(editedA);
+
+  document.getElementById('word-view').innerHTML =
+    `<span class="word-label">b (input)</span> = <span class="word-hex">${hex32(bVal)}</span> ` +
+    `<span class="word-limbs">= [${b.map(x => hex8(x)).join(', ')}]</span><br>` +
+    `<span class="word-label">a (result)</span> = <span class="word-hex">${hex32(aVal)}</span> ` +
+    `<span class="word-limbs">= [${editedA.map(x => hex8(x & 0xFF)).join(', ')}]</span>` +
+    `<span style="color:var(--text-dim);font-size:11px;margin-left:8px;">(${inputOp} ${inputShift})</span>`;
+}
+
+function renderConstraintTable() {
+  const results = evalAllConstraints();
+  const labels = ['C1','C2','C3','C4','C5','C6','C7','C8','C9','C10','C11'];
+  const descs = [
+    'bit_shift_marker one-hot',
+    'limb_shift_marker one-hot',
+    'bit_shift from marker',
+    'limb_shift from marker',
+    'shift decomposition',
+    'limb 0 carry prop',
+    'limb 1 carry prop',
+    'limb 2 carry prop',
+    'limb 3 carry prop',
+    'SRA sign bit',
+    'opcode flags one-hot',
+  ];
+
+  let html = `<thead><tr>
+    <th>ID</th><th>Description</th><th>Value</th><th>Status</th>
+  </tr></thead><tbody>`;
+
+  for (let i = 0; i < labels.length; i++) {
+    const v = results[labels[i]];
+    const pass = v === 0;
+    html += `<tr${!pass ? ' class="affected-row"' : ''}>`;
+    html += `<td style="color:var(--accent);font-weight:700">${labels[i]}</td>`;
+    html += `<td style="text-align:left;color:var(--text-dim);font-size:11px">${descs[i]}</td>`;
+    if (pass) {
+      html += `<td class="c-pass">0</td><td class="c-pass">PASS</td>`;
+    } else {
+      html += `<td class="c-fail">${v}</td><td class="c-fail">FAIL</td>`;
+    }
+    html += `</tr>`;
+  }
+
+  html += '</tbody>';
+  document.getElementById('constraint-table').innerHTML = html;
+}
+
+function renderAll() {
+  renderDecomp();
+  renderMarkers();
+  renderLimbTable();
+  renderWordView();
+  renderConstraintTable();
+}
+
+// --- Event listeners ---
+document.getElementById('inp-value').addEventListener('input', recompute);
+document.getElementById('inp-shift').addEventListener('input', recompute);
+document.querySelectorAll('input[name="op"]').forEach(r => r.addEventListener('change', recompute));
+
+recompute();
+</script>
+</body>
+</html>

@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RV32IM Jump</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+
+  .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout-body strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 50px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio buttons --- */
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+
+  .radio-group label:hover {
+    border-color: var(--accent-dim);
+  }
+
+  .radio-group input[type="radio"] {
+    display: none;
+  }
+
+  .radio-group input[type="radio"]:checked + span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .radio-group label:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-last { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-all { background: var(--purple); color: #1a1d27; }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- 32-bit summary --- */
+  .summary-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .summary-block .sum-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 110px;
+  }
+
+  .summary-block .sum-val {
+    font-weight: 600;
+  }
+
+  .summary-block .sum-hex {
+    color: var(--accent);
+    margin-left: 6px;
+  }
+
+  .summary-block .sum-limbs {
+    color: var(--text-dim);
+    margin-left: 6px;
+  }
+
+  .summary-block .sum-op {
+    color: var(--yellow);
+    font-weight: 700;
+  }
+
+  .summary-block .sum-carry {
+    color: var(--purple);
+    font-size: 10px;
+  }
+
+  .summary-block .sum-note {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-left: 8px;
+  }
+
+  .summary-block .sum-arrow {
+    color: var(--green);
+    font-weight: 700;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Carry chain display --- */
+  .carry-chain {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+
+  .carry-chain .cc-label {
+    color: var(--text-dim);
+    display: inline-block;
+    width: 80px;
+  }
+
+  .carry-chain .cc-val {
+    font-weight: 600;
+  }
+
+  .carry-chain .cc-carry {
+    color: var(--purple);
+    font-size: 10px;
+    margin-left: 8px;
+  }
+
+  /* --- Hidden controls --- */
+  .control-row.hidden {
+    display: none;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>RV32IM Jump</h1>
+    <div class="intro">
+      Jump instructions change the program counter and optionally save a return address.
+      <strong>JAL</strong> (Jump And Link) adds a 20-bit immediate to PC.
+      <strong>JALR</strong> adds a 12-bit sign-extended immediate to a register value.
+      <strong>LUI</strong> loads a 20-bit immediate into the upper 20 bits of a register.
+      <strong>AUIPC</strong> adds a 20-bit upper immediate to the current PC.
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">Link Register</div>
+        <div class="callout-body">
+          JAL and JALR save <strong>PC + 4</strong> (the return address) into the destination register
+          <strong>rd</strong>. The 4-byte return address is stored as 4 limbs in the register file.
+          This is how function calls work: <strong>JAL</strong> jumps to the function and saves where to return.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Upper Immediate</div>
+        <div class="callout-body">
+          LUI and AUIPC work with the upper 20 bits of a 32-bit value.
+          <strong>LUI rd, imm</strong> sets <strong>rd = imm &lt;&lt; 12</strong>.
+          <strong>AUIPC rd, imm</strong> sets <strong>rd = PC + (imm &lt;&lt; 12)</strong>.
+          The lower 12 bits are always 0 for LUI, or come from PC for AUIPC.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div style="margin-bottom: 8px;">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Instruction:</div>
+        <div class="radio-group">
+          <label><input type="radio" name="instr" value="jal" checked><span>JAL</span></label>
+          <label><input type="radio" name="instr" value="jalr"><span>JALR</span></label>
+          <label><input type="radio" name="instr" value="lui"><span>LUI</span></label>
+          <label><input type="radio" name="instr" value="auipc"><span>AUIPC</span></label>
+        </div>
+      </div>
+      <div class="control-row">
+        <label>PC</label>
+        <input type="number" id="inp-pc" value="4096" min="0" max="4294967295">
+      </div>
+      <div style="font-size:9px;color:var(--text-dim);margin-bottom:8px;margin-left:60px;">0x1000</div>
+      <div class="control-row" id="row-imm">
+        <label>imm</label>
+        <input type="number" id="inp-imm" value="256" min="0">
+      </div>
+      <div style="font-size:9px;color:var(--text-dim);margin-bottom:8px;margin-left:60px;" id="imm-hint">0x100 (20-bit for JAL)</div>
+      <div class="control-row" id="row-rs1">
+        <label>rs1</label>
+        <input type="number" id="inp-rs1" value="8192" min="0" max="4294967295">
+      </div>
+      <div style="font-size:9px;color:var(--text-dim);margin-bottom:8px;margin-left:60px;" id="rs1-hint">0x2000 (JALR only)</div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Columns</span><span class="val dynamic" id="stat-cols">7 (JAL/LUI)</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val dynamic" id="stat-constraints">3</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">BitwiseOperationLookup</span></div>
+    </div>
+
+    <div class="section" id="constraints-section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list" id="constraint-list"></ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Instruction Summary</h2>
+    <div class="summary-block" id="summary-block"></div>
+
+    <div id="carry-chain-section" style="display:none;">
+      <h2>AUIPC Carry Chain</h2>
+      <div class="carry-chain" id="carry-chain"></div>
+    </div>
+
+    <h2 id="table-title">Core Columns &amp; Constraint Evaluation</h2>
+    <div class="hint">
+      Edit <strong>rd_data[i]</strong> cells to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+    <div class="trace-wrapper">
+      <table id="main-table"></table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+
+function mod(x, m) { return ((x % m) + m) % m; }
+
+function toLimbs(val) {
+  val = val >>> 0;
+  return [val & 0xFF, (val >>> 8) & 0xFF, (val >>> 16) & 0xFF, (val >>> 24) & 0xFF];
+}
+
+function fromLimbs(limbs) {
+  return ((limbs[3] & 0xFF) << 24 | (limbs[2] & 0xFF) << 16 | (limbs[1] & 0xFF) << 8 | (limbs[0] & 0xFF)) >>> 0;
+}
+
+function toHex32(val) {
+  return '0x' + (val >>> 0).toString(16).toUpperCase().padStart(8, '0');
+}
+
+function toHex(val, digits) {
+  return '0x' + (val >>> 0).toString(16).toUpperCase().padStart(digits || 2, '0');
+}
+
+function getInstr() {
+  return document.querySelector('input[name="instr"]:checked').value;
+}
+
+// --- Compute functions ---
+
+function computeJAL(pc, imm) {
+  const rd = (pc + 4) >>> 0;
+  const next_pc = (pc + imm) >>> 0;
+  return { rd: toLimbs(rd), next_pc, rd32: rd };
+}
+
+function computeJALR(pc, rs1, imm) {
+  // Sign-extend 12-bit immediate
+  const imm_signed = imm >= 0x800 ? imm - 0x1000 : imm;
+  const imm_sign = imm >= 0x800 ? 1 : 0;
+  const target = (rs1 + imm_signed) >>> 0;
+  const next_pc = (target & ~1) >>> 0;
+  const to_pc_lsb = target & 1;
+  const rd = (pc + 4) >>> 0;
+  // to_pc_limbs: next_pc split into two 16-bit parts (after removing LSB consideration)
+  const to_pc_limbs = [(next_pc >>> 1) & 0xFFFF, (next_pc >>> 17) & 0x7FFF];
+  return {
+    rd: toLimbs(rd), next_pc, rd32: rd,
+    rs1_data: toLimbs(rs1), imm_sign, to_pc_lsb,
+    to_pc_limbs, target
+  };
+}
+
+function computeLUI(imm) {
+  const rd = (imm << 12) >>> 0;
+  return { rd: toLimbs(rd), rd32: rd };
+}
+
+function computeAUIPC(pc, imm) {
+  const shifted = (imm << 12) >>> 0;
+  const rd = (pc + shifted) >>> 0;
+  const pc_limbs = toLimbs(pc);
+  // imm << 12 means: byte 0 = 0, bytes 1-3 come from imm
+  // imm_limbs: the three bytes of (imm << 12) starting from byte 1
+  const shifted_limbs = toLimbs(shifted);
+  const imm_limbs = [shifted_limbs[1], shifted_limbs[2], shifted_limbs[3]];
+  // Carry chain computation
+  const rd_limbs = toLimbs(rd);
+  const carries = [0, 0, 0];
+  // byte 0 of rd = byte 0 of pc (shifted contributes 0 to byte 0)
+  // byte 1: pc[1] + imm_limbs[0]
+  let sum1 = pc_limbs[1] + imm_limbs[0];
+  carries[0] = (sum1 >>> 8) & 1;
+  // byte 2: pc[2] + imm_limbs[1] + carry[0]
+  let sum2 = pc_limbs[2] + imm_limbs[1] + carries[0];
+  carries[1] = (sum2 >>> 8) & 1;
+  // byte 3: pc[3] + imm_limbs[2] + carry[1]
+  let sum3 = pc_limbs[3] + imm_limbs[2] + carries[1];
+  carries[2] = (sum3 >>> 8) & 1;
+  return {
+    rd: rd_limbs, rd32: rd,
+    pc_limbs: [pc_limbs[1], pc_limbs[2]],
+    imm_limbs, carries
+  };
+}
+
+// --- State ---
+let cleanRd = [0, 0, 0, 0];
+let editedRd = [0, 0, 0, 0];
+
+// Default imm values per instruction
+const defaultImm = { jal: 0x100, jalr: 0x10, lui: 0x12345, auipc: 0x12345 };
+const defaultPC = 0x1000;
+const defaultRS1 = 0x2000;
+
+function recompute() {
+  const instr = getInstr();
+  const pc = (parseInt(document.getElementById('inp-pc').value) || 0) >>> 0;
+  const imm = parseInt(document.getElementById('inp-imm').value) || 0;
+  const rs1 = (parseInt(document.getElementById('inp-rs1').value) || 0) >>> 0;
+
+  let result;
+  switch (instr) {
+    case 'jal': result = computeJAL(pc, imm); break;
+    case 'jalr': result = computeJALR(pc, rs1, imm); break;
+    case 'lui': result = computeLUI(imm); break;
+    case 'auipc': result = computeAUIPC(pc, imm); break;
+  }
+
+  cleanRd = [...result.rd];
+  editedRd = [...result.rd];
+  render();
+}
+
+function resetTrace() {
+  editedRd = [...cleanRd];
+  render();
+}
+
+function onRdEdit(i, value) {
+  editedRd[i] = parseInt(value) || 0;
+  render();
+}
+
+function hasEdits() {
+  for (let i = 0; i < 4; i++) {
+    if (editedRd[i] !== cleanRd[i]) return true;
+  }
+  return false;
+}
+
+function updateVisibility() {
+  const instr = getInstr();
+  // Show/hide rs1 row
+  document.getElementById('row-rs1').style.display = instr === 'jalr' ? 'flex' : 'none';
+  document.getElementById('rs1-hint').style.display = instr === 'jalr' ? 'block' : 'none';
+  // Show/hide PC row
+  const showPC = instr !== 'lui';
+  document.getElementById('inp-pc').parentElement.style.display = showPC ? 'flex' : 'none';
+  document.getElementById('inp-pc').parentElement.nextElementSibling.style.display = showPC ? 'block' : 'none';
+  // Update imm hint
+  const hints = {
+    jal: '20-bit for JAL',
+    jalr: '12-bit for JALR (sign-extended)',
+    lui: '20-bit for LUI',
+    auipc: '20-bit for AUIPC'
+  };
+  const immVal = parseInt(document.getElementById('inp-imm').value) || 0;
+  document.getElementById('imm-hint').textContent = toHex(immVal, instr === 'jalr' ? 3 : 5) + ' (' + hints[instr] + ')';
+}
+
+function updateConstraintList() {
+  const instr = getInstr();
+  let html = '';
+
+  switch (instr) {
+    case 'jal':
+      html += `<li>
+        <span class="c-id">C1</span> <span class="c-desc">rd = PC + 4 (return address)</span>
+        <span class="c-formula">rd_data[i] = limbs(PC + 4)[i], for i in 0..3</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C2</span> <span class="c-desc">next_pc = PC + imm</span>
+        <span class="c-formula">next_pc &minus; PC &minus; imm = 0</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C3</span> <span class="c-desc">rd_data limbs range-checked</span>
+        <span class="c-formula">rd_data[i] &isin; [0, 255] via BitwiseOperationLookup</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      break;
+    case 'jalr':
+      html += `<li>
+        <span class="c-id">C1</span> <span class="c-desc">rd = PC + 4 (return address)</span>
+        <span class="c-formula">rd_data[i] = limbs(PC + 4)[i], for i in 0..2</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C2</span> <span class="c-desc">next_pc = (rs1 + sign_ext(imm)) &amp; ~1</span>
+        <span class="c-formula">target = rs1 + imm &minus; imm_sign * 0x1000, next_pc = target &amp; ~1</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C3</span> <span class="c-desc">imm_sign is boolean</span>
+        <span class="c-formula">imm_sign * (1 &minus; imm_sign) = 0</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C4</span> <span class="c-desc">to_pc range-checked</span>
+        <span class="c-formula">to_pc_limbs and to_pc_lsb decompose target correctly</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      break;
+    case 'lui':
+      html += `<li>
+        <span class="c-id">C1</span> <span class="c-desc">rd[0] = 0 (lower byte always 0)</span>
+        <span class="c-formula">rd_data[0] = 0 (from 12-bit shift)</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C2</span> <span class="c-desc">rd[1..3] = imm decomposed</span>
+        <span class="c-formula">rd_data[i] = limbs(imm &lt;&lt; 12)[i], for i in 1..3</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C3</span> <span class="c-desc">next_pc = PC + 4</span>
+        <span class="c-formula">next_pc &minus; PC &minus; 4 = 0</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      break;
+    case 'auipc':
+      html += `<li>
+        <span class="c-id">C1</span> <span class="c-desc">rd = PC + (imm &lt;&lt; 12)</span>
+        <span class="c-formula">rd_data[0] = pc_byte[0], rd_data[i] = pc[i] + imm_limbs[i-1] + carry[i-1]</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C2</span> <span class="c-desc">Carry propagation correct</span>
+        <span class="c-formula">carry[i] * (1 &minus; carry[i]) = 0, carry from addition</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      html += `<li>
+        <span class="c-id">C3</span> <span class="c-desc">next_pc = PC + 4</span>
+        <span class="c-formula">next_pc &minus; PC &minus; 4 = 0</span>
+        <span class="c-sel sel-all">all rows</span>
+      </li>`;
+      break;
+  }
+
+  document.getElementById('constraint-list').innerHTML = html;
+}
+
+function updateAIRStats() {
+  const instr = getInstr();
+  const colCounts = {
+    jal: '7 (imm + rd[4] + is_jal + is_lui)',
+    jalr: '13 (imm + rs1[4] + rd[3] + is_valid + to_pc_lsb + to_pc[2] + imm_sign)',
+    lui: '7 (imm + rd[4] + is_jal + is_lui)',
+    auipc: '10 (is_valid + imm[3] + pc[2] + rd[4])'
+  };
+  const constraintCounts = { jal: '3', jalr: '4', lui: '3', auipc: '3' };
+
+  document.getElementById('stat-cols').textContent = colCounts[instr];
+  document.getElementById('stat-constraints').textContent = constraintCounts[instr];
+}
+
+function evalConstraintsJAL(pc, imm, rd) {
+  const expected_rd = toLimbs((pc + 4) >>> 0);
+  const expected_next_pc = (pc + imm) >>> 0;
+  const actual_next_pc = (pc + imm) >>> 0;
+  // C1: rd_data matches PC+4 (4 sub-constraints, one per limb)
+  const c1 = [];
+  for (let i = 0; i < 4; i++) {
+    c1.push(mod(rd[i] - expected_rd[i], P));
+  }
+  // C2: next_pc = PC + imm (always satisfied since next_pc is derived, not editable)
+  const c2 = 0;
+  // C3: range check (just verify 0..255)
+  const c3 = [];
+  for (let i = 0; i < 4; i++) {
+    c3.push(rd[i] >= 0 && rd[i] <= 255 ? 0 : mod(rd[i], P));
+  }
+  return { c1, c2, c3 };
+}
+
+function evalConstraintsJALR(pc, rs1, imm, rd) {
+  const expected_rd = toLimbs((pc + 4) >>> 0);
+  const imm_sign = imm >= 0x800 ? 1 : 0;
+  const imm_signed = imm_sign ? imm - 0x1000 : imm;
+  const target = (rs1 + imm_signed) >>> 0;
+  const expected_next_pc = (target & ~1) >>> 0;
+  // C1: rd = PC + 4 (3 limbs for JALR: rd_data[0..2])
+  const c1 = [];
+  for (let i = 0; i < 3; i++) {
+    c1.push(mod(rd[i] - expected_rd[i], P));
+  }
+  // Also check rd[3]
+  c1.push(mod(rd[3] - expected_rd[3], P));
+  // C2: next_pc correct (not editable, always 0)
+  const c2 = 0;
+  // C3: imm_sign boolean
+  const c3 = mod(imm_sign * (1 - imm_sign), P);
+  // C4: to_pc decomposition (not editable, always 0)
+  const c4 = 0;
+  return { c1, c2, c3, c4, imm_sign, target, expected_next_pc };
+}
+
+function evalConstraintsLUI(pc, imm, rd) {
+  const expected = toLimbs((imm << 12) >>> 0);
+  // C1: rd[0] = 0
+  const c1 = mod(rd[0], P);
+  // C2: rd[1..3] match
+  const c2 = [];
+  for (let i = 1; i < 4; i++) {
+    c2.push(mod(rd[i] - expected[i], P));
+  }
+  // C3: next_pc = PC + 4 (always satisfied)
+  const c3 = 0;
+  return { c1, c2, c3 };
+}
+
+function evalConstraintsAUIPC(pc, imm, rd) {
+  const shifted = (imm << 12) >>> 0;
+  const expected_rd = toLimbs((pc + shifted) >>> 0);
+  const pc_limbs = toLimbs(pc);
+  const shifted_limbs = toLimbs(shifted);
+  const imm_limbs = [shifted_limbs[1], shifted_limbs[2], shifted_limbs[3]];
+
+  // C1: rd[0] = pc[0] (since shifted contributes 0 to byte 0)
+  const c1_byte0 = mod(rd[0] - pc_limbs[0], P);
+  // rd[1] = (pc[1] + imm_limbs[0]) & 0xFF
+  // rd[2] = (pc[2] + imm_limbs[1] + carry[0]) & 0xFF
+  // rd[3] = (pc[3] + imm_limbs[2] + carry[1]) & 0xFF
+  const c1_bytes = [c1_byte0];
+  const carries = [0, 0, 0];
+  let carry = 0;
+  for (let i = 0; i < 3; i++) {
+    const sum = pc_limbs[i + 1] + imm_limbs[i] + carry;
+    const expected_byte = sum & 0xFF;
+    carry = (sum >>> 8) & 1;
+    carries[i] = carry;
+    c1_bytes.push(mod(rd[i + 1] - expected_byte, P));
+  }
+  // C2: carries boolean (always satisfied for correct computation)
+  const c2 = [];
+  for (let i = 0; i < 3; i++) {
+    c2.push(mod(carries[i] * (1 - carries[i]), P));
+  }
+  // C3: next_pc = PC + 4 (always satisfied)
+  const c3 = 0;
+  return { c1_bytes, c2, c3, carries, imm_limbs, pc_limbs };
+}
+
+function render() {
+  const instr = getInstr();
+  const pc = (parseInt(document.getElementById('inp-pc').value) || 0) >>> 0;
+  const imm = parseInt(document.getElementById('inp-imm').value) || 0;
+  const rs1 = (parseInt(document.getElementById('inp-rs1').value) || 0) >>> 0;
+
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
+
+  updateVisibility();
+  updateConstraintList();
+  updateAIRStats();
+
+  // Render summary and table based on instruction
+  switch (instr) {
+    case 'jal': renderJAL(pc, imm); break;
+    case 'jalr': renderJALR(pc, rs1, imm); break;
+    case 'lui': renderLUI(pc, imm); break;
+    case 'auipc': renderAUIPC(pc, imm); break;
+  }
+}
+
+function renderJAL(pc, imm) {
+  const rd32 = fromLimbs(editedRd);
+  const next_pc = (pc + imm) >>> 0;
+  const expected_rd32 = (pc + 4) >>> 0;
+
+  // Summary
+  let summary = '';
+  summary += `<div><span class="sum-label">PC</span> = <span class="sum-val">${pc}</span><span class="sum-hex">(${toHex32(pc)})</span></div>`;
+  summary += `<div><span class="sum-label">imm</span> = <span class="sum-val">${imm}</span><span class="sum-hex">(${toHex(imm, 5)})</span></div>`;
+  summary += `<div style="margin-top:6px;"><span class="sum-label">rd (ret addr)</span> = <span class="sum-val">PC + 4 = ${expected_rd32}</span><span class="sum-hex">(${toHex32(expected_rd32)})</span></div>`;
+  summary += `<div><span class="sum-label"></span><span class="sum-limbs">= [${toLimbs(expected_rd32).join(', ')}]</span></div>`;
+  summary += `<div style="margin-top:4px;"><span class="sum-label">next_pc</span> = <span class="sum-val">PC + imm = ${next_pc}</span><span class="sum-hex">(${toHex32(next_pc)})</span> <span class="sum-op">JAL</span></div>`;
+  document.getElementById('summary-block').innerHTML = summary;
+  document.getElementById('carry-chain-section').style.display = 'none';
+
+  // Evaluate constraints
+  const { c1, c2, c3 } = evalConstraintsJAL(pc, imm, editedRd);
+
+  // Table
+  const expected_limbs = toLimbs(expected_rd32);
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Expected</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">rd (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Constraints (= 0)</th>
+    </tr>
+    <tr>
+      <th>Limb</th>
+      <th class="col-sep"></th>
+      <th>PC+4 [i]</th>
+      <th class="col-sep"></th>
+      <th>rd_data[i]</th>
+      <th class="col-sep"></th>
+      <th>C1 (rd=PC+4)</th>
+      <th>C3 (range)</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < 4; i++) {
+    const hasViolation = c1[i] !== 0 || c3[i] !== 0;
+    const isModified = editedRd[i] !== cleanRd[i];
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${i}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace">${expected_limbs[i]}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${isModified ? ' modified' : ''}" value="${editedRd[i]}" onchange="onRdEdit(${i},this.value)"></td>`;
+    html += `<td class="col-sep"></td>`;
+    if (c1[i] === 0) html += `<td class="col-constraint c-pass">0</td>`;
+    else html += `<td class="col-constraint c-fail">${c1[i]}</td>`;
+    if (c3[i] === 0) html += `<td class="col-constraint c-pass">0</td>`;
+    else html += `<td class="col-constraint c-fail">${c3[i]}</td>`;
+    html += `</tr>`;
+  }
+
+  // Summary row for C2
+  html += `<tr>`;
+  html += `<td class="col-row" colspan="1" style="text-align:right;font-size:10px;color:var(--text-dim)">C2</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td colspan="1" style="font-size:10px;color:var(--text-dim)">next_pc</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td style="font-size:11px">${toHex32(next_pc)}</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td class="col-constraint c-pass" colspan="2">0 (derived)</td>`;
+  html += `</tr>`;
+
+  html += '</tbody>';
+  document.getElementById('main-table').innerHTML = html;
+}
+
+function renderJALR(pc, rs1, imm) {
+  const { c1, c2, c3, c4, imm_sign, target, expected_next_pc } = evalConstraintsJALR(pc, rs1, imm, editedRd);
+  const expected_rd32 = (pc + 4) >>> 0;
+  const expected_limbs = toLimbs(expected_rd32);
+  const rs1_limbs = toLimbs(rs1);
+  const imm_signed = imm_sign ? imm - 0x1000 : imm;
+
+  // Summary
+  let summary = '';
+  summary += `<div><span class="sum-label">PC</span> = <span class="sum-val">${pc}</span><span class="sum-hex">(${toHex32(pc)})</span></div>`;
+  summary += `<div><span class="sum-label">rs1</span> = <span class="sum-val">${rs1}</span><span class="sum-hex">(${toHex32(rs1)})</span><span class="sum-limbs">= [${rs1_limbs.join(', ')}]</span></div>`;
+  summary += `<div><span class="sum-label">imm</span> = <span class="sum-val">${toHex(imm, 3)}</span>`;
+  if (imm_sign) {
+    summary += `<span class="sum-note">imm_sign = 1, sign_extend(imm) = ${imm_signed} (0x${((imm_signed >>> 0)).toString(16).toUpperCase()})</span>`;
+  } else {
+    summary += `<span class="sum-note">imm_sign = 0, sign_extend(imm) = ${imm_signed}</span>`;
+  }
+  summary += `</div>`;
+  summary += `<div style="margin-top:6px;"><span class="sum-label">target</span> = <span class="sum-val">rs1 + sign_ext(imm) = ${target}</span><span class="sum-hex">(${toHex32(target)})</span></div>`;
+  summary += `<div><span class="sum-label">next_pc</span> = <span class="sum-val">target &amp; ~1 = ${expected_next_pc}</span><span class="sum-hex">(${toHex32(expected_next_pc)})</span>`;
+  if (target & 1) summary += `<span class="sum-note">(LSB cleared)</span>`;
+  else summary += `<span class="sum-note">(LSB already 0)</span>`;
+  summary += ` <span class="sum-op">JALR</span></div>`;
+  summary += `<div style="margin-top:4px;"><span class="sum-label">rd (ret addr)</span> = <span class="sum-val">PC + 4 = ${expected_rd32}</span><span class="sum-hex">(${toHex32(expected_rd32)})</span></div>`;
+  summary += `<div><span class="sum-label"></span><span class="sum-limbs">= [${expected_limbs.join(', ')}]</span></div>`;
+  document.getElementById('summary-block').innerHTML = summary;
+  document.getElementById('carry-chain-section').style.display = 'none';
+
+  // Table
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Expected</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">rd (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">rs1</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Constraint (= 0)</th>
+    </tr>
+    <tr>
+      <th>Limb</th>
+      <th class="col-sep"></th>
+      <th>PC+4 [i]</th>
+      <th class="col-sep"></th>
+      <th>rd_data[i]</th>
+      <th class="col-sep"></th>
+      <th>rs1[i]</th>
+      <th class="col-sep"></th>
+      <th>C1 (rd=PC+4)</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < 4; i++) {
+    const hasViolation = c1[i] !== 0;
+    const isModified = editedRd[i] !== cleanRd[i];
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${i}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace">${expected_limbs[i]}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${isModified ? ' modified' : ''}" value="${editedRd[i]}" onchange="onRdEdit(${i},this.value)"></td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace">${rs1_limbs[i]}</td>`;
+    html += `<td class="col-sep"></td>`;
+    if (c1[i] === 0) html += `<td class="col-constraint c-pass">0</td>`;
+    else html += `<td class="col-constraint c-fail">${c1[i]}</td>`;
+    html += `</tr>`;
+  }
+
+  // Extra rows for JALR-specific constraints
+  html += `<tr><td colspan="9" style="height:4px;padding:0;border:none;"></td></tr>`;
+  html += `<tr>`;
+  html += `<td class="col-row" style="text-align:right;font-size:10px;color:var(--text-dim)">C2</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td colspan="1" style="font-size:10px;color:var(--text-dim)">next_pc</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td style="font-size:11px">${toHex32(expected_next_pc)}</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td></td><td class="col-sep"></td>`;
+  html += `<td class="col-constraint c-pass">0 (derived)</td>`;
+  html += `</tr>`;
+
+  html += `<tr>`;
+  html += `<td class="col-row" style="text-align:right;font-size:10px;color:var(--text-dim)">C3</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td colspan="1" style="font-size:10px;color:var(--text-dim)">imm_sign</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td style="font-size:11px">${imm_sign}</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td></td><td class="col-sep"></td>`;
+  if (c3 === 0) html += `<td class="col-constraint c-pass">0</td>`;
+  else html += `<td class="col-constraint c-fail">${c3}</td>`;
+  html += `</tr>`;
+
+  html += `<tr>`;
+  html += `<td class="col-row" style="text-align:right;font-size:10px;color:var(--text-dim)">C4</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td colspan="1" style="font-size:10px;color:var(--text-dim)">to_pc_lsb</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td style="font-size:11px">${target & 1}</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td></td><td class="col-sep"></td>`;
+  html += `<td class="col-constraint c-pass">0 (derived)</td>`;
+  html += `</tr>`;
+
+  html += '</tbody>';
+  document.getElementById('main-table').innerHTML = html;
+}
+
+function renderLUI(pc, imm) {
+  const { c1, c2, c3 } = evalConstraintsLUI(pc, imm, editedRd);
+  const shifted = (imm << 12) >>> 0;
+  const expected_limbs = toLimbs(shifted);
+  const next_pc = (pc + 4) >>> 0;
+
+  // Summary
+  let summary = '';
+  summary += `<div><span class="sum-label">imm</span> = <span class="sum-val">${toHex(imm, 5)}</span><span class="sum-note">(${imm})</span></div>`;
+  summary += `<div style="margin-top:6px;"><span class="sum-label">rd</span> = <span class="sum-val">imm &lt;&lt; 12 = ${shifted}</span><span class="sum-hex">(${toHex32(shifted)})</span> <span class="sum-op">LUI</span></div>`;
+  summary += `<div><span class="sum-label"></span><span class="sum-limbs">= [${expected_limbs[0]}, ${expected_limbs[1]}, ${expected_limbs[2]}, ${expected_limbs[3]}]</span></div>`;
+  summary += `<div><span class="sum-label"></span><span class="sum-limbs" style="font-size:10px">&nbsp;&nbsp;&#8593; always 0 (C1)</span></div>`;
+  summary += `<div style="margin-top:4px;"><span class="sum-label">next_pc</span> = <span class="sum-val">PC + 4 = ${next_pc}</span><span class="sum-hex">(${toHex32(next_pc)})</span></div>`;
+  document.getElementById('summary-block').innerHTML = summary;
+  document.getElementById('carry-chain-section').style.display = 'none';
+
+  // Table
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Expected</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">rd (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Constraints (= 0)</th>
+    </tr>
+    <tr>
+      <th>Limb</th>
+      <th class="col-sep"></th>
+      <th>imm&lt;&lt;12 [i]</th>
+      <th class="col-sep"></th>
+      <th>rd_data[i]</th>
+      <th class="col-sep"></th>
+      <th>C1/C2</th>
+      <th>Description</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < 4; i++) {
+    const isModified = editedRd[i] !== cleanRd[i];
+    let constraintVal, desc;
+
+    if (i === 0) {
+      constraintVal = c1;
+      desc = 'rd[0] = 0';
+    } else {
+      constraintVal = c2[i - 1];
+      desc = `rd[${i}] = ${expected_limbs[i]}`;
+    }
+
+    const hasViolation = constraintVal !== 0;
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${i}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace">${expected_limbs[i]}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${isModified ? ' modified' : ''}" value="${editedRd[i]}" onchange="onRdEdit(${i},this.value)"></td>`;
+    html += `<td class="col-sep"></td>`;
+    if (constraintVal === 0) html += `<td class="col-constraint c-pass">0</td>`;
+    else html += `<td class="col-constraint c-fail">${constraintVal}</td>`;
+    html += `<td style="font-size:10px;color:var(--text-dim);text-align:left">${desc}</td>`;
+    html += `</tr>`;
+  }
+
+  // C3 row
+  html += `<tr>`;
+  html += `<td class="col-row" style="text-align:right;font-size:10px;color:var(--text-dim)">C3</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td colspan="1" style="font-size:10px;color:var(--text-dim)">next_pc</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td style="font-size:11px">${toHex32((pc + 4) >>> 0)}</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td class="col-constraint c-pass" colspan="2">0 (derived)</td>`;
+  html += `</tr>`;
+
+  html += '</tbody>';
+  document.getElementById('main-table').innerHTML = html;
+}
+
+function renderAUIPC(pc, imm) {
+  const { c1_bytes, c2, c3, carries, imm_limbs, pc_limbs } = evalConstraintsAUIPC(pc, imm, editedRd);
+  const shifted = (imm << 12) >>> 0;
+  const expected_rd32 = (pc + shifted) >>> 0;
+  const expected_limbs = toLimbs(expected_rd32);
+  const all_pc_limbs = toLimbs(pc);
+  const next_pc = (pc + 4) >>> 0;
+
+  // Summary
+  let summary = '';
+  summary += `<div><span class="sum-label">PC</span> = <span class="sum-val">${pc}</span><span class="sum-hex">(${toHex32(pc)})</span></div>`;
+  summary += `<div><span class="sum-label">imm</span> = <span class="sum-val">${toHex(imm, 5)}</span><span class="sum-note">(${imm})</span></div>`;
+  summary += `<div style="margin-top:6px;"><span class="sum-label">rd</span> = <span class="sum-val">PC + (imm &lt;&lt; 12) = ${toHex32(pc)} + ${toHex32(shifted)} = ${expected_rd32}</span></div>`;
+  summary += `<div><span class="sum-label"></span><span class="sum-hex">(${toHex32(expected_rd32)})</span><span class="sum-limbs">= [${expected_limbs.join(', ')}]</span> <span class="sum-op">AUIPC</span></div>`;
+  summary += `<div style="margin-top:4px;"><span class="sum-label">next_pc</span> = <span class="sum-val">PC + 4 = ${next_pc}</span><span class="sum-hex">(${toHex32(next_pc)})</span></div>`;
+  document.getElementById('summary-block').innerHTML = summary;
+
+  // Carry chain display
+  document.getElementById('carry-chain-section').style.display = 'block';
+  let ccHtml = '';
+  ccHtml += `<div><span class="cc-label">Byte 0:</span> <span class="cc-val">rd[0] = pc[0] = ${toHex(all_pc_limbs[0], 2)}</span></div>`;
+  for (let i = 0; i < 3; i++) {
+    const prevCarry = i === 0 ? 0 : carries[i - 1];
+    const sum = all_pc_limbs[i + 1] + imm_limbs[i] + prevCarry;
+    ccHtml += `<div><span class="cc-label">Byte ${i + 1}:</span> <span class="cc-val">pc[${i + 1}] + imm_limbs[${i}]${prevCarry ? ' + carry' : ''} = ${toHex(all_pc_limbs[i + 1], 2)} + ${toHex(imm_limbs[i], 2)}${prevCarry ? ' + 1' : ''} = ${toHex(sum, 2 + (sum > 0xFF ? 1 : 0))}</span>`;
+    ccHtml += `<span class="cc-carry">(result=${toHex(sum & 0xFF, 2)}, carry=${carries[i]})</span></div>`;
+  }
+  document.getElementById('carry-chain').innerHTML = ccHtml;
+
+  // Table
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Inputs</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Expected</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">rd (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Constraints (= 0)</th>
+    </tr>
+    <tr>
+      <th>Byte</th>
+      <th class="col-sep"></th>
+      <th>pc[i]</th>
+      <th>imm_limb</th>
+      <th class="col-sep"></th>
+      <th>Expected</th>
+      <th class="col-sep"></th>
+      <th>rd_data[i]</th>
+      <th class="col-sep"></th>
+      <th>C1 (add)</th>
+      <th>C2 (carry)</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < 4; i++) {
+    const isModified = editedRd[i] !== cleanRd[i];
+    const c1_val = c1_bytes[i];
+    const c2_val = i > 0 ? c2[i - 1] : null;
+    const hasViolation = c1_val !== 0 || (c2_val !== null && c2_val !== 0);
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${i}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace">${toHex(all_pc_limbs[i], 2)}</td>`;
+    if (i === 0) {
+      html += `<td class="col-trace" style="color:var(--text-dim)">&mdash;</td>`;
+    } else {
+      html += `<td class="col-trace">${toHex(imm_limbs[i - 1], 2)}</td>`;
+    }
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace">${expected_limbs[i]}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${isModified ? ' modified' : ''}" value="${editedRd[i]}" onchange="onRdEdit(${i},this.value)"></td>`;
+    html += `<td class="col-sep"></td>`;
+
+    if (c1_val === 0) html += `<td class="col-constraint c-pass">0</td>`;
+    else html += `<td class="col-constraint c-fail">${c1_val}</td>`;
+
+    if (c2_val === null) {
+      html += `<td class="col-constraint c-inactive">&mdash;</td>`;
+    } else if (c2_val === 0) {
+      html += `<td class="col-constraint c-pass">0</td>`;
+    } else {
+      html += `<td class="col-constraint c-fail">${c2_val}</td>`;
+    }
+
+    html += `</tr>`;
+  }
+
+  // C3 row
+  html += `<tr>`;
+  html += `<td class="col-row" style="text-align:right;font-size:10px;color:var(--text-dim)">C3</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td colspan="2" style="font-size:10px;color:var(--text-dim)">next_pc</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td style="font-size:11px">${toHex32(next_pc)}</td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td></td>`;
+  html += `<td class="col-sep"></td>`;
+  html += `<td class="col-constraint c-pass" colspan="2">0 (derived)</td>`;
+  html += `</tr>`;
+
+  html += '</tbody>';
+  document.getElementById('main-table').innerHTML = html;
+}
+
+// --- Event listeners ---
+document.querySelectorAll('input[name="instr"]').forEach(r => {
+  r.addEventListener('change', () => {
+    const instr = getInstr();
+    // Update default imm when switching instructions
+    document.getElementById('inp-imm').value = defaultImm[instr];
+    recompute();
+  });
+});
+document.getElementById('inp-pc').addEventListener('input', recompute);
+document.getElementById('inp-imm').addEventListener('input', () => {
+  updateVisibility();
+  recompute();
+});
+document.getElementById('inp-rs1').addEventListener('input', recompute);
+
+recompute();
+</script>
+</body>
+</html>

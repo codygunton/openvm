@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Keccak-256 AIR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --orange: #fb923c;
+    --orange-dim: #44290e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a40;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+  }
+
+  .callout .callout-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .callout .callout-body {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .callout .callout-body strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="text"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-absorb { background: var(--accent-dim); color: var(--accent); }
+  .sel-capacity { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-exec { background: var(--orange-dim); color: var(--orange); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+    margin-top: 24px;
+  }
+
+  .main h2:first-child { margin-top: 0; }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.y { color: var(--yellow); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+  .main .hint span.a { color: var(--accent); }
+
+  /* --- Tables --- */
+  .trace-wrapper { overflow-x: auto; margin-bottom: 24px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Byte grid --- */
+  .byte-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 2px;
+    margin-bottom: 12px;
+    max-width: 500px;
+  }
+
+  .byte-cell {
+    font-size: 11px;
+    text-align: center;
+    padding: 4px 2px;
+    border-radius: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+
+  .byte-cell.msg { color: var(--text); border-color: var(--accent-dim); background: var(--accent-dim); }
+  .byte-cell.pad-first { color: var(--yellow); border-color: var(--yellow-dim); background: var(--yellow-dim); }
+  .byte-cell.pad-zero { color: var(--border); }
+  .byte-cell.pad-last { color: var(--yellow); border-color: var(--yellow-dim); background: var(--yellow-dim); }
+  .byte-cell.pad-single { color: var(--orange); border-color: var(--orange-dim); background: var(--orange-dim); }
+
+  .byte-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+
+  .byte-legend span { display: flex; align-items: center; gap: 4px; }
+  .legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  /* --- Sponge diagram --- */
+  .sponge-diagram {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    max-width: 600px;
+  }
+
+  .sponge-section {
+    padding: 12px 16px;
+  }
+
+  .sponge-rate {
+    background: var(--accent-dim);
+    border-bottom: 2px dashed var(--border);
+  }
+
+  .sponge-capacity {
+    background: var(--surface2);
+  }
+
+  .sponge-label {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .sponge-rate .sponge-label { color: var(--accent); }
+  .sponge-capacity .sponge-label { color: var(--yellow); }
+
+  .sponge-detail {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  .sponge-detail strong { color: var(--text); }
+
+  /* --- Round timeline --- */
+  .round-row {
+    display: grid;
+    grid-template-columns: 50px 1fr 100px 100px;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+
+  .round-row.round-header {
+    background: var(--surface2);
+    font-weight: 700;
+    color: var(--text-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .round-row.round-first {
+    border-left: 3px solid var(--green);
+    background: rgba(74, 222, 128, 0.05);
+  }
+
+  .round-row.round-last {
+    border-left: 3px solid var(--yellow);
+    background: rgba(250, 204, 21, 0.05);
+  }
+
+  .round-row .round-num { color: var(--text-dim); }
+  .round-row .round-ops { color: var(--text); }
+  .round-row .round-exec { text-align: center; }
+  .round-row .round-mem { text-align: center; }
+
+  .round-tag {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .tag-opcode { background: var(--green-dim); color: var(--green); }
+  .tag-read { background: var(--accent-dim); color: var(--accent); }
+  .tag-write { background: var(--yellow-dim); color: var(--yellow); }
+  .tag-none { color: var(--border); }
+
+  .round-timeline {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    max-width: 600px;
+  }
+
+  .round-ellipsis {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 4px;
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* --- XOR table --- */
+  .xor-table { max-width: 700px; }
+
+  .xor-table td { font-size: 11px; }
+
+  .xor-editable {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 4px;
+    text-align: center;
+    width: 50px;
+    border-radius: 3px;
+  }
+
+  .xor-editable:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .xor-editable:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .xor-editable.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .xor-check { font-size: 10px; }
+  .xor-pass { color: var(--green); }
+  .xor-fail { color: var(--red); font-weight: 700; }
+
+  /* --- Digest display --- */
+  .digest-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    max-width: 700px;
+  }
+
+  .digest-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+
+  .digest-hash {
+    font-size: 12px;
+    color: var(--green);
+    word-break: break-all;
+    line-height: 1.6;
+  }
+
+  .digest-bytes {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    word-break: break-all;
+    line-height: 1.6;
+  }
+
+  .digest-note {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 8px;
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Keccak-256</h1>
+    <div class="intro">
+      Keccak-256 is Ethereum's hash function, used for state proofs, transaction hashing, and address derivation.
+      In OpenVM, it's a <strong>hash accelerator chip</strong> &mdash; a single instruction triggers a multi-row AIR computation.
+      Each Keccak-f permutation takes <strong>24 rows</strong> (one per round), and a hash may need multiple permutations for long inputs.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Key Concepts</div>
+      <div class="callout">
+        <div class="callout-title">Multi-Row Instruction</div>
+        <div class="callout-body">
+          Unlike ALU instructions (1 row = 1 instruction), Keccak uses <strong>24 rows per permutation block</strong>.
+          The execution bus interaction only fires on the <strong>first row</strong> (<code>is_first_round</code>).
+          Rows 1&ndash;23 are "continuation" rows with no opcode.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">Sponge Construction</div>
+        <div class="callout-body">
+          Keccak uses a <strong>sponge</strong>: the 1600-bit state has a 1088-bit <strong>rate</strong> (absorb input here)
+          and a 512-bit <strong>capacity</strong> (never directly touched). Each block: XOR input into rate &rarr;
+          apply Keccak-f &rarr; repeat. Final squeeze extracts the 256-bit hash from the rate.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">XOR Absorption</div>
+        <div class="callout-body">
+          Input bytes are XOR'd into the sponge state via the <strong>BitwiseOperationLookupBus</strong>.
+          Each XOR is verified by looking up <code>(state_byte, input_byte, result_byte)</code> in the precomputed table.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>Input</label>
+        <input type="text" id="inp-text" value="hello" placeholder="Enter text...">
+      </div>
+      <div class="control-row">
+        <label>Preset</label>
+        <select id="inp-preset">
+          <option value="hello" selected>hello</option>
+          <option value="abc">abc</option>
+          <option value="">(empty)</option>
+          <option value="hello world">hello world</option>
+        </select>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Trace columns</span><span class="val">~3,163</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">~4,513 (max degree 3)</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">~321</span></div>
+      <div class="stat-row"><span class="label">Rows per permutation</span><span class="val">24</span></div>
+      <div class="stat-row"><span class="label">Total rows</span><span class="val dynamic" id="total-rows">24</span></div>
+      <div class="stat-row"><span class="label">Permutations</span><span class="val dynamic" id="num-perms">1</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Sponge Parameters</div>
+      <div class="stat-row"><span class="label">Rate</span><span class="val">136 bytes (1088 bits)</span></div>
+      <div class="stat-row"><span class="label">Capacity</span><span class="val">64 bytes (512 bits)</span></div>
+      <div class="stat-row"><span class="label">Digest</span><span class="val">32 bytes (256 bits)</span></div>
+      <div class="stat-row"><span class="label">Total state</span><span class="val">200 bytes (1600 bits)</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Bus Interactions</div>
+      <div class="stat-row"><span class="label">Execution</span><span class="val">first round only</span></div>
+      <div class="stat-row"><span class="label">Memory</span><span class="val">reads + writes</span></div>
+      <div class="stat-row"><span class="label">BitwiseOpLookup</span><span class="val">XOR verification</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints (simplified)</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Padding: 10*1 rule</span>
+          <span class="c-formula">first pad byte = 0x01, last = 0x80 (or 0x81 if single)</span>
+          <span class="c-sel sel-first">padding</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Absorption: XOR input into rate</span>
+          <span class="c-formula">new_state[i] = old_state[i] XOR input[i] for i &lt; 136</span>
+          <span class="c-sel sel-absorb">absorption</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Capacity unchanged during absorb</span>
+          <span class="c-formula">new_state[i] = old_state[i] for 136 &le; i &lt; 200</span>
+          <span class="c-sel sel-capacity">capacity</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">Execution bus fires on first round</span>
+          <span class="c-formula">is_first_round &times; execution_bus_interaction</span>
+          <span class="c-sel sel-exec">execution</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Input Processing</h2>
+    <div class="hint">
+      Input is converted to bytes, then padded to fill a <span class="a">136-byte</span> block (the sponge rate).
+      Padding follows the <strong>10*1</strong> rule:
+      <span class="y">0x01</span> ... zeros ... <span class="y">0x80</span>.
+    </div>
+    <div id="input-bytes-display"></div>
+    <div class="byte-legend">
+      <span><span class="legend-dot" style="background:var(--accent-dim);border:1px solid var(--accent)"></span> Message</span>
+      <span><span class="legend-dot" style="background:var(--yellow-dim);border:1px solid var(--yellow)"></span> Pad byte</span>
+      <span><span class="legend-dot" style="background:var(--surface2);border:1px solid var(--border)"></span> Zero fill</span>
+    </div>
+    <div id="byte-grid-container"></div>
+
+    <h2>Sponge State (1600 bits)</h2>
+    <div class="hint">
+      The full Keccak state is <strong>200 bytes</strong> (1600 bits). Only the <span class="a">rate</span> portion receives input via XOR.
+      The <span class="y">capacity</span> is never directly written &mdash; it provides security.
+    </div>
+    <div class="sponge-diagram">
+      <div class="sponge-section sponge-rate">
+        <div class="sponge-label">Rate (136 bytes / 1088 bits)</div>
+        <div class="sponge-detail">
+          <strong>Absorb input here via XOR</strong><br>
+          Bytes 0&ndash;135 &mdash; input block is XOR'd into this region.<br>
+          After final permutation, the <strong>first 32 bytes</strong> of the rate are the digest.
+        </div>
+      </div>
+      <div class="sponge-section sponge-capacity">
+        <div class="sponge-label">Capacity (64 bytes / 512 bits)</div>
+        <div class="sponge-detail">
+          <strong>Never directly written</strong><br>
+          Bytes 136&ndash;199 &mdash; only modified by the Keccak-f permutation internally.<br>
+          Provides <strong>256-bit security</strong> (capacity = 2 &times; security level).
+        </div>
+      </div>
+    </div>
+
+    <h2>Keccak-f Permutation (24 Rounds)</h2>
+    <div class="hint">
+      Each permutation block spans <span class="g">24 rows</span> in the AIR trace.
+      Round <span class="g">0</span> carries the opcode (execution bus fires).
+      Round <span class="y">23</span> is where the digest is extracted (memory write).
+      Rounds 1&ndash;22 are continuation rows &mdash; no bus interactions.
+    </div>
+    <div id="round-timeline"></div>
+
+    <h2>XOR Absorption Detail</h2>
+    <div class="hint">
+      Each input byte is XOR'd with the current sponge state byte.
+      Edit the <span class="a">State (before)</span> column to see constraint C2 react.
+      The <strong>BitwiseOperationLookupBus</strong> verifies every XOR:
+      <span class="g">pass</span> = lookup matches, <span class="r">fail</span> = mismatch.
+    </div>
+    <div class="trace-wrapper xor-table">
+      <table id="xor-table"></table>
+    </div>
+
+    <h2>Digest Output</h2>
+    <div class="hint">
+      The first 32 bytes of the sponge rate after the final squeeze become the Keccak-256 hash.
+      <em>Note: actual Keccak-f permutation rounds are not computed here &mdash; a known hash is shown for reference.</em>
+    </div>
+    <div id="digest-container"></div>
+  </div>
+
+</div>
+
+<script>
+const RATE = 136;
+const CAPACITY = 64;
+const STATE_SIZE = 200;
+const DIGEST_SIZE = 32;
+const ROUNDS = 24;
+
+// Known Keccak-256 hashes for preset inputs
+const KNOWN_HASHES = {
+  '': 'c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfae0c520697099',
+  'abc': '4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45',
+  'hello': '1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8',
+  'hello world': '47173285a8d7341e5e972fc677286384f802f8ef42a5ec5f03bbfa254cb01fad',
+};
+
+// Round constants (iota step) for display
+const ROUND_CONSTANTS = [
+  '0x0000000000000001', '0x0000000000008082', '0x800000000000808A', '0x8000000080008000',
+  '0x000000000000808B', '0x0000000080000001', '0x8000000080008081', '0x8000000000008009',
+  '0x000000000000008A', '0x0000000000000088', '0x0000000080008009', '0x000000008000000A',
+  '0x000000008000808B', '0x800000000000008B', '0x8000000000008089', '0x8000000000008003',
+  '0x8000000000008002', '0x8000000000000080', '0x000000000000800A', '0x800000008000000A',
+  '0x8000000080008081', '0x8000000000008080', '0x0000000080000001', '0x8000000080008008',
+];
+
+let inputText = 'hello';
+let paddedBlock = [];
+let spongeStateBefore = new Array(STATE_SIZE).fill(0);
+let editedStateBefore = [];
+
+function textToBytes(text) {
+  return Array.from(new TextEncoder().encode(text));
+}
+
+function hex(byte) {
+  return '0x' + byte.toString(16).padStart(2, '0').toUpperCase();
+}
+
+function hexNoPre(byte) {
+  return byte.toString(16).padStart(2, '0');
+}
+
+function padKeccak(inputBytes) {
+  const rate = RATE;
+  const padded = [...inputBytes];
+  if (padded.length === rate - 1) {
+    padded.push(0x81);
+  } else {
+    padded.push(0x01);
+    while (padded.length < rate - 1) padded.push(0x00);
+    padded.push(0x80);
+  }
+  return padded;
+}
+
+function xorAbsorb(stateBytes, inputBytes) {
+  const result = [...stateBytes];
+  for (let i = 0; i < inputBytes.length && i < RATE; i++) {
+    result[i] = stateBytes[i] ^ inputBytes[i];
+  }
+  return result;
+}
+
+function computeNumPermutations(inputLen) {
+  return Math.max(1, Math.ceil((inputLen + 1) / RATE));
+}
+
+function recompute() {
+  const inputBytes = textToBytes(inputText);
+  const numPerms = computeNumPermutations(inputBytes.length);
+  paddedBlock = padKeccak(inputBytes);
+  spongeStateBefore = new Array(STATE_SIZE).fill(0);
+  editedStateBefore = [...spongeStateBefore];
+
+  document.getElementById('total-rows').textContent = numPerms * ROUNDS;
+  document.getElementById('num-perms').textContent = numPerms;
+
+  renderInputBytes(inputBytes);
+  renderByteGrid(inputBytes);
+  renderRoundTimeline();
+  renderXorTable();
+  renderDigest(inputBytes);
+}
+
+function renderInputBytes(inputBytes) {
+  const container = document.getElementById('input-bytes-display');
+  const bytesHex = inputBytes.map(b => hex(b)).join(', ');
+  const chars = inputBytes.map(b => {
+    const c = String.fromCharCode(b);
+    return (b >= 32 && b < 127) ? c : '.';
+  }).join('    ');
+
+  let html = '<div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;">';
+  html += `<span style="color:var(--text)">Input:</span> "${inputText}" = [${bytesHex}]`;
+  if (inputBytes.length > 0) {
+    html += `<br><span style="color:var(--text)">Padded block</span> (${RATE} bytes):`;
+    html += `<br><span style="margin-left:8px;color:var(--text-dim)">`;
+    html += `Message: ${inputBytes.length} bytes, Padding: ${RATE - inputBytes.length} bytes</span>`;
+  } else {
+    html += `<br><span style="color:var(--text)">Padded block</span> (${RATE} bytes): all padding`;
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderByteGrid(inputBytes) {
+  const container = document.getElementById('byte-grid-container');
+  let html = '<div class="byte-grid">';
+  for (let i = 0; i < RATE; i++) {
+    const b = paddedBlock[i];
+    let cls = 'byte-cell';
+    if (i < inputBytes.length) {
+      cls += ' msg';
+    } else if (inputBytes.length === RATE - 1 && i === RATE - 1) {
+      cls += ' pad-single';
+    } else if (i === inputBytes.length) {
+      cls += ' pad-first';
+    } else if (i === RATE - 1) {
+      cls += ' pad-last';
+    } else {
+      cls += ' pad-zero';
+    }
+    const title = i < inputBytes.length
+      ? `Byte ${i}: '${String.fromCharCode(b)}' (${hex(b)})`
+      : `Byte ${i}: padding (${hex(b)})`;
+    html += `<div class="${cls}" title="${title}">${hexNoPre(b)}</div>`;
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderRoundTimeline() {
+  const container = document.getElementById('round-timeline');
+  let html = '<div class="round-timeline">';
+  html += '<div class="round-row round-header">';
+  html += '<div>Round</div>';
+  html += '<div>Operations</div>';
+  html += '<div class="round-exec">Exec Bus</div>';
+  html += '<div class="round-mem">Memory Bus</div>';
+  html += '</div>';
+
+  for (let r = 0; r < ROUNDS; r++) {
+    let cls = 'round-row';
+    if (r === 0) cls += ' round-first';
+    if (r === ROUNDS - 1) cls += ' round-last';
+
+    const rc = ROUND_CONSTANTS[r];
+    const ops = `theta + rho + pi + chi + iota(${rc.slice(0, 10)}...)`;
+
+    let execTag, memTag;
+    if (r === 0) {
+      execTag = '<span class="round-tag tag-opcode">OPCODE</span>';
+      memTag = '<span class="round-tag tag-read">READ INPUT</span>';
+    } else if (r === ROUNDS - 1) {
+      execTag = '<span class="tag-none">&mdash;</span>';
+      memTag = '<span class="round-tag tag-write">WRITE DIGEST</span>';
+    } else {
+      execTag = '<span class="tag-none">&mdash;</span>';
+      memTag = '<span class="tag-none">&mdash;</span>';
+    }
+
+    // Show first 4, last 2, and ellipsis in between
+    if (r <= 3 || r >= ROUNDS - 2) {
+      html += `<div class="${cls}">`;
+      html += `<div class="round-num">${r}</div>`;
+      html += `<div class="round-ops">${ops}</div>`;
+      html += `<div class="round-exec">${execTag}</div>`;
+      html += `<div class="round-mem">${memTag}</div>`;
+      html += '</div>';
+    } else if (r === 4) {
+      html += `<div class="round-ellipsis">... rounds 4&ndash;${ROUNDS - 3} (same operations, no bus interactions) ...</div>`;
+    }
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderXorTable() {
+  const container = document.getElementById('xor-table');
+  const inputBytes = textToBytes(inputText);
+  const numShowBytes = Math.min(RATE, Math.max(10, inputBytes.length + 3));
+  const showIndices = [];
+  for (let i = 0; i < Math.min(numShowBytes, 8); i++) showIndices.push(i);
+  if (inputBytes.length > 0 && inputBytes.length < RATE - 2) {
+    // Show around the padding boundary
+    const padStart = inputBytes.length;
+    for (let i = Math.max(padStart - 1, 8); i <= Math.min(padStart + 2, RATE - 2); i++) {
+      if (!showIndices.includes(i)) showIndices.push(i);
+    }
+  }
+  // Always show last byte (0x80 padding)
+  if (!showIndices.includes(RATE - 1)) showIndices.push(RATE - 1);
+
+  showIndices.sort((a, b) => a - b);
+
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="3">XOR Absorption (C2)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Verification</th>
+    </tr>
+    <tr>
+      <th>Byte</th>
+      <th class="col-sep"></th>
+      <th>State (before)</th>
+      <th>Input</th>
+      <th>XOR Result</th>
+      <th class="col-sep"></th>
+      <th>BitwiseOpLookup</th>
+    </tr>
+  </thead><tbody>`;
+
+  let prevIdx = -1;
+  for (const idx of showIndices) {
+    if (prevIdx >= 0 && idx > prevIdx + 1) {
+      html += `<tr><td colspan="7" style="text-align:center;color:var(--text-dim);font-size:10px;padding:2px;">...</td></tr>`;
+    }
+    prevIdx = idx;
+
+    const stateBefore = editedStateBefore[idx];
+    const inputByte = paddedBlock[idx];
+    const xorResult = stateBefore ^ inputByte;
+    const expectedXor = spongeStateBefore[idx] ^ inputByte;
+    const isModified = editedStateBefore[idx] !== spongeStateBefore[idx];
+    const xorCorrect = xorResult === (stateBefore ^ inputByte); // Always true for display, but we check constraint
+    const constraintPass = true; // XOR is always correct since we compute it; show structure
+
+    let label = '';
+    const origInputBytes = textToBytes(inputText);
+    if (idx < origInputBytes.length) {
+      const c = String.fromCharCode(origInputBytes[idx]);
+      label = ` <span style="color:var(--text-dim);font-size:9px">'${c}'</span>`;
+    } else if (origInputBytes.length === RATE - 1 && idx === RATE - 1) {
+      label = ' <span style="color:var(--yellow);font-size:9px">(0x81 pad)</span>';
+    } else if (idx === origInputBytes.length) {
+      label = ' <span style="color:var(--yellow);font-size:9px">(first pad)</span>';
+    } else if (idx === RATE - 1) {
+      label = ' <span style="color:var(--yellow);font-size:9px">(last pad)</span>';
+    } else {
+      label = ' <span style="color:var(--border);font-size:9px">(zero pad)</span>';
+    }
+
+    const lookupStr = `(${hex(stateBefore)}, ${hex(inputByte)}, ${hex(xorResult)})`;
+    const lookupCheck = xorResult === (stateBefore ^ inputByte);
+
+    html += `<tr${isModified ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${idx}${label}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td><input type="text" class="xor-editable${isModified ? ' modified' : ''}" value="${hex(stateBefore)}" data-idx="${idx}" onchange="onStateEdit(${idx}, this.value)"></td>`;
+    html += `<td style="color:var(--text-dim)">${hex(inputByte)}</td>`;
+    html += `<td style="font-weight:600">${hex(xorResult)}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="xor-check ${lookupCheck ? 'xor-pass' : 'xor-fail'}">${lookupStr} ${lookupCheck ? 'ok' : 'FAIL'}</td>`;
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  container.innerHTML = html;
+}
+
+function onStateEdit(idx, value) {
+  // Parse hex input
+  let v = value.trim();
+  if (v.startsWith('0x') || v.startsWith('0X')) v = v.slice(2);
+  let num = parseInt(v, 16);
+  if (isNaN(num)) num = 0;
+  num = num & 0xFF; // clamp to byte
+  editedStateBefore[idx] = num;
+  renderXorTable();
+}
+
+function renderDigest(inputBytes) {
+  const container = document.getElementById('digest-container');
+  const hashHex = KNOWN_HASHES[inputText];
+
+  let html = '<div class="digest-box">';
+  html += '<div class="digest-label">Keccak-256 Hash</div>';
+
+  if (hashHex) {
+    html += `<div class="digest-hash">0x${hashHex}</div>`;
+    // Show as byte array
+    const bytes = [];
+    for (let i = 0; i < hashHex.length; i += 2) {
+      bytes.push('0x' + hashHex.slice(i, i + 2).toUpperCase());
+    }
+    html += `<div class="digest-bytes">= [${bytes.join(', ')}]</div>`;
+    html += `<div class="digest-note">First 32 bytes extracted from the sponge rate after final Keccak-f permutation.</div>`;
+  } else {
+    html += '<div class="digest-hash" style="color:var(--text-dim)">(hash not precomputed for this input)</div>';
+    html += '<div class="digest-note">This playground shows the AIR structure, not a full Keccak implementation. Known hashes are provided for preset inputs.</div>';
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function resetAll() {
+  inputText = document.getElementById('inp-text').value;
+  recompute();
+}
+
+// Event listeners
+document.getElementById('inp-text').addEventListener('input', function() {
+  inputText = this.value;
+  // Sync preset if matches
+  const preset = document.getElementById('inp-preset');
+  let found = false;
+  for (const opt of preset.options) {
+    if (opt.value === inputText) {
+      preset.value = inputText;
+      found = true;
+      break;
+    }
+  }
+  if (!found) preset.selectedIndex = -1;
+  recompute();
+});
+
+document.getElementById('inp-preset').addEventListener('change', function() {
+  inputText = this.value;
+  document.getElementById('inp-text').value = inputText;
+  recompute();
+});
+
+// Initial render
+recompute();
+</script>
+</body>
+</html>

@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adapter / Core Pattern</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #3b1f63;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .concept { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
+  .concept-title { font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+  .concept p { font-size: 11px; color: var(--text-dim); line-height: 1.6; }
+  .concept strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 70px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio buttons --- */
+  .radio-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .radio-group input[type="radio"] {
+    width: auto;
+    accent-color: var(--accent);
+  }
+
+  .radio-group label.selected {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-all { background: var(--accent-dim); color: var(--accent); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; margin-bottom: 24px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Section splits --- */
+  .adapter-section { border-left: 3px solid var(--purple); padding-left: 12px; margin-bottom: 20px; }
+  .core-section { border-left: 3px solid var(--green); padding-left: 12px; margin-bottom: 20px; }
+  .bus-section { border-left: 3px solid var(--cyan); padding-left: 12px; margin-bottom: 20px; }
+
+  .section-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+  }
+
+  .section-label.adapter { color: var(--purple); border-bottom: 1px solid var(--purple-dim); }
+  .section-label.core { color: var(--green); border-bottom: 1px solid var(--green-dim); }
+  .section-label.bus { color: var(--cyan); border-bottom: 1px solid var(--cyan-dim); }
+
+  /* --- Adapter table (read-only) --- */
+  .adapter-table td {
+    color: var(--text-dim);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+
+  .adapter-table td:first-child {
+    color: var(--purple);
+    font-weight: 600;
+    width: 110px;
+  }
+
+  .adapter-table td:nth-child(2) {
+    color: var(--text);
+    font-weight: 600;
+    min-width: 80px;
+    font-family: var(--mono);
+  }
+
+  .adapter-table td:nth-child(3) {
+    color: var(--text);
+    font-weight: 600;
+    min-width: 140px;
+    font-family: var(--mono);
+  }
+
+  .adapter-table td:last-child {
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+
+  .adapter-group-header td {
+    color: var(--text-dim) !important;
+    font-size: 9px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding-top: 8px !important;
+    font-weight: 400 !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  /* --- Opcode flags row --- */
+  .opcode-flags {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border-radius: 6px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+
+  .opcode-flags .flag-label {
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .opcode-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .opcode-flag.active {
+    background: var(--green-dim);
+    color: var(--green);
+  }
+
+  .opcode-flag.inactive {
+    background: transparent;
+    color: var(--text-dim);
+  }
+
+  .opcode-flag .flag-name {
+    font-size: 10px;
+  }
+
+  /* --- Bus interaction badges --- */
+  .badge-exec { background: var(--accent-dim); color: var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-mem { background: var(--cyan-dim); color: var(--cyan); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-prog { background: var(--yellow-dim); color: var(--yellow); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-send { background: var(--green-dim); color: var(--green); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+
+  .bus-table {
+    width: 100%;
+  }
+
+  .bus-table td {
+    padding: 5px 8px;
+    font-size: 11px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .bus-table td:first-child { width: 100px; }
+  .bus-table td:nth-child(2) { width: 80px; }
+  .bus-table td:last-child { color: var(--text); font-family: var(--mono); font-size: 11px; }
+
+  /* --- Core table header backgrounds --- */
+  th.adapter-col-header { background: var(--purple-dim); color: var(--purple); }
+  th.core-col-header { background: var(--green-dim); color: var(--green); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Adapter / Core Pattern</h1>
+    <div class="intro">
+      Every instruction chip in OpenVM is built from two independent pieces: an <strong>Adapter</strong> that handles system bus interactions (memory reads/writes, execution state, program lookup) and a <strong>Core</strong> that handles instruction-specific arithmetic. They're combined via <strong>VmAirWrapper</strong>, which concatenates their columns into a single trace row.
+    </div>
+
+    <div class="concept">
+      <div class="concept-title">New: Column Split</div>
+      <p>A trace row is <strong>[adapter_cols | core_cols]</strong>. The adapter and core have <strong>separate constraint sets</strong>. The core returns results that the adapter uses for its bus interactions.</p>
+    </div>
+
+    <div class="concept">
+      <div class="concept-title">New: Reusable Adapters</div>
+      <p>The same adapter works for ADD, SUB, XOR, OR, and AND. Only the core changes. The adapter doesn't know what arithmetic the core performs -- it just reads two register values and writes one result.</p>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>rs1_val</label>
+        <input type="number" id="inp-rs1" value="42" min="0">
+      </div>
+      <div class="control-row">
+        <label>rs2_val</label>
+        <input type="number" id="inp-rs2" value="13" min="0">
+      </div>
+      <div class="control-row">
+        <label>Operation</label>
+      </div>
+      <div class="radio-group" id="op-radios">
+        <label class="selected"><input type="radio" name="op" value="ADD" checked> ADD</label>
+        <label><input type="radio" name="op" value="SUB"> SUB</label>
+        <label><input type="radio" name="op" value="XOR"> XOR</label>
+        <label><input type="radio" name="op" value="OR"> OR</label>
+        <label><input type="radio" name="op" value="AND"> AND</label>
+      </div>
+      <div class="control-row">
+        <label>pc</label>
+        <input type="number" id="inp-pc" value="0" min="0">
+      </div>
+      <div class="control-row">
+        <label>timestamp</label>
+        <input type="number" id="inp-ts" value="100" min="0">
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Adapter columns</span><span class="val">12</span></div>
+      <div class="stat-row"><span class="label">Core columns</span><span class="val">17</span></div>
+      <div class="stat-row"><span class="label">Total trace width</span><span class="val">29</span></div>
+      <div class="stat-row"><span class="label">Core constraints</span><span class="val">9 (carry chain + opcode flag)</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">5</span></div>
+      <div class="stat-row"><span class="label">Preprocessed</span><span class="val">none</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints (Core)</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Limb 0 arithmetic</span>
+          <span class="c-formula" id="c1-formula">b[0] + c[0] - a[0] - carry[0] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Limb 1 arithmetic</span>
+          <span class="c-formula" id="c2-formula">b[1] + c[1] + carry[0] - a[1] - carry[1] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Limb 2 arithmetic</span>
+          <span class="c-formula" id="c3-formula">b[2] + c[2] + carry[1] - a[2] - carry[2] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">Limb 3 arithmetic</span>
+          <span class="c-formula" id="c4-formula">b[3] + c[3] + carry[2] - a[3] - carry[3] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc">Carry 0 boolean</span>
+          <span class="c-formula">carry[0] &times; (1 - carry[0]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C6</span> <span class="c-desc">Carry 1 boolean</span>
+          <span class="c-formula">carry[1] &times; (1 - carry[1]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C7</span> <span class="c-desc">Carry 2 boolean</span>
+          <span class="c-formula">carry[2] &times; (1 - carry[2]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C8</span> <span class="c-desc">Carry 3 boolean</span>
+          <span class="c-formula">carry[3] &times; (1 - carry[3]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C9</span> <span class="c-desc">Exactly one opcode flag</span>
+          <span class="c-formula">add + sub + xor + or + and = 1</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Single Trace Row &mdash; Adapter / Core Split</h2>
+    <div class="hint">
+      Edit <strong>a[i]</strong> (result) and <strong>carry</strong> cells to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      Adapter columns are derived from parameters and are read-only.
+    </div>
+
+    <!-- Adapter Columns -->
+    <div class="adapter-section">
+      <div class="section-label adapter">Adapter Columns (reusable)</div>
+      <div class="trace-wrapper">
+        <table class="adapter-table" id="adapter-table"></table>
+      </div>
+    </div>
+
+    <!-- Core Columns -->
+    <div class="core-section">
+      <div class="section-label core">Core Columns (operation-specific)</div>
+      <div class="trace-wrapper">
+        <table id="core-table"></table>
+      </div>
+      <div class="opcode-flags" id="opcode-flags"></div>
+    </div>
+
+    <!-- Bus Interactions -->
+    <div class="bus-section">
+      <div class="section-label bus">Bus Interactions</div>
+      <div class="trace-wrapper">
+        <table class="bus-table" id="bus-table"></table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+
+function mod(x, m) { return ((x % m) + m) % m; }
+
+// Split a 32-bit value into 4 byte limbs (little-endian)
+function toLimbs(val) {
+  val = mod(val, 1 << 32);
+  return [val & 0xFF, (val >>> 8) & 0xFF, (val >>> 16) & 0xFF, (val >>> 24) & 0xFF];
+}
+
+function getOp() {
+  const el = document.querySelector('input[name="op"]:checked');
+  return el ? el.value : 'ADD';
+}
+
+function computeResult(op, rs1, rs2) {
+  switch (op) {
+    case 'ADD': return (rs1 + rs2) & 0xFFFFFFFF;
+    case 'SUB': return (rs1 - rs2) & 0xFFFFFFFF;
+    case 'XOR': return (rs1 ^ rs2) & 0xFFFFFFFF;
+    case 'OR':  return (rs1 | rs2) & 0xFFFFFFFF;
+    case 'AND': return (rs1 & rs2) & 0xFFFFFFFF;
+  }
+}
+
+function computeCarries(op, bLimbs, cLimbs, aLimbs) {
+  const carries = [0, 0, 0, 0];
+  if (op === 'ADD') {
+    // b[i] + c[i] + carry_in = a[i] + carry[i] * 256
+    let carryIn = 0;
+    for (let i = 0; i < 4; i++) {
+      const sum = bLimbs[i] + cLimbs[i] + carryIn;
+      carries[i] = sum >= 256 ? 1 : 0;
+      carryIn = carries[i];
+    }
+  } else if (op === 'SUB') {
+    // a[i] + c[i] + carry_in = b[i] + carry[i] * 256
+    let carryIn = 0;
+    for (let i = 0; i < 4; i++) {
+      const sum = aLimbs[i] + cLimbs[i] + carryIn;
+      carries[i] = sum >= 256 ? 1 : 0;
+      carryIn = carries[i];
+    }
+  } else {
+    // Bitwise ops: no carry
+    carries.fill(0);
+  }
+  return carries;
+}
+
+// State
+let rs1Val, rs2Val, pc, ts, op;
+let bLimbs, cLimbs; // rs1, rs2 limbs
+let cleanA, cleanCarry; // correct result limbs and carries
+let editedA, editedCarry; // editable values
+
+function readParams() {
+  rs1Val = parseInt(document.getElementById('inp-rs1').value) || 0;
+  rs2Val = parseInt(document.getElementById('inp-rs2').value) || 0;
+  pc = parseInt(document.getElementById('inp-pc').value) || 0;
+  ts = parseInt(document.getElementById('inp-ts').value) || 0;
+  op = getOp();
+}
+
+function computeClean() {
+  readParams();
+  bLimbs = toLimbs(rs1Val);
+  cLimbs = toLimbs(rs2Val);
+  const result = computeResult(op, rs1Val, rs2Val);
+  cleanA = toLimbs(result);
+  cleanCarry = computeCarries(op, bLimbs, cLimbs, cleanA);
+}
+
+function recompute() {
+  computeClean();
+  editedA = [...cleanA];
+  editedCarry = [...cleanCarry];
+  updateFormulas();
+  render();
+}
+
+function resetTrace() {
+  computeClean();
+  editedA = [...cleanA];
+  editedCarry = [...cleanCarry];
+  render();
+}
+
+function updateFormulas() {
+  const formulaEls = {
+    c1: document.getElementById('c1-formula'),
+    c2: document.getElementById('c2-formula'),
+    c3: document.getElementById('c3-formula'),
+    c4: document.getElementById('c4-formula'),
+  };
+  if (op === 'ADD') {
+    formulaEls.c1.innerHTML = 'b[0] + c[0] - a[0] - carry[0] &times; 256 = 0';
+    formulaEls.c2.innerHTML = 'b[1] + c[1] + carry[0] - a[1] - carry[1] &times; 256 = 0';
+    formulaEls.c3.innerHTML = 'b[2] + c[2] + carry[1] - a[2] - carry[2] &times; 256 = 0';
+    formulaEls.c4.innerHTML = 'b[3] + c[3] + carry[2] - a[3] - carry[3] &times; 256 = 0';
+  } else if (op === 'SUB') {
+    formulaEls.c1.innerHTML = 'a[0] + c[0] - b[0] - carry[0] &times; 256 = 0';
+    formulaEls.c2.innerHTML = 'a[1] + c[1] + carry[0] - b[1] - carry[1] &times; 256 = 0';
+    formulaEls.c3.innerHTML = 'a[2] + c[2] + carry[1] - b[2] - carry[2] &times; 256 = 0';
+    formulaEls.c4.innerHTML = 'a[3] + c[3] + carry[2] - b[3] - carry[3] &times; 256 = 0';
+  } else {
+    const opName = op.toLowerCase();
+    formulaEls.c1.innerHTML = `a[0] = b[0] ${opName} c[0]  (carry[0] must be 0)`;
+    formulaEls.c2.innerHTML = `a[1] = b[1] ${opName} c[1]  (carry[1] must be 0)`;
+    formulaEls.c3.innerHTML = `a[2] = b[2] ${opName} c[2]  (carry[2] must be 0)`;
+    formulaEls.c4.innerHTML = `a[3] = b[3] ${opName} c[3]  (carry[3] must be 0)`;
+  }
+}
+
+// Evaluate core constraints (returns array of 9 values, 0 = satisfied)
+function evalConstraints(aLimbs, bL, cL, carries) {
+  const results = [];
+
+  // C1-C4: Limb arithmetic
+  for (let i = 0; i < 4; i++) {
+    const carryIn = i === 0 ? 0 : carries[i - 1];
+    let val;
+    if (op === 'ADD') {
+      // b[i] + c[i] + carry_in - a[i] - carry[i] * 256 = 0
+      val = mod(bL[i] + cL[i] + carryIn - aLimbs[i] - carries[i] * 256, P);
+    } else if (op === 'SUB') {
+      // a[i] + c[i] + carry_in - b[i] - carry[i] * 256 = 0
+      val = mod(aLimbs[i] + cL[i] + carryIn - bL[i] - carries[i] * 256, P);
+    } else {
+      // Bitwise ops: a[i] should equal the bitwise result, carry must be 0
+      let expected;
+      if (op === 'XOR') expected = bL[i] ^ cL[i];
+      else if (op === 'OR') expected = bL[i] | cL[i];
+      else expected = bL[i] & cL[i]; // AND
+      val = mod(aLimbs[i] - expected, P);
+    }
+    results.push(val);
+  }
+
+  // C5-C8: Carry boolean (carry[i] * (1 - carry[i]) = 0)
+  for (let i = 0; i < 4; i++) {
+    results.push(mod(carries[i] * (1 - carries[i]), P));
+  }
+
+  // C9: Exactly one opcode flag = 1
+  const flags = { ADD: 0, SUB: 0, XOR: 0, OR: 0, AND: 0 };
+  flags[op] = 1;
+  const flagSum = flags.ADD + flags.SUB + flags.XOR + flags.OR + flags.AND;
+  results.push(mod(flagSum - 1, P));
+
+  return results;
+}
+
+function hasEdits() {
+  for (let i = 0; i < 4; i++) {
+    if (editedA[i] !== cleanA[i]) return true;
+    if (editedCarry[i] !== cleanCarry[i]) return true;
+  }
+  return false;
+}
+
+function onAEdit(i, value) {
+  editedA[i] = mod(parseInt(value) || 0, P);
+  render();
+}
+
+function onCarryEdit(i, value) {
+  editedCarry[i] = mod(parseInt(value) || 0, P);
+  render();
+}
+
+function render() {
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
+
+  renderAdapter();
+  renderCore();
+  renderBus();
+  renderOpcodeFlags();
+  updateRadioStyles();
+}
+
+function renderAdapter() {
+  const rdLimbs = editedA;
+  let html = '<tbody>';
+
+  // Execution group
+  html += `<tr class="adapter-group-header"><td colspan="4">Execution</td></tr>`;
+  html += `<tr><td>from_pc</td><td>${pc}</td><td></td><td>Current program counter</td></tr>`;
+  html += `<tr><td>from_ts</td><td>${ts}</td><td></td><td>Current timestamp</td></tr>`;
+
+  // Pointers group
+  html += `<tr class="adapter-group-header"><td colspan="4">Pointers</td></tr>`;
+  html += `<tr><td>rs1_ptr</td><td>8</td><td></td><td>Register pointer for source 1</td></tr>`;
+  html += `<tr><td>rs2_ptr</td><td>12</td><td></td><td>Register pointer for source 2</td></tr>`;
+  html += `<tr><td>rd_ptr</td><td>4</td><td></td><td>Register pointer for destination</td></tr>`;
+
+  // Memory Read 1
+  html += `<tr class="adapter-group-header"><td colspan="4">Memory Read 1</td></tr>`;
+  html += `<tr><td>rs1_data</td><td>[${bLimbs.join(', ')}]</td><td></td><td>Data read from rs1 (4 limbs)</td></tr>`;
+
+  // Memory Read 2
+  html += `<tr class="adapter-group-header"><td colspan="4">Memory Read 2</td></tr>`;
+  html += `<tr><td>rs2_data</td><td>[${cLimbs.join(', ')}]</td><td></td><td>Data read from rs2 (4 limbs)</td></tr>`;
+
+  // Memory Write
+  html += `<tr class="adapter-group-header"><td colspan="4">Memory Write</td></tr>`;
+  html += `<tr><td>rd_data</td><td>[${rdLimbs.join(', ')}]</td><td></td><td>Data written to rd (4 limbs)</td></tr>`;
+
+  html += '</tbody>';
+  document.getElementById('adapter-table').innerHTML = html;
+}
+
+function renderCore() {
+  const constraints = evalConstraints(editedA, bLimbs, cLimbs, editedCarry);
+
+  let html = `<thead>
+    <tr>
+      <th class="group-header">Limb</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="3">Trace (a editable)</th>
+      <th class="group-header">Carry</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Constraints (= 0 if valid)</th>
+    </tr>
+    <tr>
+      <th>i</th>
+      <th class="col-sep"></th>
+      <th>a[i] (rd)</th>
+      <th>b[i] (rs1)</th>
+      <th>c[i] (rs2)</th>
+      <th>carry[i]</th>
+      <th class="col-sep"></th>
+      <th>C(i+1)</th>
+      <th>C(i+5)</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < 4; i++) {
+    const aModified = editedA[i] !== cleanA[i];
+    const carryModified = editedCarry[i] !== cleanCarry[i];
+    const cArith = constraints[i];
+    const cBool = constraints[i + 4];
+    const hasViolation = cArith !== 0 || cBool !== 0;
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${i}</td>`;
+    html += `<td class="col-sep"></td>`;
+
+    // a[i] - editable
+    html += `<td class="col-trace"><input type="number" class="cell-input${aModified ? ' modified' : ''}" value="${editedA[i]}" onchange="onAEdit(${i},this.value)"></td>`;
+
+    // b[i] - read only
+    html += `<td class="col-trace" style="color:var(--text-dim)">${bLimbs[i]}</td>`;
+
+    // c[i] - read only
+    html += `<td class="col-trace" style="color:var(--text-dim)">${cLimbs[i]}</td>`;
+
+    // carry[i] - editable
+    html += `<td class="col-trace"><input type="number" class="cell-input${carryModified ? ' modified' : ''}" value="${editedCarry[i]}" onchange="onCarryEdit(${i},this.value)"></td>`;
+
+    html += `<td class="col-sep"></td>`;
+
+    // C(i+1) - limb arithmetic constraint
+    if (cArith === 0) html += `<td class="col-constraint c-pass">0</td>`;
+    else html += `<td class="col-constraint c-fail">${cArith}</td>`;
+
+    // C(i+5) - carry boolean constraint
+    if (cBool === 0) html += `<td class="col-constraint c-pass">0</td>`;
+    else html += `<td class="col-constraint c-fail">${cBool}</td>`;
+
+    html += `</tr>`;
+  }
+
+  html += '</tbody>';
+  document.getElementById('core-table').innerHTML = html;
+}
+
+function renderOpcodeFlags() {
+  const flags = { ADD: 0, SUB: 0, XOR: 0, OR: 0, AND: 0 };
+  flags[op] = 1;
+  const constraints = evalConstraints(editedA, bLimbs, cLimbs, editedCarry);
+  const c9 = constraints[8];
+
+  let html = '<span class="flag-label">Opcode Flags:</span>';
+  for (const [name, val] of Object.entries(flags)) {
+    const cls = val === 1 ? 'active' : 'inactive';
+    html += `<span class="opcode-flag ${cls}"><span class="flag-name">${name.toLowerCase()}</span>=${val}</span>`;
+  }
+
+  html += `<span style="margin-left:12px;font-size:11px;">`;
+  if (c9 === 0) {
+    html += `<span style="color:var(--text-dim)">C9:</span> <span class="c-pass">0</span>`;
+  } else {
+    html += `<span style="color:var(--text-dim)">C9:</span> <span class="c-fail">${c9}</span>`;
+  }
+  html += `</span>`;
+
+  document.getElementById('opcode-flags').innerHTML = html;
+}
+
+function renderBus() {
+  const rdLimbs = editedA;
+  const nextPc = pc + 4;
+  const nextTs = ts + 3;
+
+  let html = `<thead>
+    <tr>
+      <th style="text-align:left">Bus</th>
+      <th style="text-align:left">Direction</th>
+      <th style="text-align:left">Tuple</th>
+    </tr>
+  </thead><tbody>`;
+
+  html += `<tr>
+    <td><span class="badge-exec">Execution</span></td>
+    <td><span class="badge-recv">receive</span></td>
+    <td>(pc=${pc}, ts=${ts})</td>
+  </tr>`;
+
+  html += `<tr>
+    <td><span class="badge-exec">Execution</span></td>
+    <td><span class="badge-send">send</span></td>
+    <td>(pc=${nextPc}, ts=${nextTs})</td>
+  </tr>`;
+
+  html += `<tr>
+    <td><span class="badge-mem">Memory</span></td>
+    <td><span class="badge-recv">read</span></td>
+    <td>(as=1, ptr=8, data=[${bLimbs.join(',')}], ts=${ts})</td>
+  </tr>`;
+
+  html += `<tr>
+    <td><span class="badge-mem">Memory</span></td>
+    <td><span class="badge-recv">read</span></td>
+    <td>(as=1, ptr=12, data=[${cLimbs.join(',')}], ts=${ts + 1})</td>
+  </tr>`;
+
+  html += `<tr>
+    <td><span class="badge-mem">Memory</span></td>
+    <td><span class="badge-send">write</span></td>
+    <td>(as=1, ptr=4, data=[${rdLimbs.join(',')}], ts=${ts + 2})</td>
+  </tr>`;
+
+  html += `<tr>
+    <td><span class="badge-prog">Program</span></td>
+    <td><span class="badge-recv">lookup</span></td>
+    <td>(pc=${pc}, opcode=${op}, operands=[4,8,12])</td>
+  </tr>`;
+
+  html += '</tbody>';
+  document.getElementById('bus-table').innerHTML = html;
+}
+
+function updateRadioStyles() {
+  document.querySelectorAll('#op-radios label').forEach(label => {
+    const radio = label.querySelector('input[type="radio"]');
+    label.classList.toggle('selected', radio.checked);
+  });
+}
+
+// Event listeners
+document.getElementById('inp-rs1').addEventListener('input', recompute);
+document.getElementById('inp-rs2').addEventListener('input', recompute);
+document.getElementById('inp-pc').addEventListener('input', recompute);
+document.getElementById('inp-ts').addEventListener('input', recompute);
+document.querySelectorAll('input[name="op"]').forEach(r => {
+  r.addEventListener('change', () => {
+    recompute();
+    updateFormulas();
+  });
+});
+
+recompute();
+</script>
+</body>
+</html>

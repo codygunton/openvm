@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Limb Arithmetic AIR</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 50px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio buttons --- */
+  .radio-group {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+
+  .radio-group label {
+    width: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  .radio-group input[type="radio"] {
+    accent-color: var(--accent);
+    width: auto;
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-last { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-all { background: var(--accent-dim); color: var(--accent); }
+
+  /* --- Concept callouts --- */
+  .concept {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+
+  .concept-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .concept p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .concept strong { color: var(--text); }
+
+  .concept code {
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: var(--cyan);
+  }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- 32-bit view panel --- */
+  .bit-view {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 12px;
+  }
+
+  .bit-view .row { margin-bottom: 4px; }
+  .bit-view .label { color: var(--text-dim); width: 60px; display: inline-block; }
+  .bit-view .dec { color: var(--text); font-weight: 600; }
+  .bit-view .hex { color: var(--purple); margin-left: 8px; }
+  .bit-view .limbs { color: var(--accent); margin-left: 8px; }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Carry styling --- */
+  .carry-active { color: var(--cyan); font-weight: 700; }
+  .carry-zero { color: var(--border); }
+
+  /* --- Carry arrow indicators --- */
+  .carry-arrow {
+    position: relative;
+  }
+
+  .carry-arrow.has-carry::after {
+    content: "\2193";
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--cyan);
+    font-size: 14px;
+    font-weight: 700;
+    z-index: 1;
+    line-height: 1;
+  }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Non-editable display cells --- */
+  .cell-readonly {
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Limb Arithmetic AIR</h1>
+    <div class="intro">
+      In a STARK proof system, all arithmetic happens over a 31-bit prime field (<strong>BabyBear</strong>, p = 2013265921).
+      But RISC-V operates on 32-bit integers.
+      This AIR shows how 32-bit addition is implemented using <strong>4 limbs of 8 bits</strong> each, with <strong>carry propagation</strong> between limbs.
+    </div>
+
+    <div class="section">
+      <div class="concept">
+        <div class="concept-title">New: Limb Decomposition</div>
+        <p>A 32-bit value is stored as 4 bytes: <code>value = limb[0] + limb[1]&times;256 + limb[2]&times;65536 + limb[3]&times;16777216</code>. Each limb is in [0, 255].</p>
+      </div>
+      <div class="concept">
+        <div class="concept-title">New: Carry Chain</div>
+        <p>When adding two 8-bit limbs, the result may exceed 255. The <strong>carry</strong> (0 or 1) propagates to the next limb. This chain of carries is how overflow works.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>a</label>
+        <input type="number" id="inp-a" value="300" min="0" max="4294967295">
+      </div>
+      <div class="control-row">
+        <label>b</label>
+        <input type="number" id="inp-b" value="500" min="0" max="4294967295">
+      </div>
+      <div class="control-row">
+        <label>op</label>
+        <div class="radio-group">
+          <label><input type="radio" name="op" value="ADD" checked> ADD</label>
+          <label><input type="radio" name="op" value="SUB"> SUB</label>
+        </div>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset trace to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Trace width</span><span class="val">13 columns</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">9</span></div>
+      <div class="stat-row"><span class="label">Public values</span><span class="val dynamic" id="pv-detail">a=300, b=500, result=800</span></div>
+      <div class="stat-row"><span class="label">Interactions</span><span class="val">none</span></div>
+      <div class="stat-row"><span class="label">Preprocessed</span><span class="val">none</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list" id="constraint-list-el">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc" id="c1-desc">Limb 0 addition</span>
+          <span class="c-formula" id="c1-formula">a[0] + b[0] + carry_in &minus; result[0] &minus; carry[0] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc" id="c2-desc">Limb 1 addition</span>
+          <span class="c-formula" id="c2-formula">a[1] + b[1] + carry[0] &minus; result[1] &minus; carry[1] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc" id="c3-desc">Limb 2 addition</span>
+          <span class="c-formula" id="c3-formula">a[2] + b[2] + carry[1] &minus; result[2] &minus; carry[2] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc" id="c4-desc">Limb 3 addition</span>
+          <span class="c-formula" id="c4-formula">a[3] + b[3] + carry[2] &minus; result[3] &minus; carry[3] &times; 256 = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C5</span> <span class="c-desc" id="c5-desc">Carry 0 boolean</span>
+          <span class="c-formula" id="c5-formula">carry[0] &times; (1 &minus; carry[0]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C6</span> <span class="c-desc" id="c6-desc">Carry 1 boolean</span>
+          <span class="c-formula" id="c6-formula">carry[1] &times; (1 &minus; carry[1]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C7</span> <span class="c-desc" id="c7-desc">Carry 2 boolean</span>
+          <span class="c-formula" id="c7-formula">carry[2] &times; (1 &minus; carry[2]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C8</span> <span class="c-desc" id="c8-desc">Carry 3 boolean</span>
+          <span class="c-formula" id="c8-formula">carry[3] &times; (1 &minus; carry[3]) = 0</span>
+          <span class="c-sel sel-all">all rows</span>
+        </li>
+        <li>
+          <span class="c-id">C9</span> <span class="c-desc" id="c9-desc">Initial carry is zero</span>
+          <span class="c-formula" id="c9-formula">carry_in = 0</span>
+          <span class="c-sel sel-first">first row</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Limb Decomposition &amp; Constraint Evaluation</h2>
+    <div class="hint">
+      Edit any <span style="color:var(--text)">result</span> or <span style="color:var(--text)">carry</span> cell to see which constraints break.
+      <span class="g">0</span> = satisfied,
+      <span class="d">&mdash;</span> = selector off,
+      <span class="r">nonzero</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+    <div id="bit-view" class="bit-view"></div>
+    <div class="trace-wrapper">
+      <table id="main-table"></table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+
+let inputA = 300, inputB = 500;
+let op = 'ADD';
+// cleanTrace[i] = { a: limb, b: limb, result: limb, carry_out: 0|1 }
+let cleanTrace = [];
+let editedTrace = [];
+
+function mod(x, m) { return ((x % m) + m) % m; }
+
+function toLimbs(val) {
+  val = val >>> 0; // ensure unsigned 32-bit
+  return [
+    val & 0xFF,
+    (val >>> 8) & 0xFF,
+    (val >>> 16) & 0xFF,
+    (val >>> 24) & 0xFF
+  ];
+}
+
+function fromLimbs(limbs) {
+  return ((limbs[0] | (limbs[1] << 8) | (limbs[2] << 16) | (limbs[3] << 24)) >>> 0);
+}
+
+function toHex32(val) {
+  return '0x' + (val >>> 0).toString(16).toUpperCase().padStart(8, '0');
+}
+
+function getOp() {
+  const radios = document.getElementsByName('op');
+  for (const r of radios) {
+    if (r.checked) return r.value;
+  }
+  return 'ADD';
+}
+
+function computeCleanTrace() {
+  inputA = Math.max(0, Math.min(4294967295, parseInt(document.getElementById('inp-a').value) || 0));
+  inputB = Math.max(0, Math.min(4294967295, parseInt(document.getElementById('inp-b').value) || 0));
+  op = getOp();
+
+  const aLimbs = toLimbs(inputA);
+  const bLimbs = toLimbs(inputB);
+
+  cleanTrace = [];
+  let carryIn = 0;
+
+  for (let i = 0; i < 4; i++) {
+    let sumRaw, resultLimb, carryOut;
+
+    if (op === 'ADD') {
+      // a[i] + b[i] + carry_in = result[i] + carry_out * 256
+      sumRaw = aLimbs[i] + bLimbs[i] + carryIn;
+      resultLimb = sumRaw & 0xFF;
+      carryOut = (sumRaw >> 8) & 1;
+    } else {
+      // SUB: result[i] + b[i] + borrow_in = a[i] + borrow_out * 256
+      // => result[i] = a[i] - b[i] - borrow_in + borrow_out * 256
+      sumRaw = aLimbs[i] - bLimbs[i] - carryIn;
+      if (sumRaw < 0) {
+        carryOut = 1;
+        resultLimb = sumRaw + 256;
+      } else {
+        carryOut = 0;
+        resultLimb = sumRaw;
+      }
+    }
+
+    cleanTrace.push({
+      a: aLimbs[i],
+      b: bLimbs[i],
+      carryIn: carryIn,
+      result: resultLimb,
+      carryOut: carryOut
+    });
+
+    carryIn = carryOut;
+  }
+}
+
+function recompute() {
+  computeCleanTrace();
+  editedTrace = cleanTrace.map(r => ({ ...r }));
+  updatePV();
+  render();
+}
+
+function updatePV() {
+  const resultLimbs = editedTrace.map(r => r.result);
+  const resultVal = fromLimbs(resultLimbs);
+  document.getElementById('pv-detail').textContent =
+    `a=${inputA}, b=${inputB}, result=${resultVal}`;
+}
+
+function resetTrace() {
+  computeCleanTrace();
+  editedTrace = cleanTrace.map(r => ({ ...r }));
+  render();
+}
+
+function onResultEdit(row, value) {
+  editedTrace[row].result = mod(parseInt(value) || 0, P);
+  render();
+}
+
+function onCarryEdit(row, value) {
+  editedTrace[row].carryOut = mod(parseInt(value) || 0, P);
+  // Update carryIn for subsequent rows
+  for (let i = row + 1; i < 4; i++) {
+    editedTrace[i].carryIn = editedTrace[i - 1].carryOut;
+  }
+  render();
+}
+
+function evalConstraints(trace, row) {
+  // trace[row] = { a, b, carryIn, result, carryOut }
+  const r = trace[row];
+  const a = r.a;
+  const b = r.b;
+  const carryIn = r.carryIn;
+  const result = r.result;
+  const carryOut = r.carryOut;
+
+  const constraints = [];
+
+  if (op === 'ADD') {
+    // C(row+1): a[i] + b[i] + carry_in - result[i] - carry[i] * 256 = 0
+    const cLimb = mod(a + b + carryIn - result - carryOut * 256, P);
+    constraints.push(cLimb);
+  } else {
+    // SUB: result[i] + b[i] + borrow_in - a[i] - borrow_out * 256 = 0
+    const cLimb = mod(result + b + carryIn - a - carryOut * 256, P);
+    constraints.push(cLimb);
+  }
+
+  // C(row+5): carry boolean: carry_out * (1 - carry_out) = 0
+  const cBool = mod(carryOut * mod(1 - carryOut, P), P);
+  constraints.push(cBool);
+
+  // C9: initial carry = 0 (only for row 0)
+  let c9 = null;
+  if (row === 0) {
+    c9 = mod(carryIn, P);
+  }
+  constraints.push(c9);
+
+  return constraints;
+}
+
+function hasEdits() {
+  for (let i = 0; i < 4; i++) {
+    if (editedTrace[i].result !== cleanTrace[i].result) return true;
+    if (editedTrace[i].carryOut !== cleanTrace[i].carryOut) return true;
+  }
+  return false;
+}
+
+function updateConstraintFormulas() {
+  const opLabel = op === 'ADD' ? 'addition' : 'subtraction';
+  const cLabel = op === 'ADD' ? 'Carry' : 'Borrow';
+  const cLower = op === 'ADD' ? 'carry' : 'borrow';
+
+  for (let i = 0; i < 4; i++) {
+    document.getElementById(`c${i+1}-desc`).textContent = `Limb ${i} ${opLabel}`;
+    document.getElementById(`c${i+5}-desc`).textContent = `${cLabel} ${i} boolean`;
+    document.getElementById(`c${i+5}-formula`).innerHTML = `${cLower}[${i}] &times; (1 &minus; ${cLower}[${i}]) = 0`;
+  }
+
+  document.getElementById('c9-desc').textContent = `Initial ${cLower} is zero`;
+  document.getElementById('c9-formula').innerHTML = `${cLower}_in = 0`;
+
+  if (op === 'ADD') {
+    document.getElementById('c1-formula').innerHTML = 'a[0] + b[0] + carry_in &minus; result[0] &minus; carry[0] &times; 256 = 0';
+    document.getElementById('c2-formula').innerHTML = 'a[1] + b[1] + carry[0] &minus; result[1] &minus; carry[1] &times; 256 = 0';
+    document.getElementById('c3-formula').innerHTML = 'a[2] + b[2] + carry[1] &minus; result[2] &minus; carry[2] &times; 256 = 0';
+    document.getElementById('c4-formula').innerHTML = 'a[3] + b[3] + carry[2] &minus; result[3] &minus; carry[3] &times; 256 = 0';
+  } else {
+    document.getElementById('c1-formula').innerHTML = 'result[0] + b[0] + borrow_in &minus; a[0] &minus; borrow[0] &times; 256 = 0';
+    document.getElementById('c2-formula').innerHTML = 'result[1] + b[1] + borrow[0] &minus; a[1] &minus; borrow[1] &times; 256 = 0';
+    document.getElementById('c3-formula').innerHTML = 'result[2] + b[2] + borrow[1] &minus; a[2] &minus; borrow[2] &times; 256 = 0';
+    document.getElementById('c4-formula').innerHTML = 'result[3] + b[3] + borrow[2] &minus; a[3] &minus; borrow[3] &times; 256 = 0';
+  }
+}
+
+function render() {
+  const trace = editedTrace;
+  const edited = hasEdits();
+  const resetBtn = document.getElementById('btn-reset');
+  resetBtn.classList.toggle('has-edits', edited);
+
+  updateConstraintFormulas();
+
+  // --- 32-bit view ---
+  const aLimbs = toLimbs(inputA);
+  const bLimbs = toLimbs(inputB);
+  const resultLimbs = trace.map(r => r.result);
+  const resultVal = fromLimbs(resultLimbs);
+  const cleanResultLimbs = cleanTrace.map(r => r.result);
+  const cleanResultVal = fromLimbs(cleanResultLimbs);
+
+  updatePV();
+
+  let bitHtml = '';
+  bitHtml += `<div class="row"><span class="label">a</span><span class="dec">= ${inputA}</span><span class="hex">(${toHex32(inputA)})</span><span class="limbs">= [${aLimbs.join(', ')}]</span></div>`;
+  bitHtml += `<div class="row"><span class="label">b</span><span class="dec">= ${inputB}</span><span class="hex">(${toHex32(inputB)})</span><span class="limbs">= [${bLimbs.join(', ')}]</span></div>`;
+  const resultModified = resultVal !== cleanResultVal;
+  const resultStyle = resultModified ? ' style="color:var(--yellow)"' : '';
+  bitHtml += `<div class="row"><span class="label">result</span><span class="dec"${resultStyle}>= ${resultVal}</span><span class="hex"${resultStyle}>(${toHex32(resultVal)})</span><span class="limbs"${resultStyle}>= [${resultLimbs.join(', ')}]</span></div>`;
+  document.getElementById('bit-view').innerHTML = bitHtml;
+
+  // --- Table ---
+  const carryLabel = op === 'SUB' ? 'borrow' : 'carry';
+
+  let html = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Operands</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">${carryLabel} in</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="1">Raw sum</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Result (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="3">Constraints (= 0 if valid)</th>
+    </tr>
+    <tr>
+      <th>Limb</th>
+      <th class="col-sep"></th>
+      <th>a[i]</th><th>b[i]</th>
+      <th class="col-sep"></th>
+      <th>${carryLabel}_in</th>
+      <th class="col-sep"></th>
+      <th>sum</th>
+      <th class="col-sep"></th>
+      <th>result[i]</th><th>${carryLabel}_out</th>
+      <th class="col-sep"></th>
+      <th>C(i)</th><th>C(i+4)</th><th>C9</th>
+    </tr>
+  </thead><tbody>`;
+
+  // Evaluate all constraints across all rows
+  const allConstraints = [];
+  for (let i = 0; i < 4; i++) {
+    allConstraints.push(evalConstraints(trace, i));
+  }
+
+  for (let i = 0; i < 4; i++) {
+    const r = trace[i];
+    const [cLimb, cBool, c9] = allConstraints[i];
+
+    // Check if this row has any constraint violation
+    let hasViolation = (cLimb !== 0) || (cBool !== 0) || (i === 0 && c9 !== 0);
+
+    html += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+
+    // Limb index
+    html += `<td class="col-row">${i}</td>`;
+    html += `<td class="col-sep"></td>`;
+
+    // Operands (not editable)
+    html += `<td class="col-trace cell-readonly">${r.a}</td>`;
+    html += `<td class="col-trace cell-readonly">${r.b}</td>`;
+    html += `<td class="col-sep"></td>`;
+
+    // Carry in (derived, not editable)
+    const carryInClass = r.carryIn === 1 ? 'carry-active' : (r.carryIn === 0 ? 'carry-zero' : '');
+    html += `<td class="col-trace ${carryInClass}">${r.carryIn}</td>`;
+    html += `<td class="col-sep"></td>`;
+
+    // Raw sum (computed for display)
+    let sumRaw;
+    if (op === 'ADD') {
+      sumRaw = r.a + r.b + r.carryIn;
+    } else {
+      sumRaw = r.a - r.b - r.carryIn;
+    }
+    html += `<td class="col-trace cell-readonly">${sumRaw}</td>`;
+    html += `<td class="col-sep"></td>`;
+
+    // Result (editable)
+    const resultModified = r.result !== cleanTrace[i].result;
+    html += `<td class="col-trace"><input type="number" class="cell-input${resultModified ? ' modified' : ''}" value="${r.result}" onchange="onResultEdit(${i},this.value)"></td>`;
+
+    // Carry out (editable)
+    const carryModified = r.carryOut !== cleanTrace[i].carryOut;
+    const carryClass = (!carryModified && r.carryOut === 1) ? ' carry-active' : (!carryModified && r.carryOut === 0) ? ' carry-zero' : '';
+    const carryArrowClass = (r.carryOut !== 0 && i < 3) ? ' carry-arrow has-carry' : '';
+    html += `<td class="col-trace${carryArrowClass}"><input type="number" class="cell-input${carryModified ? ' modified' : ''}${carryClass}" value="${r.carryOut}" onchange="onCarryEdit(${i},this.value)"></td>`;
+
+    html += `<td class="col-sep"></td>`;
+
+    // C(i): limb addition/subtraction constraint for this row
+    if (cLimb === 0) {
+      html += `<td class="col-constraint c-pass">0</td>`;
+    } else {
+      html += `<td class="col-constraint c-fail">${cLimb}</td>`;
+    }
+
+    // C(i+4): carry boolean constraint for this row
+    if (cBool === 0) {
+      html += `<td class="col-constraint c-pass">0</td>`;
+    } else {
+      html += `<td class="col-constraint c-fail">${cBool}</td>`;
+    }
+
+    // C9: initial carry (only row 0)
+    if (i === 0) {
+      if (c9 === 0) {
+        html += `<td class="col-constraint c-pass">0</td>`;
+      } else {
+        html += `<td class="col-constraint c-fail">${c9}</td>`;
+      }
+    } else {
+      html += `<td class="col-constraint c-inactive">&mdash;</td>`;
+    }
+
+    html += `</tr>`;
+  }
+
+  html += '</tbody>';
+  document.getElementById('main-table').innerHTML = html;
+}
+
+// Event listeners
+document.getElementById('inp-a').addEventListener('input', recompute);
+document.getElementById('inp-b').addEventListener('input', recompute);
+for (const radio of document.getElementsByName('op')) {
+  radio.addEventListener('change', recompute);
+}
+
+recompute();
+</script>
+</body>
+</html>

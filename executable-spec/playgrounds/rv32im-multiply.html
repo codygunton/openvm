@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RV32IM Multiply</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #3d2510;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .callout {
+    background: var(--surface2);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .callout .callout-title {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 11px;
+    margin-bottom: 3px;
+  }
+
+  .callout .callout-body {
+    color: var(--text-dim);
+  }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Radio group --- */
+  .radio-group {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 8px;
+  }
+
+  .radio-group label {
+    width: auto;
+    flex: 1;
+    text-align: center;
+    font-size: 11px;
+    padding: 5px 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .radio-group label:first-child { border-radius: 4px 0 0 4px; }
+  .radio-group label:last-child { border-radius: 0 4px 4px 0; }
+
+  .radio-group input[type="radio"] { display: none; }
+
+  .radio-group input[type="radio"]:checked + label,
+  .radio-group label.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-carry { background: var(--accent-dim); color: var(--accent); }
+  .sel-range { background: var(--cyan-dim); color: var(--cyan); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section { margin-bottom: 28px; }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 4px;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+
+  .range-ok { color: var(--green); font-size: 10px; }
+  .range-fail { color: var(--red); font-weight: 700; font-size: 10px; background: var(--red-dim); }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Cross-product matrix --- */
+  .matrix-grid {
+    display: inline-grid;
+    grid-template-columns: 80px repeat(4, 80px);
+    gap: 0;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 4px;
+  }
+
+  .matrix-cell {
+    padding: 8px 6px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+
+  .matrix-cell:last-child { border-right: none; }
+
+  .matrix-header {
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .matrix-row-header {
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .matrix-value {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .diag-0 { background: rgba(108, 140, 255, 0.15); color: var(--accent); }
+  .diag-1 { background: rgba(74, 222, 128, 0.15); color: var(--green); }
+  .diag-2 { background: rgba(192, 132, 252, 0.15); color: var(--purple); }
+  .diag-3 { background: rgba(251, 146, 60, 0.15); color: var(--orange); }
+
+  /* --- 32-bit view --- */
+  .view-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 12px;
+    line-height: 2;
+  }
+
+  .view-box .lbl { color: var(--text-dim); }
+  .view-box .val { color: var(--text); font-weight: 600; }
+  .view-box .hex { color: var(--accent); }
+  .view-box .limbs { color: var(--purple); }
+
+  /* --- Diagonal legend --- */
+  .legend {
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+  }
+
+  .swatch-0 { background: rgba(108, 140, 255, 0.4); }
+  .swatch-1 { background: rgba(74, 222, 128, 0.4); }
+  .swatch-2 { background: rgba(192, 132, 252, 0.4); }
+  .swatch-3 { background: rgba(251, 146, 60, 0.4); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>RV32IM Multiply</h1>
+    <div class="intro">
+      The <strong>MultiplicationCoreAir</strong> computes the lower 32 bits of the product of two 32-bit values.
+      Each value is represented as 4 limbs of 8 bits. Multiplication uses <strong>schoolbook polynomial multiplication</strong>:
+      the product of limbs generates cross-terms that accumulate with carries.
+      The <strong>MULH</strong> variants compute the upper 32 bits with sign extension.
+    </div>
+
+    <div class="section">
+      <div class="callout">
+        <div class="callout-title">Schoolbook Multiplication</div>
+        <div class="callout-body">
+          To multiply <strong>b &times; c</strong>, compute all cross-products <strong>b[j]*c[k]</strong> and
+          accumulate at position <strong>j+k</strong>. The carry at each position propagates up.
+          This is like long multiplication in base 256.
+        </div>
+      </div>
+      <div class="callout">
+        <div class="callout-title">RangeTupleCheckerBus</div>
+        <div class="callout-body">
+          Unlike the carry-boolean check in ADD (where carry &isin; {0,1}), multiplication carries can be large
+          (up to ~4&times;255). The <strong>(a[i], carry[i])</strong> pair is range-checked as a <strong>tuple</strong>
+          in a single bus interaction.
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>b (rs1)</label>
+        <input type="number" id="inp-b" value="12345" min="0">
+      </div>
+      <div class="control-row">
+        <label>c (rs2)</label>
+        <input type="number" id="inp-c" value="6789" min="0">
+      </div>
+      <div class="control-row" style="margin-bottom:4px;">
+        <label>Mode</label>
+      </div>
+      <div class="radio-group" id="mode-group">
+        <input type="radio" name="mode" id="mode-mul" value="MUL" checked>
+        <label for="mode-mul" class="active">MUL</label>
+        <input type="radio" name="mode" id="mode-mulh" value="MULH">
+        <label for="mode-mulh">MULH</label>
+        <input type="radio" name="mode" id="mode-mulhu" value="MULHU">
+        <label for="mode-mulhu">MULHU</label>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+        MUL = lower 32 bits. MULH = upper 32 (signed). MULHU = upper 32 (unsigned).
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetTrace()">Reset to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">MUL core cols</span><span class="val">13 (a[4]+b[4]+c[4]+is_valid)</span></div>
+      <div class="stat-row"><span class="label">MULH core cols</span><span class="val">19 (+a_mul[4]+b_ext+c_ext+3 flags)</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val dynamic" id="stat-constraints">4 carry + 4 range</span></div>
+      <div class="stat-row"><span class="label">Bus</span><span class="val">RangeTupleCheckerBus&lt;2&gt;</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Carry equation limb 0</span>
+          <span class="c-formula">carry[0] = (b[0]*c[0] &minus; a[0]) / 256</span>
+          <span class="c-sel sel-carry">carry</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Carry equation limb 1</span>
+          <span class="c-formula">carry[1] = (b[0]*c[1] + b[1]*c[0] + carry[0] &minus; a[1]) / 256</span>
+          <span class="c-sel sel-carry">carry</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Carry equation limb 2</span>
+          <span class="c-formula">carry[2] = (b[0]*c[2] + b[1]*c[1] + b[2]*c[0] + carry[1] &minus; a[2]) / 256</span>
+          <span class="c-sel sel-carry">carry</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">Carry equation limb 3</span>
+          <span class="c-formula">carry[3] = (b[0]*c[3] + b[1]*c[2] + b[2]*c[1] + b[3]*c[0] + carry[2] &minus; a[3]) / 256</span>
+          <span class="c-sel sel-carry">carry</span>
+        </li>
+        <li>
+          <span class="c-id">C5&ndash;C8</span> <span class="c-desc">Tuple range checks</span>
+          <span class="c-formula">(a[i], carry[i]) sent to RangeTupleCheckerBus</span>
+          <span class="c-sel sel-range">range</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Section: Cross-Product Matrix -->
+    <div class="main-section">
+      <h2>Cross-Product Matrix</h2>
+      <div class="hint">
+        Each cell shows <strong>b[j] &times; c[k]</strong>.
+        Diagonal colors show which products contribute to each result limb a[i].
+      </div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch swatch-0"></div> <span>a[0]: j+k=0</span></div>
+        <div class="legend-item"><div class="legend-swatch swatch-1"></div> <span>a[1]: j+k=1</span></div>
+        <div class="legend-item"><div class="legend-swatch swatch-2"></div> <span>a[2]: j+k=2</span></div>
+        <div class="legend-item"><div class="legend-swatch swatch-3"></div> <span>a[3]: j+k=3</span></div>
+      </div>
+      <div id="matrix-container"></div>
+    </div>
+
+    <!-- Section: Carry Propagation -->
+    <div class="main-section">
+      <h2>Carry Propagation</h2>
+      <div class="hint">
+        Edit <span style="color:var(--text)">a[i]</span> and <span style="color:var(--text)">carry[i]</span> to see which constraints break.
+        <span class="g">0</span> = satisfied,
+        <span class="r">nonzero</span> = violated.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+        Range checks verify 0 &le; a[i] &lt; 256 and 0 &le; carry[i] &lt; max_carry.
+      </div>
+      <div class="trace-wrapper">
+        <table id="carry-table"></table>
+      </div>
+    </div>
+
+    <!-- Section: 32-bit View -->
+    <div class="main-section">
+      <h2>32-bit View</h2>
+      <div id="view-32bit" class="view-box"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const P = 2013265921;
+
+function mod(x, m) { return ((x % m) + m) % m; }
+
+function toHex32(v) {
+  return '0x' + ('00000000' + (v >>> 0).toString(16)).slice(-8);
+}
+
+function toLimbs(val) {
+  // Decompose a 32-bit unsigned value into 4 little-endian bytes
+  const v = val >>> 0;
+  return [v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF];
+}
+
+function fromLimbs(limbs) {
+  return ((limbs[3] << 24) | (limbs[2] << 16) | (limbs[1] << 8) | limbs[0]) >>> 0;
+}
+
+function toSigned32(v) {
+  v = v >>> 0;
+  return v >= 0x80000000 ? v - 0x100000000 : v;
+}
+
+function getMode() {
+  for (const r of document.querySelectorAll('input[name="mode"]')) {
+    if (r.checked) return r.value;
+  }
+  return 'MUL';
+}
+
+// State
+let bVal = 12345, cVal = 6789;
+let b_limbs = [], c_limbs = [];
+let clean_a = [], clean_carry = [];
+let edited_a = [], edited_carry = [];
+
+function computeMul(bl, cl) {
+  const a = [0, 0, 0, 0];
+  const carry = [0, 0, 0, 0];
+  for (let i = 0; i < 4; i++) {
+    let sum = (i > 0 ? carry[i - 1] : 0);
+    for (let k = 0; k <= i; k++) {
+      sum += bl[k] * cl[i - k];
+    }
+    a[i] = sum % 256;
+    carry[i] = Math.floor(sum / 256);
+  }
+  return { a, carry };
+}
+
+function computeAll() {
+  bVal = parseInt(document.getElementById('inp-b').value) || 0;
+  cVal = parseInt(document.getElementById('inp-c').value) || 0;
+  const mode = getMode();
+
+  // Clamp to 32-bit
+  let bU32 = bVal >>> 0;
+  let cU32 = cVal >>> 0;
+
+  b_limbs = toLimbs(bU32);
+  c_limbs = toLimbs(cU32);
+
+  if (mode === 'MUL') {
+    // Lower 32 bits of b * c
+    const result = computeMul(b_limbs, c_limbs);
+    clean_a = result.a;
+    clean_carry = result.carry;
+  } else if (mode === 'MULHU') {
+    // Upper 32 bits unsigned: compute full 64-bit product
+    // Use BigInt for full precision
+    const full = BigInt(bU32) * BigInt(cU32);
+    const upper = Number((full >> 32n) & 0xFFFFFFFFn);
+    // For upper 32: we need the carries to propagate from the lower half
+    // The "a" output is the upper 32 bits
+    // We compute by doing the full schoolbook on 8 limbs, taking positions 4-7
+    const fullResult = computeFullProduct(b_limbs, c_limbs);
+    clean_a = fullResult.a_upper;
+    clean_carry = fullResult.carry_upper;
+  } else {
+    // MULH: upper 32 bits signed
+    const bSigned = toSigned32(bU32);
+    const cSigned = toSigned32(cU32);
+    const full = BigInt(bSigned) * BigInt(cSigned);
+    const upper = Number((full >> 32n) & 0xFFFFFFFFn);
+    // Sign-extend and compute
+    const b_ext = (bU32 & 0x80000000) ? 0xFF : 0x00;
+    const c_ext = (cU32 & 0x80000000) ? 0xFF : 0x00;
+    // Extend to 8 limbs with sign extension
+    const bl8 = [...b_limbs, b_ext, b_ext, b_ext, b_ext];
+    const cl8 = [...c_limbs, c_ext, c_ext, c_ext, c_ext];
+    const fullResult = computeFullProductExtended(bl8, cl8);
+    clean_a = fullResult.a_upper;
+    clean_carry = fullResult.carry_upper;
+  }
+
+  edited_a = [...clean_a];
+  edited_carry = [...clean_carry];
+}
+
+function computeFullProduct(bl, cl) {
+  // Full 8-position schoolbook to get upper 4 limbs
+  // Positions 0..7 from 4x4 limb multiplication
+  // But positions 4..6 involve cross-terms outside the lower 4
+  // For upper half, accumulate from position 4 onwards
+  const sums = [0, 0, 0, 0, 0, 0, 0, 0];
+  for (let j = 0; j < 4; j++) {
+    for (let k = 0; k < 4; k++) {
+      sums[j + k] += bl[j] * cl[k];
+    }
+  }
+  // Propagate carries through all 8 positions
+  const a_full = [];
+  const carry_full = [];
+  let carry = 0;
+  for (let i = 0; i < 8; i++) {
+    const total = sums[i] + carry;
+    a_full.push(total % 256);
+    carry = Math.floor(total / 256);
+    carry_full.push(carry);
+  }
+  // Upper 4 limbs and their carries
+  // For the AIR, the upper carry propagation starts from carry[3] of the lower half
+  const a_upper = a_full.slice(4);
+  const carry_upper = carry_full.slice(4);
+  return { a_upper, carry_upper, a_lower: a_full.slice(0, 4), carry_lower: carry_full.slice(0, 4) };
+}
+
+function computeFullProductExtended(bl8, cl8) {
+  // Full schoolbook on sign-extended 8-limb values
+  const sums = new Array(16).fill(0);
+  for (let j = 0; j < 8; j++) {
+    for (let k = 0; k < 8; k++) {
+      sums[j + k] += bl8[j] * cl8[k];
+    }
+  }
+  let carry = 0;
+  const a_full = [];
+  const carry_full = [];
+  for (let i = 0; i < 16; i++) {
+    const total = sums[i] + carry;
+    a_full.push(((total % 256) + 256) % 256);
+    carry = Math.floor(total / 256);
+    carry_full.push(carry);
+  }
+  const a_upper = a_full.slice(4, 8);
+  const carry_upper = carry_full.slice(4, 8);
+  return { a_upper, carry_upper };
+}
+
+function crossSum(i, bl, cl) {
+  let sum = 0;
+  for (let k = 0; k <= i; k++) {
+    if (k < 4 && (i - k) < 4) {
+      sum += bl[k] * cl[i - k];
+    }
+  }
+  return sum;
+}
+
+function evalConstraint(i, a, carry, bl, cl) {
+  // Constraint: sum_of_cross_terms + carry_in - a[i] - carry[i]*256 = 0 (mod P)
+  let sum = crossSum(i, bl, cl);
+  if (i > 0) sum += carry[i - 1];
+  return mod(sum - a[i] - carry[i] * 256, P);
+}
+
+function maxCarry(i) {
+  // Maximum carry value for limb i
+  // At position i, max cross-sum is (i+1)*255*255, plus max carry_in
+  // For position 0: 255*255 = 65025, max carry = floor(65025/256) = 254
+  // For position 1: 2*65025 + 254 = 130304, max carry = 508
+  // For position 2: 3*65025 + 508 = 195583, max carry = 763
+  // For position 3: 4*65025 + 763 = 260863, max carry = 1019
+  // General: bounded by (i+1)*255*255 + carry_in <= (i+1)*65025 + prev_max
+  const maxes = [254, 508, 763, 1019];
+  return maxes[i];
+}
+
+function hasEdits() {
+  for (let i = 0; i < 4; i++) {
+    if (edited_a[i] !== clean_a[i]) return true;
+    if (edited_carry[i] !== clean_carry[i]) return true;
+  }
+  return false;
+}
+
+function onCellEditA(i, value) {
+  edited_a[i] = parseInt(value) || 0;
+  render();
+}
+
+function onCellEditCarry(i, value) {
+  edited_carry[i] = parseInt(value) || 0;
+  render();
+}
+
+function resetTrace() {
+  computeAll();
+  render();
+}
+
+function recompute() {
+  computeAll();
+  render();
+}
+
+function renderMatrix() {
+  let html = '<div class="matrix-grid">';
+  // Header row
+  html += '<div class="matrix-cell matrix-header"></div>';
+  for (let k = 0; k < 4; k++) {
+    html += `<div class="matrix-cell matrix-header">c[${k}]=${c_limbs[k]}</div>`;
+  }
+  // Data rows
+  for (let j = 0; j < 4; j++) {
+    html += `<div class="matrix-cell matrix-row-header">b[${j}]=${b_limbs[j]}</div>`;
+    for (let k = 0; k < 4; k++) {
+      const product = b_limbs[j] * c_limbs[k];
+      const diagIdx = j + k;
+      const diagClass = diagIdx < 4 ? `diag-${diagIdx}` : '';
+      html += `<div class="matrix-cell matrix-value ${diagClass}">${product}</div>`;
+    }
+  }
+  html += '</div>';
+  document.getElementById('matrix-container').innerHTML = html;
+}
+
+function renderCarryTable() {
+  const mode = getMode();
+  const bl = b_limbs;
+  const cl = c_limbs;
+  const edited = hasEdits();
+
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  let html = `<thead>
+    <tr>
+      <th class="group-header"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="3">Accumulation</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Trace (editable)</th>
+      <th class="col-sep"></th>
+      <th class="group-header">Constraint</th>
+      <th class="group-header">Range</th>
+    </tr>
+    <tr>
+      <th>Limb</th>
+      <th class="col-sep"></th>
+      <th>Cross-sum</th>
+      <th>+ carry_in</th>
+      <th>Total</th>
+      <th class="col-sep"></th>
+      <th>a[i]</th>
+      <th>carry[i]</th>
+      <th class="col-sep"></th>
+      <th>C(i+1)</th>
+      <th>Check</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < 4; i++) {
+    const cs = crossSum(i, bl, cl);
+    const carryIn = i > 0 ? edited_carry[i - 1] : 0;
+    const total = cs + carryIn;
+    const cval = evalConstraint(i, edited_a, edited_carry, bl, cl);
+    const aModified = edited_a[i] !== clean_a[i];
+    const carryModified = edited_carry[i] !== clean_carry[i];
+    const aInRange = edited_a[i] >= 0 && edited_a[i] < 256;
+    const carryInRange = edited_carry[i] >= 0 && edited_carry[i] <= maxCarry(i);
+    const rangeOk = aInRange && carryInRange;
+    const rowHasError = cval !== 0 || !rangeOk;
+
+    // Build cross-sum detail string
+    let csDetail = '';
+    const terms = [];
+    for (let k = 0; k <= i; k++) {
+      if (k < 4 && (i - k) < 4) {
+        terms.push(`${bl[k]}*${cl[i - k]}`);
+      }
+    }
+    csDetail = terms.join('+');
+
+    html += `<tr${rowHasError ? ' class="affected-row"' : ''}>`;
+    html += `<td class="col-row">${i}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td style="font-size:11px;color:var(--text-dim);text-align:left;">${csDetail} = ${cs}</td>`;
+    html += `<td>${carryIn}</td>`;
+    html += `<td style="font-weight:600;">${total}</td>`;
+    html += `<td class="col-sep"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${aModified ? ' modified' : ''}" value="${edited_a[i]}" onchange="onCellEditA(${i},this.value)"></td>`;
+    html += `<td class="col-trace"><input type="number" class="cell-input${carryModified ? ' modified' : ''}" value="${edited_carry[i]}" onchange="onCellEditCarry(${i},this.value)"></td>`;
+    html += `<td class="col-sep"></td>`;
+    if (cval === 0) {
+      html += `<td class="c-pass">0</td>`;
+    } else {
+      html += `<td class="c-fail">${cval}</td>`;
+    }
+    if (rangeOk) {
+      html += `<td class="range-ok">ok</td>`;
+    } else {
+      let reason = '';
+      if (!aInRange) reason += `a[${i}]`;
+      if (!carryInRange) reason += (reason ? ',' : '') + `c[${i}]`;
+      html += `<td class="range-fail">fail (${reason})</td>`;
+    }
+    html += `</tr>`;
+  }
+
+  html += '</tbody>';
+  document.getElementById('carry-table').innerHTML = html;
+}
+
+function render32BitView() {
+  const mode = getMode();
+  let bU32 = bVal >>> 0;
+  let cU32 = cVal >>> 0;
+
+  let html = '';
+  html += `<span class="lbl">b (rs1) = </span><span class="val">${toSigned32(bU32)}</span> <span class="hex">(${toHex32(bU32)})</span> <span class="limbs">= [${b_limbs.join(', ')}]</span><br>`;
+  html += `<span class="lbl">c (rs2) = </span><span class="val">${toSigned32(cU32)}</span> <span class="hex">(${toHex32(cU32)})</span> <span class="limbs">= [${c_limbs.join(', ')}]</span><br>`;
+
+  if (mode === 'MUL') {
+    const resultU32 = fromLimbs(edited_a);
+    const fullBig = BigInt(bU32) * BigInt(cU32);
+    const lower32 = Number(fullBig & 0xFFFFFFFFn);
+    html += `<span class="lbl">result  = </span><span class="val">${toSigned32(resultU32)}</span> <span class="hex">(${toHex32(resultU32)})</span> <span class="limbs">= [${edited_a.join(', ')}]</span><br>`;
+    html += `<br><span class="lbl">full product: </span><span class="val">${bU32} &times; ${cU32} = ${fullBig.toString()}</span><br>`;
+    html += `<span class="lbl">lower 32 bits = </span><span class="val">${lower32}</span> <span class="hex">(${toHex32(lower32)})</span>`;
+  } else if (mode === 'MULHU') {
+    const resultU32 = fromLimbs(edited_a);
+    const fullBig = BigInt(bU32) * BigInt(cU32);
+    const upper32 = Number((fullBig >> 32n) & 0xFFFFFFFFn);
+    const lower32 = Number(fullBig & 0xFFFFFFFFn);
+    html += `<span class="lbl">result  = </span><span class="val">${resultU32}</span> <span class="hex">(${toHex32(resultU32)})</span> <span class="limbs">= [${edited_a.join(', ')}]</span><br>`;
+    html += `<br><span class="lbl">full product: </span><span class="val">${bU32} &times; ${cU32} = ${fullBig.toString()}</span><br>`;
+    html += `<span class="lbl">lower 32 bits = </span><span class="val">${lower32}</span> <span class="hex">(${toHex32(lower32)})</span><br>`;
+    html += `<span class="lbl">upper 32 bits = </span><span class="val">${upper32}</span> <span class="hex">(${toHex32(upper32)})</span>`;
+  } else {
+    // MULH signed
+    const resultU32 = fromLimbs(edited_a);
+    const bSigned = toSigned32(bU32);
+    const cSigned = toSigned32(cU32);
+    const fullBig = BigInt(bSigned) * BigInt(cSigned);
+    const lower32 = Number(fullBig & 0xFFFFFFFFn);
+    const upper32 = Number((fullBig >> 32n) & 0xFFFFFFFFn);
+    html += `<span class="lbl">result  = </span><span class="val">${toSigned32(resultU32)}</span> <span class="hex">(${toHex32(resultU32)})</span> <span class="limbs">= [${edited_a.join(', ')}]</span><br>`;
+    html += `<br><span class="lbl">full product (signed): </span><span class="val">${bSigned} &times; ${cSigned} = ${fullBig.toString()}</span><br>`;
+    html += `<span class="lbl">lower 32 bits = </span><span class="val">${lower32 >>> 0}</span> <span class="hex">(${toHex32(lower32)})</span><br>`;
+    html += `<span class="lbl">upper 32 bits = </span><span class="val">${toSigned32(upper32)}</span> <span class="hex">(${toHex32(upper32)})</span>`;
+  }
+
+  document.getElementById('view-32bit').innerHTML = html;
+}
+
+function render() {
+  renderMatrix();
+  renderCarryTable();
+  render32BitView();
+}
+
+// Event listeners
+document.getElementById('inp-b').addEventListener('input', recompute);
+document.getElementById('inp-c').addEventListener('input', recompute);
+
+document.querySelectorAll('input[name="mode"]').forEach(r => {
+  r.addEventListener('change', function() {
+    // Update active label styling
+    document.querySelectorAll('.radio-group label').forEach(l => l.classList.remove('active'));
+    if (this.checked) {
+      this.nextElementSibling.classList.add('active');
+    }
+    recompute();
+  });
+});
+
+// Initialize
+recompute();
+</script>
+</body>
+</html>

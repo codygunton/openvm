@@ -442,10 +442,17 @@
     </div>
 
     <div class="section">
+      <div class="section-title">AIR Structure (2 AIRs)</div>
+      <div class="stat-row"><span class="label">Sender trace columns</span><span class="val">1 (val)</span></div>
+      <div class="stat-row"><span class="label">Checker trace columns</span><span class="val">1 (mult)</span></div>
+      <div class="stat-row"><span class="label">Preprocessed columns</span><span class="val">1 (counter, checker only)</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">0 polynomial (bus balance only)</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val">2 (1 send + 1 receive)</span></div>
+    </div>
+
+    <div class="section">
       <div class="section-title">Sender AIR <span class="badge badge-send">sends</span></div>
-      <div class="stat-row"><span class="label">Preprocessed</span><span class="val">none</span></div>
       <div class="stat-row"><span class="label">Main trace</span><span class="val">1 col (val)</span></div>
-      <div class="stat-row"><span class="label">Poly constraints</span><span class="val">none</span></div>
       <div class="stat-row"><span class="label">Interaction</span><span class="val">send(val), count=1</span></div>
       <div class="stat-row"><span class="label">Enforced by</span><span class="val" style="color:var(--purple)">bus balance</span></div>
     </div>
@@ -454,7 +461,6 @@
       <div class="section-title">Checker AIR <span class="badge badge-recv">receives</span> <span class="badge badge-prep">preprocessed</span></div>
       <div class="stat-row"><span class="label">Preprocessed</span><span class="val">1 col (counter)</span></div>
       <div class="stat-row"><span class="label">Main trace</span><span class="val">1 col (mult)</span></div>
-      <div class="stat-row"><span class="label">Poly constraints</span><span class="val">none</span></div>
       <div class="stat-row"><span class="label">Interaction</span><span class="val">recv(counter), count=mult</span></div>
       <div class="stat-row"><span class="label">Enforced by</span><span class="val" style="color:var(--purple)">bus balance</span></div>
     </div>

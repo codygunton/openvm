@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Execution Chain</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --purple-dim: #2d1a4e;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .concept {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+
+  .concept-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .concept p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .concept strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-exec { background: var(--accent-dim); color: var(--accent); }
+  .sel-prog { background: var(--yellow-dim); color: var(--yellow); }
+  .sel-conn { background: var(--purple-dim); color: var(--purple); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  .main-section {
+    margin-bottom: 32px;
+  }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .cell-select {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    border-radius: 3px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+
+  .cell-select:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-select.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  /* --- Chain visualization --- */
+  .chain-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    padding: 16px 0;
+    margin-bottom: 20px;
+  }
+
+  .chain-box {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 150px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .chain-box.connector { border-color: var(--purple); }
+  .chain-box.instruction { border-color: var(--accent); }
+
+  .chain-box .box-title {
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+
+  .chain-box.connector .box-title { color: var(--purple); }
+  .chain-box.instruction .box-title { color: var(--accent); }
+
+  .chain-box .box-recv {
+    font-size: 10px;
+    color: var(--orange);
+    margin-bottom: 3px;
+  }
+
+  .chain-box .box-send {
+    font-size: 10px;
+    color: var(--green);
+  }
+
+  .chain-arrow {
+    font-size: 20px;
+    color: var(--green);
+    padding: 0 6px;
+    flex-shrink: 0;
+    font-weight: 700;
+  }
+
+  .chain-arrow.broken { color: var(--red); }
+
+  /* --- Badges --- */
+  .badge-exec { background: var(--accent-dim); color: var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-prog { background: var(--yellow-dim); color: var(--yellow); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-send { background: var(--green-dim); color: var(--green); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+
+  .match-ok { color: var(--green); }
+  .match-fail { color: var(--red); font-weight: 700; }
+
+  .balance-ok {
+    color: var(--green);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--green-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  .balance-fail {
+    color: var(--red);
+    font-weight: 600;
+    padding: 8px;
+    background: var(--red-dim);
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Execution Chain</h1>
+    <div class="intro">
+      A program in OpenVM is a chain of execution states connected by the <strong>execution bus</strong>.
+      Each instruction chip receives the current state <strong>(pc, timestamp)</strong> and sends the next state.
+      The <strong>VmConnectorAir</strong> closes the cycle.
+      The <strong>program bus</strong> verifies that each instruction matches the committed program ROM.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Key Concepts</div>
+
+      <div class="concept">
+        <div class="concept-title">New: Execution Bus Cycle</div>
+        <p>
+          The execution bus is a <strong>permutation-check bus</strong>. Every <strong>(pc, ts)</strong> tuple
+          that is sent must be received exactly once. Instruction chips receive <strong>(from_pc, from_ts)</strong>
+          and send <strong>(to_pc, to_ts)</strong>. The <strong>VmConnectorAir</strong> closes the cycle by
+          connecting the last instruction's output back to the system.
+        </p>
+      </div>
+
+      <div class="concept">
+        <div class="concept-title">New: Program Bus (Lookup)</div>
+        <p>
+          The program bus is a <strong>lookup bus</strong>. The ProgramAir publishes all instruction tuples
+          from the ROM. Each instruction chip looks up its <strong>(pc, opcode, operands)</strong> to verify
+          it is executing the correct instruction at the correct PC.
+        </p>
+      </div>
+
+      <div class="concept">
+        <div class="concept-title">New: VmConnectorAir</div>
+        <p>
+          A tiny 2-row AIR that bootstraps and closes the chain.
+          <strong>Row 0:</strong> sends <strong>(initial_pc, 1)</strong> to start execution.
+          <strong>Row 1:</strong> receives <strong>(final_pc, final_ts)</strong> when the TERMINATE instruction runs.
+        </p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>Program</label>
+        <select id="inp-preset" onchange="loadPreset()">
+          <option value="simple" selected>Simple (3 instr)</option>
+          <option value="branch">Sequential (4 instr)</option>
+          <option value="loop">Longer (5 instr)</option>
+        </select>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Trace columns</span><span class="val">6 (pc, opcode, operands, ts_start, ts_end, is_term)</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">4</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val dynamic" id="stat-exec">8</span></div>
+      <div class="stat-row"><span class="label">Program bus lookups</span><span class="val dynamic" id="stat-prog">3</span></div>
+      <div class="stat-row"><span class="label">Instruction count</span><span class="val dynamic" id="stat-instr">3</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Execution bus balance</span>
+          <span class="c-formula">all sends multiset-equal all receives</span>
+          <span class="c-sel sel-exec">exec bus</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Program bus lookup</span>
+          <span class="c-formula">each instruction's (pc, opcode) exists in ROM</span>
+          <span class="c-sel sel-prog">program bus</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Connector: initial state</span>
+          <span class="c-formula">initial_pc = 0, initial_ts = 1</span>
+          <span class="c-sel sel-conn">connector</span>
+        </li>
+        <li>
+          <span class="c-id">C4</span> <span class="c-desc">Connector: final instruction</span>
+          <span class="c-formula">last instruction is TERMINATE</span>
+          <span class="c-sel sel-conn">connector</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Section 1: Program ROM -->
+    <div class="main-section">
+      <h2>Program ROM</h2>
+      <div class="hint">
+        Edit PCs and opcodes in the ROM to break program bus lookups.
+        Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+      </div>
+      <div class="trace-wrapper">
+        <table id="rom-table"></table>
+      </div>
+    </div>
+
+    <!-- Section 2: Execution Chain -->
+    <div class="main-section">
+      <h2>Execution Chain</h2>
+      <div class="hint">
+        The chain of <span class="g">(pc, ts)</span> states flowing through instruction chips.
+        Each instruction consumes 3 timestamps (2 reads + 1 write).
+        <span class="g">Green arrows</span> = matched send/receive.
+        <span class="r">Red arrows</span> = mismatch.
+      </div>
+      <div class="chain-flow" id="chain-flow"></div>
+    </div>
+
+    <!-- Section 3: Execution Bus Ledger -->
+    <div class="main-section">
+      <h2>Execution Bus Ledger</h2>
+      <div class="hint">
+        Every send must be matched by exactly one receive.
+        <span class="g">Matched</span> = valid,
+        <span class="r">Unmatched</span> = constraint violated.
+      </div>
+      <div class="trace-wrapper">
+        <table id="exec-bus-table"></table>
+      </div>
+      <div id="exec-bus-balance"></div>
+    </div>
+
+    <!-- Section 4: Program Bus Lookups -->
+    <div class="main-section">
+      <h2>Program Bus Lookups</h2>
+      <div class="hint">
+        Each executing instruction must match an entry in the ROM.
+        <span class="g">Found</span> = valid,
+        <span class="r">Not found</span> = constraint violated.
+      </div>
+      <div class="trace-wrapper">
+        <table id="prog-bus-table"></table>
+      </div>
+      <div id="prog-bus-balance"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// Presets
+// ============================================================
+const PRESETS = {
+  simple: [
+    { pc: 0,  opcode: 'ADD',       operands: 'rd=1, rs1=2, rs2=3' },
+    { pc: 4,  opcode: 'SUB',       operands: 'rd=4, rs1=1, rs2=3' },
+    { pc: 8,  opcode: 'TERMINATE', operands: '\u2014' },
+  ],
+  branch: [
+    { pc: 0,  opcode: 'ADD',       operands: 'rd=1, rs1=2, rs2=3' },
+    { pc: 4,  opcode: 'ADD',       operands: 'rd=2, rs1=1, rs2=3' },
+    { pc: 8,  opcode: 'ADD',       operands: 'rd=3, rs1=2, rs2=1' },
+    { pc: 12, opcode: 'TERMINATE', operands: '\u2014' },
+  ],
+  loop: [
+    { pc: 0,  opcode: 'ADD',       operands: 'rd=1, rs1=1, rs2=2' },
+    { pc: 4,  opcode: 'ADD',       operands: 'rd=2, rs1=2, rs2=1' },
+    { pc: 8,  opcode: 'SUB',       operands: 'rd=3, rs1=3, rs2=4' },
+    { pc: 12, opcode: 'ADD',       operands: 'rd=4, rs1=1, rs2=2' },
+    { pc: 16, opcode: 'TERMINATE', operands: '\u2014' },
+  ],
+};
+
+const OPCODES = ['ADD', 'SUB', 'TERMINATE'];
+
+// ============================================================
+// State
+// ============================================================
+let cleanROM = [];   // Original ROM from preset
+let rom = [];        // Editable ROM: [{pc, opcode, operands}]
+let chain = [];      // Derived execution chain
+
+// ============================================================
+// Core logic
+// ============================================================
+function computeChain(program) {
+  let ts = 1;
+  const result = [];
+  for (let i = 0; i < program.length; i++) {
+    const instr = program[i];
+    const next_pc = (instr.opcode === 'TERMINATE') ? 0 : instr.pc + 4;
+    const next_ts = ts + 3;
+    result.push({
+      pc: instr.pc,
+      ts: ts,
+      opcode: instr.opcode,
+      operands: instr.operands,
+      next_pc: next_pc,
+      next_ts: next_ts,
+    });
+    ts = next_ts;
+  }
+  return result;
+}
+
+function getExecBusEntries(ch) {
+  // Connector Row 0: send (0, 1)
+  const entries = [];
+  entries.push({ source: 'Connector R0', dir: 'send', pc: 0, ts: 1 });
+
+  for (const step of ch) {
+    entries.push({ source: `${step.opcode} (PC=${step.pc})`, dir: 'receive', pc: step.pc, ts: step.ts });
+    entries.push({ source: `${step.opcode} (PC=${step.pc})`, dir: 'send', pc: step.next_pc, ts: step.next_ts });
+  }
+
+  // Connector Row 1: receive final
+  const last = ch[ch.length - 1];
+  entries.push({ source: 'Connector R1', dir: 'receive', pc: last.next_pc, ts: last.next_ts });
+
+  return entries;
+}
+
+function matchExecBus(entries) {
+  // For each entry, find its matching counterpart
+  const matched = entries.map(() => null);
+
+  for (let i = 0; i < entries.length; i++) {
+    if (matched[i] !== null) continue;
+    const e = entries[i];
+    for (let j = 0; j < entries.length; j++) {
+      if (i === j || matched[j] !== null) continue;
+      const f = entries[j];
+      if (e.dir !== f.dir && e.pc === f.pc && e.ts === f.ts) {
+        matched[i] = j;
+        matched[j] = i;
+        break;
+      }
+    }
+  }
+  return matched;
+}
+
+function checkProgramBus(ch, romEntries) {
+  // For each instruction in chain, check if (pc, opcode) exists in ROM
+  return ch.map(step => {
+    return romEntries.some(r => r.pc === step.pc && r.opcode === step.opcode);
+  });
+}
+
+// ============================================================
+// Preset loading & reset
+// ============================================================
+function loadPreset() {
+  const key = document.getElementById('inp-preset').value;
+  cleanROM = PRESETS[key].map(r => ({ ...r }));
+  rom = PRESETS[key].map(r => ({ ...r }));
+  chain = computeChain(rom);
+  renderAll();
+}
+
+function resetAll() {
+  rom = cleanROM.map(r => ({ ...r }));
+  chain = computeChain(rom);
+  renderAll();
+}
+
+// ============================================================
+// Edit handlers
+// ============================================================
+function onRomPcEdit(idx, value) {
+  rom[idx].pc = parseInt(value) || 0;
+  chain = computeChain(rom);
+  renderAll();
+}
+
+function onRomOpcodeEdit(idx, value) {
+  rom[idx].opcode = value;
+  // Update operands display for TERMINATE
+  if (value === 'TERMINATE') {
+    rom[idx].operands = '\u2014';
+  } else if (cleanROM[idx] && cleanROM[idx].opcode === value) {
+    rom[idx].operands = cleanROM[idx].operands;
+  } else {
+    rom[idx].operands = 'rd=?, rs1=?, rs2=?';
+  }
+  chain = computeChain(rom);
+  renderAll();
+}
+
+// ============================================================
+// Has edits?
+// ============================================================
+function hasEdits() {
+  if (rom.length !== cleanROM.length) return true;
+  for (let i = 0; i < rom.length; i++) {
+    if (rom[i].pc !== cleanROM[i].pc || rom[i].opcode !== cleanROM[i].opcode) return true;
+  }
+  return false;
+}
+
+// ============================================================
+// Render all sections
+// ============================================================
+function renderAll() {
+  const edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  // Update stats
+  document.getElementById('stat-instr').textContent = rom.length;
+  document.getElementById('stat-exec').textContent = (rom.length * 2) + 2;
+  document.getElementById('stat-prog').textContent = rom.length;
+
+  renderROM();
+  renderChain();
+  renderExecBus();
+  renderProgBus();
+}
+
+// ============================================================
+// Render: Program ROM
+// ============================================================
+function renderROM() {
+  const lookupCounts = {};
+  for (const step of chain) {
+    const key = step.pc + ':' + step.opcode;
+    lookupCounts[key] = (lookupCounts[key] || 0) + 1;
+  }
+
+  let html = `<thead><tr>
+    <th>PC</th><th>Opcode</th><th>Operands</th><th>Lookup Count</th>
+  </tr></thead><tbody>`;
+
+  for (let i = 0; i < rom.length; i++) {
+    const r = rom[i];
+    const pcMod = cleanROM[i] && r.pc !== cleanROM[i].pc;
+    const opMod = cleanROM[i] && r.opcode !== cleanROM[i].opcode;
+    const key = r.pc + ':' + r.opcode;
+    const count = lookupCounts[key] || 0;
+
+    // Check if this ROM entry is looked up by any chain instruction
+    const isLookedUp = chain.some(s => s.pc === r.pc && s.opcode === r.opcode);
+
+    html += '<tr>';
+    html += `<td><input type="number" class="cell-input${pcMod ? ' modified' : ''}" value="${r.pc}" onchange="onRomPcEdit(${i}, this.value)" style="width:60px"></td>`;
+    html += `<td><select class="cell-select${opMod ? ' modified' : ''}" onchange="onRomOpcodeEdit(${i}, this.value)">`;
+    for (const op of OPCODES) {
+      html += `<option value="${op}"${op === r.opcode ? ' selected' : ''}>${op}</option>`;
+    }
+    html += `</select></td>`;
+    html += `<td style="color:var(--text-dim); font-size:11px">${r.operands}</td>`;
+    html += `<td class="${isLookedUp ? 'c-pass' : 'c-fail'}">${count}</td>`;
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('rom-table').innerHTML = html;
+}
+
+// ============================================================
+// Render: Execution Chain visualization
+// ============================================================
+function renderChain() {
+  const entries = getExecBusEntries(chain);
+  const matched = matchExecBus(entries);
+  const container = document.getElementById('chain-flow');
+  let html = '';
+
+  // Connector R0 (send)
+  const connSendMatched = matched[0] !== null;
+  html += `<div class="chain-box connector">
+    <div class="box-title">VmConnector</div>
+    <div class="box-send"><span class="badge-send">send</span> (0, 1)</div>
+  </div>`;
+
+  // Arrow from connector send to first instruction receive
+  // entries[0] = connector send, entries[1] = first instruction receive
+  const firstArrowOk = matched[0] !== null && matched[0] === 1;
+  html += `<div class="chain-arrow${firstArrowOk ? '' : ' broken'}">${firstArrowOk ? '\u2192' : '\u2717'}</div>`;
+
+  for (let i = 0; i < chain.length; i++) {
+    const step = chain[i];
+    const recvIdx = 1 + i * 2;      // index in entries for this instruction's receive
+    const sendIdx = 1 + i * 2 + 1;  // index in entries for this instruction's send
+    const recvOk = matched[recvIdx] !== null;
+    const sendOk = matched[sendIdx] !== null;
+
+    html += `<div class="chain-box instruction">
+      <div class="box-title">${step.opcode} (PC=${step.pc})</div>
+      <div class="box-recv"><span class="badge-recv">recv</span> (${step.pc}, ${step.ts})</div>
+      <div class="box-send"><span class="badge-send">send</span> (${step.next_pc}, ${step.next_ts})</div>
+    </div>`;
+
+    // Arrow to next
+    if (i < chain.length - 1) {
+      // Arrow from this send to next receive
+      const nextRecvIdx = 1 + (i + 1) * 2;
+      const arrowOk = matched[sendIdx] !== null && matched[sendIdx] === nextRecvIdx;
+      html += `<div class="chain-arrow${arrowOk ? '' : ' broken'}">${arrowOk ? '\u2192' : '\u2717'}</div>`;
+    } else {
+      // Arrow from last instruction send to connector R1
+      const connRecvIdx = entries.length - 1;
+      const arrowOk = matched[sendIdx] !== null && matched[sendIdx] === connRecvIdx;
+      html += `<div class="chain-arrow${arrowOk ? '' : ' broken'}">${arrowOk ? '\u2192' : '\u2717'}</div>`;
+    }
+  }
+
+  // Connector R1 (receive)
+  const last = chain[chain.length - 1];
+  html += `<div class="chain-box connector">
+    <div class="box-title">VmConnector</div>
+    <div class="box-recv"><span class="badge-recv">recv</span> (${last.next_pc}, ${last.next_ts})</div>
+  </div>`;
+
+  container.innerHTML = html;
+}
+
+// ============================================================
+// Render: Execution Bus Ledger
+// ============================================================
+function renderExecBus() {
+  const entries = getExecBusEntries(chain);
+  const matched = matchExecBus(entries);
+
+  let html = `<thead><tr>
+    <th>Source</th><th>Direction</th><th>Tuple (pc, ts)</th><th>Status</th>
+  </tr></thead><tbody>`;
+
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const isOk = matched[i] !== null;
+    const matchSource = isOk ? entries[matched[i]].source : null;
+    const dirBadge = e.dir === 'send'
+      ? '<span class="badge-send">send</span>'
+      : '<span class="badge-recv">recv</span>';
+
+    html += `<tr${!isOk ? ' class="affected-row"' : ''}>`;
+    html += `<td style="text-align:left; font-size:11px">${e.source}</td>`;
+    html += `<td>${dirBadge}</td>`;
+    html += `<td>(${e.pc}, ${e.ts})</td>`;
+    html += `<td class="${isOk ? 'match-ok' : 'match-fail'}">${isOk ? 'matched by ' + matchSource : 'UNMATCHED'}</td>`;
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('exec-bus-table').innerHTML = html;
+
+  const allMatched = matched.every(m => m !== null);
+  const balDiv = document.getElementById('exec-bus-balance');
+  if (allMatched) {
+    balDiv.innerHTML = '<div class="balance-ok">C1 satisfied: All sends have matching receives. Execution bus balanced.</div>';
+  } else {
+    const unmatched = matched.filter(m => m === null).length;
+    balDiv.innerHTML = `<div class="balance-fail">C1 VIOLATED: ${unmatched} unmatched entr${unmatched === 1 ? 'y' : 'ies'}. Execution bus is NOT balanced.</div>`;
+  }
+}
+
+// ============================================================
+// Render: Program Bus Lookups
+// ============================================================
+function renderProgBus() {
+  const lookupResults = checkProgramBus(chain, rom);
+
+  let html = `<thead><tr>
+    <th>Instruction</th><th>Lookup Tuple</th><th>Found in ROM?</th>
+  </tr></thead><tbody>`;
+
+  for (let i = 0; i < chain.length; i++) {
+    const step = chain[i];
+    const found = lookupResults[i];
+    html += `<tr${!found ? ' class="affected-row"' : ''}>`;
+    html += `<td style="text-align:left; font-size:11px">${step.opcode} (PC=${step.pc})</td>`;
+    html += `<td>(${step.pc}, ${step.opcode})</td>`;
+    html += `<td class="${found ? 'match-ok' : 'match-fail'}">${found ? 'Found' : 'NOT FOUND'}</td>`;
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('prog-bus-table').innerHTML = html;
+
+  const allFound = lookupResults.every(f => f);
+  const balDiv = document.getElementById('prog-bus-balance');
+  if (allFound) {
+    balDiv.innerHTML = '<div class="balance-ok">C2 satisfied: All instructions match ROM entries. Program bus valid.</div>';
+  } else {
+    const missing = lookupResults.filter(f => !f).length;
+    balDiv.innerHTML = `<div class="balance-fail">C2 VIOLATED: ${missing} instruction${missing === 1 ? '' : 's'} not found in ROM.</div>`;
+  }
+}
+
+// ============================================================
+// Init
+// ============================================================
+loadPreset();
+</script>
+</body>
+</html>

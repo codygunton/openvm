@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory Bus</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa7;
+    --accent: #6c8cff;
+    --accent-dim: #3d5299;
+    --green: #4ade80;
+    --green-dim: #16432e;
+    --red: #f87171;
+    --red-dim: #4c1d1d;
+    --yellow: #facc15;
+    --yellow-dim: #443a10;
+    --purple: #c084fc;
+    --cyan: #22d3ee;
+    --cyan-dim: #0e3a42;
+    --orange: #fb923c;
+    --orange-dim: #4a2a0e;
+    --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  body {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* --- Two-column layout --- */
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 17px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .sidebar .intro {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  .sidebar .intro strong { color: var(--text); }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section { margin-bottom: 20px; }
+
+  /* --- Concept callouts --- */
+  .concept {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+
+  .concept-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .concept p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .concept strong { color: var(--text); }
+
+  /* --- Controls --- */
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .control-row label {
+    width: 60px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  input[type="number"], select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    width: 100%;
+  }
+
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* --- Reset button --- */
+  .reset-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+
+  .reset-btn:hover { background: var(--border); color: var(--text); }
+  .reset-btn.has-edits { border-color: var(--yellow); color: var(--yellow); }
+
+  /* --- AIR stats --- */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-row .label { color: var(--text-dim); }
+  .stat-row .val { color: var(--text); font-weight: 600; }
+  .stat-row .val.dynamic { color: var(--accent); }
+
+  /* --- Constraint defs --- */
+  .constraint-list { list-style: none; }
+
+  .constraint-list li {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 11px;
+  }
+
+  .constraint-list .c-id {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .constraint-list .c-desc {
+    color: var(--text);
+  }
+
+  .constraint-list .c-formula {
+    color: var(--text-dim);
+    display: block;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+
+  .constraint-list .c-sel {
+    font-size: 9px;
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-top: 3px;
+  }
+
+  .sel-first { background: var(--green-dim); color: var(--green); }
+  .sel-trans { background: var(--accent-dim); color: var(--accent); }
+  .sel-last { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* --- Main content --- */
+  .main {
+    padding: 20px 24px;
+    overflow-y: auto;
+  }
+
+  .main h2 {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  .main .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    line-height: 1.7;
+  }
+
+  .main .hint span.g { color: var(--green); }
+  .main .hint span.d { color: var(--border); }
+  .main .hint span.r { color: var(--red); }
+
+  /* --- Table --- */
+  .trace-wrapper { overflow-x: auto; margin-bottom: 28px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: center;
+    padding: 8px 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  th.group-header {
+    font-size: 9px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .col-row { color: var(--text-dim); width: 40px; }
+  .col-trace { font-weight: 600; min-width: 50px; }
+  .col-sel { width: 30px; }
+  .col-constraint { width: 40px; }
+  .col-sep { width: 2px; padding: 0; background: var(--border); }
+  th.col-sep { background: var(--border); }
+
+  .sel-on { color: var(--green); font-weight: 700; }
+  .sel-off { color: var(--border); }
+
+  .c-pass { color: var(--green); }
+  .c-fail { color: var(--red); font-weight: 700; background: var(--red-dim); }
+  .c-inactive { color: var(--border); }
+
+  /* --- Editable trace cells --- */
+  .cell-input {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 4px;
+    text-align: center;
+    width: 100%;
+    min-width: 40px;
+    border-radius: 3px;
+  }
+
+  .cell-input:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .cell-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+
+  .cell-input.modified {
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
+  }
+
+  .cell-input.modified:focus {
+    border-color: var(--yellow);
+  }
+
+  .affected-row td { background: rgba(248, 113, 113, 0.05); }
+
+  /* --- Memory bus specific --- */
+  .op-init { color: var(--text-dim); font-style: italic; }
+  .op-final { color: var(--text-dim); font-style: italic; }
+  .op-write { color: var(--cyan); font-weight: 600; }
+  .op-read { color: var(--green); font-weight: 600; }
+
+  .badge-send { background: var(--green-dim); color: var(--green); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-recv { background: var(--orange-dim); color: var(--orange); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+
+  .match-ok { color: var(--green); }
+  .match-fail { color: var(--red); font-weight: 700; }
+
+  .balance-ok { color: var(--green); font-weight: 600; padding: 8px; background: var(--green-dim); border-radius: 4px; margin-top: 8px; }
+  .balance-fail { color: var(--red); font-weight: 600; padding: 8px; background: var(--red-dim); border-radius: 4px; margin-top: 8px; }
+
+  .section-gap { margin-top: 32px; }
+
+  .hint-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-top: 16px;
+  }
+
+  .hint-box h3 {
+    font-size: 11px;
+    color: var(--accent);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .hint-box p {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 8px;
+  }
+
+  .hint-box p:last-child { margin-bottom: 0; }
+  .hint-box strong { color: var(--text); }
+
+  td.col-type { text-align: left; padding-left: 10px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h1>Memory Bus</h1>
+    <div class="intro">
+      Memory in OpenVM is verified using an <strong>offline checker</strong> protocol.
+      Every memory access generates a pair of bus interactions: it <strong>receives</strong> the previous state (proving continuity)
+      and <strong>sends</strong> the new state (for future access).
+      <strong>Timestamp ordering</strong> ensures accesses happen in the correct sequence.
+    </div>
+
+    <div class="section">
+      <div class="concept">
+        <div class="concept-title">New: Memory Tuples</div>
+        <p>Each bus interaction carries <strong>(addr, data, timestamp)</strong>.
+          A <strong>read</strong> receives <strong>(addr, data, prev_ts)</strong> and sends <strong>(addr, data, current_ts)</strong> &mdash; same data.
+          A <strong>write</strong> receives <strong>(addr, OLD_data, prev_ts)</strong> and sends <strong>(addr, NEW_data, current_ts)</strong>.</p>
+      </div>
+      <div class="concept">
+        <div class="concept-title">New: Timestamp Ordering</div>
+        <p>For each access, the prover shows <strong>prev_timestamp &lt; current_timestamp</strong>.
+          If you can't prove this, you might be reading data from the future.</p>
+      </div>
+      <div class="concept">
+        <div class="concept-title">New: Boundary Chip</div>
+        <p>The boundary chip <strong>initializes</strong> each address at timestamp 0 (sends initial tuples)
+          and <strong>finalizes</strong> by absorbing the last state (receives final tuples).
+          This closes the bus: all sends must balance all receives.</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Parameters</div>
+      <div class="control-row">
+        <label>Preset</label>
+        <select id="inp-preset">
+          <option value="simple" selected>Simple read/write</option>
+          <option value="multi">Multiple addresses</option>
+          <option value="overwrite">Overwrite</option>
+        </select>
+      </div>
+      <button class="reset-btn" id="btn-reset" onclick="resetAll()">Reset to valid</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">AIR Structure</div>
+      <div class="stat-row"><span class="label">Trace columns</span><span class="val">5 (addr, value, ts, op_type, is_init/final)</span></div>
+      <div class="stat-row"><span class="label">Operations</span><span class="val dynamic" id="stat-ops">2</span></div>
+      <div class="stat-row"><span class="label">Constraints</span><span class="val">3</span></div>
+      <div class="stat-row"><span class="label">Bus interactions</span><span class="val dynamic" id="stat-bus">6</span></div>
+      <div class="stat-row"><span class="label">Preprocessed</span><span class="val">none</span></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Constraints</div>
+      <ul class="constraint-list">
+        <li>
+          <span class="c-id">C1</span> <span class="c-desc">Timestamp ordering</span>
+          <span class="c-formula">prev_ts &lt; current_ts for each user operation</span>
+          <span class="c-sel sel-trans">user ops</span>
+        </li>
+        <li>
+          <span class="c-id">C2</span> <span class="c-desc">Bus balance</span>
+          <span class="c-formula">&Sigma; sends = &Sigma; receives (multiset equality)</span>
+          <span class="c-sel sel-first">global</span>
+        </li>
+        <li>
+          <span class="c-id">C3</span> <span class="c-desc">Read consistency</span>
+          <span class="c-formula">read data must match last-written data at that address</span>
+          <span class="c-sel sel-last">read ops</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <h2>Memory Operations</h2>
+    <div class="hint">
+      Edit <strong style="color:var(--cyan)">data</strong> or <strong style="color:var(--accent)">timestamp</strong> values for user operations to see constraints break.
+      <span class="g">0 &#10003;</span> = satisfied,
+      <span class="d">&mdash;</span> = not applicable,
+      <span class="r">&#10007; fail</span> = violated.
+      Modified cells are <span style="color:var(--yellow)">highlighted</span>.
+    </div>
+    <div class="trace-wrapper">
+      <table id="ops-table"></table>
+    </div>
+
+    <div class="section-gap"></div>
+    <h2>Bus Ledger</h2>
+    <div class="hint">
+      Every operation generates bus interactions. All sends must be matched by a receive with the same tuple.
+    </div>
+    <div class="trace-wrapper">
+      <table id="bus-table"></table>
+    </div>
+    <div id="bus-balance"></div>
+
+    <div class="hint-box">
+      <h3>What happens when you break things</h3>
+      <p>Try changing the <strong>data</strong> in the READ operation. The bus won't balance because the read's receive tuple won't match the write's send tuple.</p>
+      <p>Try swapping <strong>timestamps</strong> so a read happens "before" a write. The timestamp ordering constraint will fail.</p>
+      <p>Try changing a <strong>write's data</strong> without updating the subsequent read. The read consistency constraint (C3) will fail, and the bus ledger will show unmatched tuples.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// --- Presets ---
+const PRESETS = {
+  simple: [
+    { type: 'WRITE', addr: 0, data: 42, ts: 1 },
+    { type: 'READ',  addr: 0, data: 42, ts: 2 },
+  ],
+  multi: [
+    { type: 'WRITE', addr: 0, data: 42, ts: 1 },
+    { type: 'WRITE', addr: 1, data: 99, ts: 2 },
+    { type: 'READ',  addr: 0, data: 42, ts: 3 },
+    { type: 'READ',  addr: 1, data: 99, ts: 4 },
+  ],
+  overwrite: [
+    { type: 'WRITE', addr: 0, data: 42, ts: 1 },
+    { type: 'WRITE', addr: 0, data: 99, ts: 2 },
+    { type: 'READ',  addr: 0, data: 99, ts: 3 },
+  ],
+};
+
+let cleanOps = [];   // user operations from preset (canonical)
+let editedOps = [];  // user operations with edits
+
+function deepCopy(arr) { return arr.map(o => ({...o})); }
+
+// Build the full operation list including init/final boundary ops.
+// Returns { allOps, userIdxMap } where userIdxMap[allOps_index] = editedOps_index (or -1).
+function buildAllOps(userOps) {
+  // Collect unique addresses
+  const addrs = [...new Set(userOps.map(o => o.addr))].sort((a, b) => a - b);
+
+  // Sort user ops by timestamp, preserving original index
+  const sortedWithIdx = userOps.map((op, idx) => ({ op, origIdx: idx }))
+    .sort((a, b) => a.op.ts - b.op.ts);
+
+  // Walk through ops to figure out prev_data and prev_ts per address
+  const addrState = {};
+  for (const a of addrs) addrState[a] = { data: 0, ts: 0 };
+
+  const allOps = [];
+  const userIdxMap = []; // allOps index -> editedOps index (-1 for init/final)
+
+  // Add init ops
+  for (const a of addrs) {
+    allOps.push({ type: 'init', addr: a, data: 0, ts: 0, prevData: null, prevTs: null });
+    userIdxMap.push(-1);
+  }
+
+  // Add user ops with prev tracking
+  for (const { op, origIdx } of sortedWithIdx) {
+    const prev = addrState[op.addr];
+    allOps.push({
+      type: op.type,
+      addr: op.addr,
+      data: op.data,
+      ts: op.ts,
+      prevData: prev.data,
+      prevTs: prev.ts,
+    });
+    userIdxMap.push(origIdx);
+    addrState[op.addr] = { data: op.data, ts: op.ts };
+  }
+
+  // Add final ops
+  for (const a of addrs) {
+    const st = addrState[a];
+    allOps.push({ type: 'final', addr: a, data: st.data, ts: st.ts, prevData: null, prevTs: null });
+    userIdxMap.push(-1);
+  }
+
+  return { allOps, userIdxMap };
+}
+
+// Build bus ledger entries from allOps
+function buildBusLedger(allOps) {
+  const entries = [];
+  for (let i = 0; i < allOps.length; i++) {
+    const op = allOps[i];
+    if (op.type === 'init') {
+      entries.push({ source: `init(${op.addr})`, dir: 'send', tuple: [op.addr, op.data, op.ts], opIdx: i });
+    } else if (op.type === 'final') {
+      entries.push({ source: `final(${op.addr})`, dir: 'receive', tuple: [op.addr, op.data, op.ts], opIdx: i });
+    } else {
+      // User ops: receive prev state, send new state
+      const label = `op #${i} ${op.type}`;
+      entries.push({ source: label, dir: 'receive', tuple: [op.addr, op.prevData, op.prevTs], opIdx: i });
+      entries.push({ source: label, dir: 'send', tuple: [op.addr, op.data, op.ts], opIdx: i });
+    }
+  }
+  return entries;
+}
+
+function tupleKey(t) { return `${t[0]},${t[1]},${t[2]}`; }
+
+// Match sends with receives
+function matchLedger(entries) {
+  // Group sends and receives by tuple key
+  const sends = [];
+  const receives = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].dir === 'send') sends.push(i);
+    else receives.push(i);
+  }
+
+  const matched = new Array(entries.length).fill(null);
+
+  // For each send, try to find an unmatched receive with the same tuple
+  const recvUsed = new Set();
+  for (const si of sends) {
+    const sk = tupleKey(entries[si].tuple);
+    for (const ri of receives) {
+      if (recvUsed.has(ri)) continue;
+      if (tupleKey(entries[ri].tuple) === sk) {
+        matched[si] = ri;
+        matched[ri] = si;
+        recvUsed.add(ri);
+        break;
+      }
+    }
+  }
+
+  return matched;
+}
+
+// Evaluate constraints for the ops table
+// Returns per-op: { c1: ts ordering, c3: read consistency }
+function evalConstraints(allOps) {
+  const results = [];
+  for (let i = 0; i < allOps.length; i++) {
+    const op = allOps[i];
+    if (op.type === 'init' || op.type === 'final') {
+      results.push({ c1: null, c3: null });
+    } else {
+      // C1: timestamp ordering: prevTs < ts
+      const c1 = (op.prevTs < op.ts) ? true : false;
+
+      // C3: read consistency - for READ ops, data must match last written data at that addr
+      let c3 = null;
+      if (op.type === 'READ') {
+        c3 = (op.data === op.prevData) ? true : false;
+      }
+
+      results.push({ c1, c3 });
+    }
+  }
+  return results;
+}
+
+function loadPreset(name) {
+  cleanOps = deepCopy(PRESETS[name]);
+  editedOps = deepCopy(cleanOps);
+  render();
+}
+
+function resetAll() {
+  editedOps = deepCopy(cleanOps);
+  render();
+}
+
+function hasEdits() {
+  for (let i = 0; i < editedOps.length; i++) {
+    if (editedOps[i].data !== cleanOps[i].data) return true;
+    if (editedOps[i].ts !== cleanOps[i].ts) return true;
+  }
+  return false;
+}
+
+function onDataEdit(userIdx, value) {
+  editedOps[userIdx].data = parseInt(value) || 0;
+  render();
+}
+
+function onTsEdit(userIdx, value) {
+  editedOps[userIdx].ts = parseInt(value) || 0;
+  render();
+}
+
+function render() {
+  const edited = hasEdits();
+  document.getElementById('btn-reset').classList.toggle('has-edits', edited);
+
+  const { allOps, userIdxMap } = buildAllOps(editedOps);
+  const constraints = evalConstraints(allOps);
+  const ledger = buildBusLedger(allOps);
+  const matched = matchLedger(ledger);
+
+  // Update stats
+  document.getElementById('stat-ops').textContent = editedOps.length;
+  document.getElementById('stat-bus').textContent = ledger.length;
+
+  // --- Render ops table ---
+  let opsHtml = `<thead>
+    <tr>
+      <th class="group-header" colspan="1"></th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="5">Operation</th>
+      <th class="col-sep"></th>
+      <th class="group-header" colspan="2">Constraints</th>
+    </tr>
+    <tr>
+      <th>#</th>
+      <th class="col-sep"></th>
+      <th>Type</th><th>Addr</th><th>Data</th><th>Timestamp</th><th>prev_ts</th>
+      <th class="col-sep"></th>
+      <th title="C1: Timestamp ordering">C1 ts</th>
+      <th title="C3: Read consistency">C3 read</th>
+    </tr>
+  </thead><tbody>`;
+
+  for (let i = 0; i < allOps.length; i++) {
+    const op = allOps[i];
+    const c = constraints[i];
+    const isUser = (op.type !== 'init' && op.type !== 'final');
+    const actualUserIdx = userIdxMap[i];
+
+    // Determine if this row has any violation
+    const hasViolation = (c.c1 === false) || (c.c3 === false);
+
+    let typeClass = '';
+    if (op.type === 'init') typeClass = 'op-init';
+    else if (op.type === 'final') typeClass = 'op-final';
+    else if (op.type === 'WRITE') typeClass = 'op-write';
+    else if (op.type === 'READ') typeClass = 'op-read';
+
+    opsHtml += `<tr${hasViolation ? ' class="affected-row"' : ''}>`;
+    opsHtml += `<td class="col-row">${i}</td>`;
+    opsHtml += `<td class="col-sep"></td>`;
+
+    // Type
+    opsHtml += `<td class="col-type ${typeClass}">${op.type}</td>`;
+
+    // Addr
+    opsHtml += `<td>${op.addr}</td>`;
+
+    // Data and Timestamp (editable for user ops)
+    if (isUser && actualUserIdx >= 0) {
+      const dataModified = editedOps[actualUserIdx].data !== cleanOps[actualUserIdx].data;
+      const tsModified = editedOps[actualUserIdx].ts !== cleanOps[actualUserIdx].ts;
+
+      opsHtml += `<td class="col-trace"><input type="number" class="cell-input${dataModified ? ' modified' : ''}" value="${op.data}" onchange="onDataEdit(${actualUserIdx},this.value)"></td>`;
+      opsHtml += `<td class="col-trace"><input type="number" class="cell-input${tsModified ? ' modified' : ''}" value="${op.ts}" onchange="onTsEdit(${actualUserIdx},this.value)"></td>`;
+      opsHtml += `<td>${op.prevTs}</td>`;
+    } else {
+      opsHtml += `<td class="${typeClass}">${op.data}</td>`;
+      opsHtml += `<td class="${typeClass}">${op.ts}</td>`;
+      opsHtml += `<td class="${typeClass}">${op.prevTs !== null ? op.prevTs : '&mdash;'}</td>`;
+    }
+
+    opsHtml += `<td class="col-sep"></td>`;
+
+    // C1: Timestamp ordering
+    if (c.c1 === null) {
+      opsHtml += `<td class="col-constraint c-inactive">&mdash;</td>`;
+    } else if (c.c1) {
+      opsHtml += `<td class="col-constraint c-pass">0 &#10003; (${op.ts} &gt; ${op.prevTs})</td>`;
+    } else {
+      opsHtml += `<td class="col-constraint c-fail">&#10007; (${op.ts} &le; ${op.prevTs})</td>`;
+    }
+
+    // C3: Read consistency
+    if (c.c3 === null) {
+      opsHtml += `<td class="col-constraint c-inactive">&mdash;</td>`;
+    } else if (c.c3) {
+      opsHtml += `<td class="col-constraint c-pass">0 &#10003;</td>`;
+    } else {
+      opsHtml += `<td class="col-constraint c-fail">&#10007; (${op.data} != ${op.prevData})</td>`;
+    }
+
+    opsHtml += `</tr>`;
+  }
+
+  opsHtml += '</tbody>';
+  document.getElementById('ops-table').innerHTML = opsHtml;
+
+  // --- Render bus ledger ---
+  let busHtml = `<thead>
+    <tr>
+      <th>Source</th>
+      <th>Direction</th>
+      <th>Tuple (addr, data, ts)</th>
+      <th>Matched?</th>
+    </tr>
+  </thead><tbody>`;
+
+  let unmatchedSends = 0;
+  let unmatchedRecvs = 0;
+
+  for (let i = 0; i < ledger.length; i++) {
+    const e = ledger[i];
+    const isMatched = matched[i] !== null;
+    const matchPartner = isMatched ? ledger[matched[i]] : null;
+
+    if (!isMatched) {
+      if (e.dir === 'send') unmatchedSends++;
+      else unmatchedRecvs++;
+    }
+
+    const dirBadge = e.dir === 'send'
+      ? '<span class="badge-send">send</span>'
+      : '<span class="badge-recv">recv</span>';
+
+    const tupleStr = `(${e.tuple[0]}, ${e.tuple[1]}, ${e.tuple[2]})`;
+
+    let matchStr;
+    if (isMatched) {
+      matchStr = `<span class="match-ok">&#10003; matched by ${matchPartner.source} ${matchPartner.dir}</span>`;
+    } else {
+      matchStr = `<span class="match-fail">&#10007; unmatched</span>`;
+    }
+
+    const rowClass = !isMatched ? ' class="affected-row"' : '';
+    busHtml += `<tr${rowClass}>`;
+    busHtml += `<td style="text-align:left;padding-left:10px;">${e.source}</td>`;
+    busHtml += `<td>${dirBadge}</td>`;
+    busHtml += `<td style="font-weight:600">${tupleStr}</td>`;
+    busHtml += `<td style="text-align:left;padding-left:10px;">${matchStr}</td>`;
+    busHtml += `</tr>`;
+  }
+
+  busHtml += '</tbody>';
+  document.getElementById('bus-table').innerHTML = busHtml;
+
+  // Bus balance summary
+  const balanceEl = document.getElementById('bus-balance');
+  if (unmatchedSends === 0 && unmatchedRecvs === 0) {
+    balanceEl.innerHTML = `<div class="balance-ok">Bus Balance: All sends matched &#10003;</div>`;
+  } else {
+    const parts = [];
+    if (unmatchedSends > 0) parts.push(`${unmatchedSends} unmatched send${unmatchedSends > 1 ? 's' : ''}`);
+    if (unmatchedRecvs > 0) parts.push(`${unmatchedRecvs} unmatched receive${unmatchedRecvs > 1 ? 's' : ''}`);
+    balanceEl.innerHTML = `<div class="balance-fail">Bus Balance: ${parts.join(', ')} &#10007;</div>`;
+  }
+}
+
+// --- Event listeners ---
+document.getElementById('inp-preset').addEventListener('change', function() {
+  loadPreset(this.value);
+});
+
+// Init
+loadPreset('simple');
+</script>
+</body>
+</html>

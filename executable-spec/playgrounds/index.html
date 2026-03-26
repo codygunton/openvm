@@ -15,6 +15,7 @@
     --text: #e1e4ed;
     --text-dim: #8b8fa7;
     --accent: #6c8cff;
+    --green: #4ade80;
     --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   }
 
@@ -54,6 +55,26 @@
 
   .subtitle a:hover { text-decoration: underline; }
 
+  .section-header {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-top: 32px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-header:first-of-type { margin-top: 0; }
+
+  .section-desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+    line-height: 1.6;
+  }
+
   .card {
     display: block;
     background: var(--surface);
@@ -88,6 +109,9 @@
     line-height: 1.6;
   }
 
+  .card.rv32 { border-left: 3px solid var(--green); }
+  .card.rv32 .num { color: var(--green); }
+
 </style>
 </head>
 <body>
@@ -97,6 +121,11 @@
     Interactive explorers for the polynomial constraints in
     <a href="https://github.com/openvm-org/openvm">OpenVM</a>'s STARK proving system.
     Edit witness values, break constraints, see why it works.
+  </div>
+
+  <div class="section-header">Examples</div>
+  <div class="section-desc">
+    Simplified AIRs that introduce core concepts one at a time.
   </div>
 
   <a class="card" href="fibonacci-air.html">
@@ -122,6 +151,108 @@
       How bus interactions actually work: random challenge compression,
       after-challenge trace columns, and the cross-AIR cumulative sum check
       that ties it all together.
+    </p>
+  </a>
+
+  <a class="card" href="limb-arithmetic.html">
+    <h2><span class="num">4.</span> Limb Arithmetic AIR</h2>
+    <p>
+      How 32-bit operations work in a 31-bit prime field: limb decomposition,
+      carry propagation, and range checks. The foundation of all RISC-V instruction chips.
+    </p>
+  </a>
+
+  <a class="card" href="adapter-core.html">
+    <h2><span class="num">5.</span> Adapter/Core Pattern</h2>
+    <p>
+      How instruction chips split into reusable Adapters (memory + execution bus)
+      and swappable Cores (arithmetic). The VmAirWrapper column layout of a real ADD chip.
+    </p>
+  </a>
+
+  <a class="card" href="memory-bus.html">
+    <h2><span class="num">6.</span> Memory Bus (Offline Checker)</h2>
+    <p>
+      The timestamp-ordered memory protocol: how reads and writes generate
+      send/receive pairs, and how the boundary chip closes the bus.
+    </p>
+  </a>
+
+  <a class="card" href="execution-chain.html">
+    <h2><span class="num">7.</span> Execution Chain</h2>
+    <p>
+      How the execution bus, program bus, and VmConnectorAir chain instructions
+      into a complete program execution cycle.
+    </p>
+  </a>
+
+  <div class="section-header">RISC-V (RV32IM)</div>
+  <div class="section-desc">
+    The actual instruction chips that execute RISC-V programs inside OpenVM.
+    These are the AIRs that prove Ethereum transactions.
+  </div>
+
+  <a class="card rv32" href="rv32im-alu.html">
+    <h2><span class="num">8.</span> ALU (ADD/SUB/XOR/OR/AND)</h2>
+    <p>
+      The BaseAluCoreAir: five operations multiplexed in one chip via one-hot
+      opcode flags. Carry chain for ADD/SUB, bitwise lookup bus for XOR/OR/AND.
+    </p>
+  </a>
+
+  <a class="card rv32" href="rv32im-shift.html">
+    <h2><span class="num">9.</span> Shift (SLL/SRL/SRA)</h2>
+    <p>
+      Bit shifts decomposed into limb_shift (whole bytes) and bit_shift (intra-byte),
+      each encoded as one-hot markers. Carry propagation between limbs.
+    </p>
+  </a>
+
+  <a class="card rv32" href="rv32im-multiply.html">
+    <h2><span class="num">10.</span> Multiply (MUL/MULH)</h2>
+    <p>
+      Schoolbook polynomial multiplication over 8-bit limbs with carry.
+      MULH extends to upper 32 bits with sign extension.
+    </p>
+  </a>
+
+  <a class="card rv32" href="rv32im-divrem.html">
+    <h2><span class="num">11.</span> Divide/Remainder (DIV/REM)</h2>
+    <p>
+      The most complex RV32IM chip: verify b = c*q + r via multiplication,
+      prove r &lt; c, handle signed division and zero-divisor edge cases.
+    </p>
+  </a>
+
+  <a class="card rv32" href="rv32im-branch.html">
+    <h2><span class="num">12.</span> Branch (BEQ/BNE/BLT/BGE)</h2>
+    <p>
+      Equality via inverse-witness markers, less-than via MSB signed field
+      manipulation and diff_marker scanning. Controls PC flow.
+    </p>
+  </a>
+
+  <a class="card rv32" href="rv32im-memory.html">
+    <h2><span class="num">13.</span> Load/Store (LW/LH/LB/SW/SH/SB)</h2>
+    <p>
+      Byte and halfword masking with alignment shifts.
+      Loads extract and optionally sign-extend; stores merge into existing data.
+    </p>
+  </a>
+
+  <a class="card rv32" href="rv32im-jump.html">
+    <h2><span class="num">14.</span> Jump (JAL/JALR/LUI/AUIPC)</h2>
+    <p>
+      PC-relative and register-indirect jumps. LUI/AUIPC load upper immediates.
+      JALR sign-extends a 12-bit immediate and clears the LSB.
+    </p>
+  </a>
+
+  <a class="card rv32" href="keccak256.html">
+    <h2><span class="num">15.</span> Keccak-256</h2>
+    <p>
+      Multi-row hash accelerator: 24 rows per Keccak-f permutation, sponge
+      construction, XOR absorption via bitwise lookup bus. Used for Ethereum state proofs.
     </p>
   </a>
 </div>
