@@ -344,7 +344,7 @@ const BUSES = {
     type: 'Permutation Check',
     desc: 'Ensures instructions execute in correct PC/timestamp order. Each instruction chip sends its (pc, timestamp) pair; VmConnector receives them to close the cycle.',
     keyFormat: '(pc, timestamp, opA, opB)',
-    senders: ['VmConnector', 'ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'Keccak', 'ModArith', 'ECC', 'Phantom'],
+    senders: ['VmConnector', 'ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'HintStore', 'Keccak', 'ModArith', 'ECC', 'Phantom', 'PublicValues'],
     receivers: ['VmConnector'],
     learn: 'execution-chain.html',
     learnName: 'Execution Chain',
@@ -357,7 +357,7 @@ const BUSES = {
     desc: 'Every executed instruction must exist in the program ROM. The Program AIR publishes instruction rows; each chip looks them up to prove it is executing authorized code.',
     keyFormat: '(pc, opcode, a, b, c, d, e, f, g)',
     senders: ['Program'],
-    receivers: ['ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'Keccak', 'ModArith', 'ECC', 'Phantom'],
+    receivers: ['ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'HintStore', 'Keccak', 'ModArith', 'ECC', 'Phantom', 'PublicValues'],
     learn: 'execution-chain.html',
     learnName: 'Execution Chain',
     rail: true
@@ -368,7 +368,7 @@ const BUSES = {
     type: 'Permutation Check',
     desc: 'Read/write consistency via an offline checker. Every memory access sends a tuple; VolatileBoundary and AccessAdapter close the bus so that every read returns the last written value.',
     keyFormat: '(addr_space, pointer, data..., timestamp)',
-    senders: ['ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'Keccak', 'ModArith', 'ECC'],
+    senders: ['ALU', 'Shift', 'Mul', 'MulH', 'DivRem', 'BranchEq', 'BranchLT', 'SLT', 'LoadSignExt', 'Load/Store', 'JALR', 'JAL/LUI', 'AUIPC', 'HintStore', 'Keccak', 'ModArith', 'ECC', 'PublicValues'],
     receivers: ['VolatileBoundary', 'AccessAdapter'],
     learn: 'memory-bus.html',
     learnName: 'Memory Bus',
@@ -380,7 +380,7 @@ const BUSES = {
     type: 'Lookup',
     desc: 'Provides verified XOR results and 8-bit range checks. Instruction chips send (x, y, x XOR y) triples; BitwiseOpLookup holds the lookup table.',
     keyFormat: '(x, y, x\u2295y) or (x, y, 0) for range',
-    senders: ['ALU', 'Shift', 'BranchLT', 'SLT', 'JALR', 'JAL/LUI', 'AUIPC', 'DivRem', 'MulH', 'Keccak'],
+    senders: ['ALU', 'Shift', 'BranchLT', 'SLT', 'JALR', 'JAL/LUI', 'AUIPC', 'DivRem', 'MulH', 'HintStore', 'Keccak'],
     receivers: ['BitwiseOpLookup'],
     learn: 'range-check-air.html',
     learnName: 'Range Check'
@@ -414,6 +414,7 @@ const NODES = [
   { id: 'VmConnector',     tier: 1, col: 0, file: 'system-connector.html', label: 'VmConnector' },
   { id: 'Program',         tier: 1, col: 1, file: 'system-program.html',   label: 'Program' },
   { id: 'Phantom',         tier: 1, col: 2, file: 'system-phantom.html',   label: 'Phantom' },
+  { id: 'PublicValues',    tier: 1, col: 3, file: null,                     label: 'PublicValues' },
 
   // Tier 2 — Instruction AIRs (3 rows)
   { id: 'ALU',             tier: 2, row: 0, col: 0, file: 'rv32im-alu.html',        label: 'ALU' },
@@ -432,6 +433,7 @@ const NODES = [
   { id: 'Keccak',          tier: 2, row: 2, col: 1, file: 'keccak256.html',         label: 'Keccak' },
   { id: 'ModArith',        tier: 2, row: 2, col: 2, file: 'modular-arithmetic.html',label: 'ModArith' },
   { id: 'ECC',             tier: 2, row: 2, col: 3, file: 'ecc-weierstrass.html',   label: 'ECC' },
+  { id: 'HintStore',       tier: 2, row: 2, col: 4, file: null,                     label: 'HintStore' },
 
   // Tier 3 — Memory System
   { id: 'VolatileBoundary', tier: 3, col: 0, file: 'system-memory.html',  label: 'VolatileBoundary' },
