@@ -69,7 +69,7 @@ impl RvrExecutionKind {
             Self::Pure | Self::PureWithInstretTracking => "openvm_tracer_pure.h",
             Self::MeteredCost => "openvm_tracer_metered_cost.h",
             Self::Metered | Self::MeteredSegment => "openvm_tracer_metered.h",
-            Self::Preflight => "openvm_tracer_checkpoint_preflight.h",
+            Self::Preflight => "openvm_tracer_preflight.h",
         }
     }
 
@@ -83,7 +83,7 @@ impl RvrExecutionKind {
                 include_str!("../../c/tracer/openvm_tracer_metered.h")
             }
             Self::Preflight => {
-                include_str!("../../c/tracer/openvm_tracer_checkpoint_preflight.h")
+                include_str!("../../c/tracer/openvm_tracer_preflight.h")
             }
         }
     }
@@ -112,7 +112,7 @@ impl RvrExecutionKind {
                 writeln!(out, "  uint32_t pc;").unwrap();
                 writeln!(out, "  uint32_t timestamp;").unwrap();
                 writeln!(out, "  uint32_t retired;").unwrap();
-                writeln!(out, "  uint32_t residual_cursor;").unwrap();
+                writeln!(out, "  uint32_t replay_value_cursor;").unwrap();
                 writeln!(out, "  uint64_t regs[31];").unwrap();
                 writeln!(out, "}} RvrCheckpoint;").unwrap();
                 writeln!(out, "static_assert(sizeof(RvrCheckpoint) == 264);").unwrap();
@@ -126,17 +126,17 @@ impl RvrExecutionKind {
                 writeln!(out, "static_assert(offsetof(RvrCheckpoint, retired) == 8);").unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(RvrCheckpoint, residual_cursor) == 12);"
+                    "static_assert(offsetof(RvrCheckpoint, replay_value_cursor) == 12);"
                 )
                 .unwrap();
                 writeln!(out, "static_assert(offsetof(RvrCheckpoint, regs) == 16);").unwrap();
-                writeln!(out, "typedef struct CheckpointPreflightState {{").unwrap();
+                writeln!(out, "typedef struct PreflightTranscriptState {{").unwrap();
                 writeln!(out, "  RvrCheckpoint* checkpoint_log;").unwrap();
-                writeln!(out, "  uint64_t* residual_log;").unwrap();
+                writeln!(out, "  uint64_t* replay_value_log;").unwrap();
                 writeln!(out, "  uint64_t checkpoint_log_len;").unwrap();
                 writeln!(out, "  uint64_t checkpoint_log_cap;").unwrap();
-                writeln!(out, "  uint64_t residual_log_len;").unwrap();
-                writeln!(out, "  uint64_t residual_log_cap;").unwrap();
+                writeln!(out, "  uint64_t replay_value_log_len;").unwrap();
+                writeln!(out, "  uint64_t replay_value_log_cap;").unwrap();
                 writeln!(out, "  uint32_t timestamp;").unwrap();
                 writeln!(out, "  uint32_t retired;").unwrap();
                 writeln!(out, "  uint32_t checkpoint_interval;").unwrap();
@@ -149,85 +149,85 @@ impl RvrExecutionKind {
                 writeln!(out, "  uint64_t public_values_dirty_page_words;").unwrap();
                 writeln!(out, "  uint32_t last_memory_dirty_page;").unwrap();
                 writeln!(out, "  uint32_t padding;").unwrap();
-                writeln!(out, "}} CheckpointPreflightState;").unwrap();
+                writeln!(out, "}} PreflightTranscriptState;").unwrap();
                 writeln!(
                     out,
-                    "static_assert(sizeof(CheckpointPreflightState) == 112);"
+                    "static_assert(sizeof(PreflightTranscriptState) == 112);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(alignof(CheckpointPreflightState) == 8);"
+                    "static_assert(alignof(PreflightTranscriptState) == 8);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, checkpoint_log) == 0);"
+                    "static_assert(offsetof(PreflightTranscriptState, checkpoint_log) == 0);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, residual_log) == 8);"
+                    "static_assert(offsetof(PreflightTranscriptState, replay_value_log) == 8);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, checkpoint_log_len) == 16);"
+                    "static_assert(offsetof(PreflightTranscriptState, checkpoint_log_len) == 16);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, residual_log_len) == 32);"
+                    "static_assert(offsetof(PreflightTranscriptState, replay_value_log_len) == 32);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, timestamp) == 48);"
+                    "static_assert(offsetof(PreflightTranscriptState, timestamp) == 48);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, retired) == 52);"
+                    "static_assert(offsetof(PreflightTranscriptState, retired) == 52);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, error) == 64);"
+                    "static_assert(offsetof(PreflightTranscriptState, error) == 64);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, instruction_limit) == 68);"
+                    "static_assert(offsetof(PreflightTranscriptState, instruction_limit) == 68);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, memory_dirty_pages) == 72);"
+                    "static_assert(offsetof(PreflightTranscriptState, memory_dirty_pages) == 72);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, public_values_dirty_pages) == 80);"
+                    "static_assert(offsetof(PreflightTranscriptState, public_values_dirty_pages) == 80);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, memory_dirty_page_words) == 88);"
+                    "static_assert(offsetof(PreflightTranscriptState, memory_dirty_page_words) == 88);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, public_values_dirty_page_words) == 96);"
+                    "static_assert(offsetof(PreflightTranscriptState, public_values_dirty_page_words) == 96);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, last_memory_dirty_page) == 104);"
+                    "static_assert(offsetof(PreflightTranscriptState, last_memory_dirty_page) == 104);"
                 )
                 .unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(CheckpointPreflightState, padding) == 108);"
+                    "static_assert(offsetof(PreflightTranscriptState, padding) == 108);"
                 )
                 .unwrap();
             }
@@ -254,18 +254,25 @@ impl RvrExecutionKind {
                 writeln!(out, "  struct PageTouch* deferral_page_buf;").unwrap();
                 writeln!(out, "  uint8_t (*on_check)(struct MeteringState*);").unwrap();
                 writeln!(out, "  void (*on_memory_flush)(struct MeteringState*);").unwrap();
+                writeln!(
+                    out,
+                    "  void (*on_page_buffer_resize)(struct MeteringState*, uint32_t, uint32_t);"
+                )
+                .unwrap();
                 writeln!(out, "  struct SegmentationState* seg_state;").unwrap();
                 writeln!(out, "  uint32_t mem_page_buf_len;").unwrap();
                 writeln!(out, "  uint32_t pv_page_buf_len;").unwrap();
                 writeln!(out, "  uint32_t deferral_page_buf_len;").unwrap();
+                writeln!(out, "  uint32_t pv_page_buf_cap;").unwrap();
+                writeln!(out, "  uint32_t deferral_page_buf_cap;").unwrap();
                 writeln!(out, "  uint32_t check_counter;").unwrap();
                 writeln!(out, "  uint32_t last_mem_page;").unwrap();
-                writeln!(out, "  uint32_t num_checkpoint_residuals;").unwrap();
+                writeln!(out, "  uint32_t num_preflight_replay_values;").unwrap();
                 writeln!(out, "}} MeteringState;").unwrap();
-                writeln!(out, "static_assert(sizeof(MeteringState) == 80);").unwrap();
+                writeln!(out, "static_assert(sizeof(MeteringState) == 96);").unwrap();
                 writeln!(
                     out,
-                    "static_assert(offsetof(MeteringState, num_checkpoint_residuals) == 76);"
+                    "static_assert(offsetof(MeteringState, num_preflight_replay_values) == 92);"
                 )
                 .unwrap();
             }
@@ -282,7 +289,7 @@ impl RvrExecutionKind {
         match self {
             Self::Pure => {}
             Self::Preflight => {
-                writeln!(out, "  CheckpointPreflightState mode_state;").unwrap();
+                writeln!(out, "  PreflightTranscriptState mode_state;").unwrap();
             }
             Self::PureWithInstretTracking => {
                 writeln!(out, "  InstretTrackingState mode_state;").unwrap();
@@ -636,6 +643,36 @@ impl CProject {
             .unwrap_or(TraceChipIndex::NoChip)
     }
 
+    fn validate_preflight_support(blocks: &[Block]) -> io::Result<()> {
+        for block in blocks {
+            for instruction in &block.instructions {
+                if !instruction.instr.supports_preflight() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "instruction {} at {:#x} does not support RVR preflight",
+                            instruction.instr.opname(),
+                            instruction.pc
+                        ),
+                    ));
+                }
+            }
+            if let Terminator::Instruction { node, .. } = &block.terminator {
+                if !node.supports_preflight() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "instruction {} at {:#x} does not support RVR preflight",
+                            node.opname(),
+                            block.terminator_pc
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Write all C project files.
     pub fn write_all(
         &self,
@@ -657,32 +694,7 @@ impl CProject {
             ));
         }
         if self.execution_kind == RvrExecutionKind::Preflight {
-            for block in blocks {
-                for instruction in &block.instructions {
-                    if !instruction.instr.supports_preflight() {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!(
-                                "instruction {} at {:#x} does not support RVR preflight",
-                                instruction.instr.opname(),
-                                instruction.pc
-                            ),
-                        ));
-                    }
-                }
-                if let Terminator::Instruction { node, .. } = &block.terminator {
-                    if !node.supports_preflight() {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!(
-                                "instruction {} at {:#x} does not support RVR preflight",
-                                node.opname(),
-                                block.terminator_pc
-                            ),
-                        ));
-                    }
-                }
-            }
+            Self::validate_preflight_support(blocks)?;
         }
         self.validate_block_abi()?;
         let text_end = Self::dispatch_max_pc(blocks, entry_point, text_start);
@@ -992,31 +1004,31 @@ impl CProject {
 
         self.emit_block_boundary(&mut body, block);
         if matches!(mode, EmitMode::Metered { .. }) {
-            writeln!(body, "    /* METERED_CHECKPOINT_RESIDUALS */").unwrap();
+            writeln!(body, "    /* METERED_PREFLIGHT_REPLAY_VALUES */").unwrap();
         }
         if matches!(self.execution_kind, RvrExecutionKind::Preflight) {
             let save = self.save_hot_regs_call();
             let args = self.fn_args_from_params();
             writeln!(
                 body,
-                "    CheckpointPreflightLocal checkpoint_preflight = checkpoint_preflight_local_load(state);\n\
-                     if (unlikely(!checkpoint_preflight_local_can_execute_block(&checkpoint_preflight, {insn_count}u))) {{\n\
-                         checkpoint_preflight_local_flush(state, &checkpoint_preflight);"
+                "    PreflightLocal preflight = preflight_local_load(state);\n\
+                     if (unlikely(!preflight_local_can_execute_block(&preflight, {insn_count}u))) {{\n\
+                         preflight_local_flush(state, &preflight);"
             )
             .unwrap();
             self.emit_suspend_return(&mut body, block.start_pc);
             writeln!(
                 body,
                 "    }}\n\
-                     if (unlikely(checkpoint_preflight_local_checkpoint_due(&checkpoint_preflight))) {{\n\
-                         checkpoint_preflight_local_flush(state, &checkpoint_preflight);\n\
+                     if (unlikely(preflight_local_checkpoint_due(&preflight))) {{\n\
+                         preflight_local_flush(state, &preflight);\n\
                          {save}\n\
-                         if (unlikely(!checkpoint_preflight_append_checkpoint(state, 0x{pc:08x}ull))) {{\n\
+                         if (unlikely(!preflight_append_checkpoint(state, 0x{pc:08x}ull))) {{\n\
                              [[clang::musttail]] return rv_trap({args});\n\
                          }}\n\
-                         checkpoint_preflight = checkpoint_preflight_local_load(state);\n\
+                         preflight = preflight_local_load(state);\n\
                      }}\n\
-                     /* CHECKPOINT_PREFLIGHT_LOCAL_RESERVE */"
+                     /* PREFLIGHT_LOCAL_RESERVE */"
             )
             .unwrap();
         }
@@ -1045,43 +1057,38 @@ impl CProject {
                 block.terminator_source_loc.as_ref(),
             );
         }
-        let tc = TermCtx {
-            valid_blocks,
-            current_block: block.start_pc,
-        };
+        let tc = TermCtx { valid_blocks };
         emit_terminator(&mut ctx, &block.terminator, block.terminator_pc, &tc);
         Self::emit_context_scope(&mut body, &mut ctx);
 
         if matches!(mode, EmitMode::Metered { .. }) {
-            let residuals = ctx.metered_checkpoint_residuals();
-            let update = if residuals == 0 {
+            let replay_values = ctx.metered_block_replay_values();
+            let update = if replay_values == 0 {
                 String::new()
             } else {
                 let args = self.fn_args_from_params();
                 format!(
-                    "if (unlikely({residuals}u > UINT32_MAX - state->mode_state.num_checkpoint_residuals)) {{\n\
+                    "if (unlikely({replay_values}u > UINT32_MAX - state->mode_state.num_preflight_replay_values)) {{\n\
                          [[clang::musttail]] return rv_trap({args});\n\
                      }}\n\
-                     state->mode_state.num_checkpoint_residuals += {residuals}u;"
+                     state->mode_state.num_preflight_replay_values += {replay_values}u;"
                 )
             };
-            body = body.replace("/* METERED_CHECKPOINT_RESIDUALS */", &update);
+            body = body.replace("/* METERED_PREFLIGHT_REPLAY_VALUES */", &update);
         } else if matches!(self.execution_kind, RvrExecutionKind::Preflight) {
-            let (slots, residuals) = ctx.checkpoint_preflight_budget();
+            let (timestamp_slots, replay_values) = ctx.preflight_block_budget();
             let args = self.fn_args_from_params();
             let reserve = format!(
-                "    if (unlikely(!checkpoint_preflight_local_reserve(&checkpoint_preflight, {residuals}u, {slots}u))) {{\n\
-                     checkpoint_preflight_local_flush(state, &checkpoint_preflight);\n\
+                "    if (unlikely(!preflight_local_reserve(&preflight, {replay_values}u, {timestamp_slots}u))) {{\n\
+                     preflight_local_flush(state, &preflight);\n\
                      [[clang::musttail]] return rv_trap({args});\n\
                  }}\n\
-                 checkpoint_preflight_local_add_timestamp_unchecked(&checkpoint_preflight, {slots}u);"
+                 preflight_local_add_timestamp_unchecked(&preflight, {timestamp_slots}u);"
             );
-            body = body.replace("/* CHECKPOINT_PREFLIGHT_LOCAL_RESERVE */", &reserve);
+            body = body.replace("/* PREFLIGHT_LOCAL_RESERVE */", &reserve);
             body = body.replace(
-                "/* CHECKPOINT_PREFLIGHT_FINISH_BLOCK */",
-                &format!(
-                    "checkpoint_preflight_local_finish_block(&checkpoint_preflight, {insn_count}u);"
-                ),
+                "/* PREFLIGHT_FINISH_BLOCK */",
+                &format!("preflight_local_finish_block(&preflight, {insn_count}u);"),
             );
         }
 
@@ -1589,12 +1596,17 @@ mod tests {
     use super::{CProject, EmitMode, RvrExecutionKind};
 
     #[test]
-    fn metered_state_layout_includes_memory_flush_callback() {
+    fn metered_state_layout_includes_page_buffer_callbacks() {
         let header = RvrExecutionKind::Metered.state_layout_header();
         assert!(header.contains("void (*on_memory_flush)(struct MeteringState*);"));
-        assert!(header.contains("static_assert(sizeof(MeteringState) == 80);"));
         assert!(header
-            .contains("static_assert(offsetof(MeteringState, num_checkpoint_residuals) == 76);"));
+            .contains("void (*on_page_buffer_resize)(struct MeteringState*, uint32_t, uint32_t);"));
+        assert!(header.contains("uint32_t pv_page_buf_cap;"));
+        assert!(header.contains("uint32_t deferral_page_buf_cap;"));
+        assert!(header.contains("static_assert(sizeof(MeteringState) == 96);"));
+        assert!(header.contains(
+            "static_assert(offsetof(MeteringState, num_preflight_replay_values) == 92);"
+        ));
     }
 
     fn single_instruction_block() -> Block {
@@ -1626,9 +1638,9 @@ mod tests {
     }
 
     #[derive(Clone, Debug)]
-    struct FixedResidualInstr;
+    struct FixedReplayValueInstr;
 
-    impl ExtInstr for FixedResidualInstr {
+    impl ExtInstr for FixedReplayValueInstr {
         fn emit_c(&self, ctx: &mut dyn ExtEmitCtx) {
             ctx.count_fixed_replay_values(3);
         }
@@ -1691,20 +1703,20 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_preflight_uses_minimal_layout_and_plain_block_abi() {
+    fn preflight_uses_minimal_layout_and_plain_block_abi() {
         let project = CProject::new(Path::new("unused"), "test", RvrExecutionKind::Preflight);
         let header = RvrExecutionKind::Preflight.state_layout_header();
 
         assert!(header.contains("uint64_t regs[31];"));
         assert!(header.contains("static_assert(sizeof(RvrCheckpoint) == 264);"));
-        assert!(header.contains("static_assert(sizeof(CheckpointPreflightState) == 112);"));
+        assert!(header.contains("static_assert(sizeof(PreflightTranscriptState) == 112);"));
         assert!(header.contains("uint64_t* memory_dirty_pages;"));
         assert!(header.contains("uint64_t* public_values_dirty_pages;"));
-        assert!(header.contains("CheckpointPreflightState mode_state;"));
+        assert!(header.contains("PreflightTranscriptState mode_state;"));
         assert!(!header.contains("PreflightProgramEvent"));
         assert!(!header.contains("PreflightMemoryEvent"));
         assert!(!header.contains("PreflightInitialWrite"));
-        assert!(!header.contains("residual_log_reserved"));
+        assert!(!header.contains("replay_value_log_reserved"));
         assert_eq!(project.block_abi(), super::BlockAbi::Plain);
         assert_eq!(
             project.emit_mode_for_block(&single_instruction_block()),
@@ -1713,13 +1725,13 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_local_reservation_is_cumulative_and_exact_capacity_safe() {
+    fn preflight_local_reservation_is_cumulative_and_exact_capacity_safe() {
         let tracer = RvrExecutionKind::Preflight.trace_header_content();
-        assert!(tracer.contains("uint64_t residual_log_reserved;"));
-        assert!(tracer.contains(".residual_log_reserved = p->residual_log_len"));
-        assert!(tracer.contains("p->residual_log_cap - p->residual_log_reserved"));
-        assert!(tracer.contains("p->residual_log_reserved += residuals;"));
-        assert!(tracer.contains("debug_assume(dirty_pages != NULL && word < dirty_page_words);"));
+        assert!(tracer.contains("uint64_t replay_value_log_reserved;"));
+        assert!(tracer.contains(".replay_value_log_reserved = p->replay_value_log_len"));
+        assert!(tracer.contains("p->replay_value_log_cap - p->replay_value_log_reserved"));
+        assert!(tracer.contains("p->replay_value_log_reserved += replay_values;"));
+        assert!(tracer.contains("assert_assume(dirty_pages != NULL && word < dirty_page_words);"));
         assert!(!tracer.contains("\n  assume(dirty_pages != NULL"));
 
         let reserves = |capacity: u64, initial_len: u64, fixed: u32, dynamic: u32| {
@@ -1736,7 +1748,7 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_preflight_checks_boundary_before_snapshot_and_reservation() {
+    fn preflight_checks_boundary_before_snapshot_and_reservation() {
         let project = CProject::new(Path::new("unused"), "test", RvrExecutionKind::Preflight);
         let block = block_with_instruction(Box::new(StaticPreflightInstr));
         let mut output = String::new();
@@ -1745,27 +1757,19 @@ mod tests {
             .emit_block_function(&mut output, &block, &HashSet::new())
             .unwrap();
 
-        let limit = output
-            .find("checkpoint_preflight_local_can_execute_block")
-            .unwrap();
-        let due = output
-            .find("checkpoint_preflight_local_checkpoint_due")
-            .unwrap();
+        let limit = output.find("preflight_local_can_execute_block").unwrap();
+        let due = output.find("preflight_local_checkpoint_due").unwrap();
         let save = due + output[due..].find("rv_save_hot_regs(state").unwrap();
-        let append = output
-            .find("checkpoint_preflight_append_checkpoint")
-            .unwrap();
+        let append = output.find("preflight_append_checkpoint").unwrap();
         let reserve = output
-            .find("checkpoint_preflight_local_reserve(&checkpoint_preflight, 0u, 2u)")
+            .find("preflight_local_reserve(&preflight, 0u, 2u)")
             .unwrap();
         let add_timestamp = output
-            .find("checkpoint_preflight_local_add_timestamp_unchecked")
+            .find("preflight_local_add_timestamp_unchecked")
             .unwrap();
         assert!(limit < due && due < save && save < append);
         assert!(append < reserve && reserve < add_timestamp);
-        assert!(
-            output.contains("checkpoint_preflight_local_finish_block(&checkpoint_preflight, 2u);")
-        );
+        assert!(output.contains("preflight_local_finish_block(&preflight, 2u);"));
         assert!(!output.contains("preflight_local_trace_pc"));
         assert!(!output.contains("preflight_local_reg_"));
     }
@@ -1846,7 +1850,7 @@ mod tests {
     }
 
     #[test]
-    fn metered_codegen_adds_fixed_residuals_after_the_segment_check() {
+    fn metered_codegen_adds_fixed_replay_values_after_the_segment_check() {
         let mut project = CProject::new(Path::new("unused"), "test", RvrExecutionKind::Metered);
         project.pc_base = 0x100;
         project.num_airs = Some(1);
@@ -1854,7 +1858,7 @@ mod tests {
             rvr_openvm_lift::TraceChipIndex::NoChip,
             rvr_openvm_lift::TraceChipIndex::NoChip,
         ]);
-        let block = block_with_instruction(Box::new(FixedResidualInstr));
+        let block = block_with_instruction(Box::new(FixedReplayValueInstr));
         let mut output = String::new();
 
         project
@@ -1863,19 +1867,19 @@ mod tests {
 
         let check = output.find("if (unlikely(check_counter < 2u))").unwrap();
         let overflow = output
-            .find("if (unlikely(3u > UINT32_MAX - state->mode_state.num_checkpoint_residuals))")
+            .find("if (unlikely(3u > UINT32_MAX - state->mode_state.num_preflight_replay_values))")
             .unwrap();
         let trap = output[overflow..]
             .find("[[clang::musttail]] return rv_trap(")
             .map(|offset| overflow + offset)
             .unwrap();
-        let residuals = output
-            .find("state->mode_state.num_checkpoint_residuals += 3u;")
+        let replay_values = output
+            .find("state->mode_state.num_preflight_replay_values += 3u;")
             .unwrap();
-        assert!(check < overflow && overflow < trap && trap < residuals);
+        assert!(check < overflow && overflow < trap && trap < replay_values);
         assert_eq!(
             output
-                .matches("state->mode_state.num_checkpoint_residuals += 3u;")
+                .matches("state->mode_state.num_preflight_replay_values += 3u;")
                 .count(),
             1
         );

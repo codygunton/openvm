@@ -57,7 +57,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &MultiplicationCoreCols<_, NUM_LIMBS, LIMB_BITS> = local_core.borrow();
         builder.assert_bool(cols.is_valid);
@@ -97,7 +97,7 @@ where
         let expected_opcode = VmCoreAir::<AB, I>::opcode_to_global_expr(self, MulOpcode::MUL);
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: [cols.b.map(Into::into), cols.c.map(Into::into)].into(),
             writes: [cols.a.map(Into::into)].into(),
             instruction: MinimalInstruction {
@@ -114,13 +114,12 @@ where
 }
 
 #[derive(Clone, Copy, derive_new::new)]
-pub struct MultiplicationExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct MultiplicationCoreExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
     pub offset: usize,
 }
 
 #[derive(Clone)]
 pub struct MultiplicationFiller<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
-    pub offset: usize,
     pub range_tuple_chip: SharedRangeTupleCheckerChip<2>,
     pub bitwise_lookup_chip: SharedBitwiseOperationLookupChip<LIMB_BITS>,
 }
@@ -129,7 +128,6 @@ impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> MultiplicationFiller<NUM_LI
     pub fn new(
         range_tuple_chip: SharedRangeTupleCheckerChip<2>,
         bitwise_lookup_chip: SharedBitwiseOperationLookupChip<LIMB_BITS>,
-        offset: usize,
     ) -> Self {
         // The RangeTupleChecker is used to range check (a[i], carry[i]) pairs where 0 <= i
         // < NUM_LIMBS. a[i] must have LIMB_BITS bits and carry[i] is the sum of i + 1 bytes
@@ -146,7 +144,6 @@ impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> MultiplicationFiller<NUM_LI
         );
 
         Self {
-            offset,
             range_tuple_chip,
             bitwise_lookup_chip,
         }

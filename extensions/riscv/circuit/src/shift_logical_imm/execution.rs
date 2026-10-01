@@ -8,13 +8,13 @@ use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_IMM_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{IMM_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::{ShiftImmOpcode, ShiftWImmOpcode};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::core::ShiftLogicalImmExecutor;
+use super::core::ShiftLogicalImmCoreExecutor;
 
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
@@ -24,12 +24,14 @@ pub(super) struct ShiftLogicalImmPreCompute {
     rs1_ptr: u8,
 }
 
-impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> ShiftLogicalImmExecutor<NUM_LIMBS, LIMB_BITS> {
+impl<const NUM_LIMBS: usize, const LIMB_BITS: usize>
+    ShiftLogicalImmCoreExecutor<NUM_LIMBS, LIMB_BITS>
+{
     #[inline(always)]
-    pub(super) fn pre_compute_impl<F: PrimeField32>(
+    pub(super) fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut ShiftLogicalImmPreCompute,
     ) -> Result<bool, StaticProgramError> {
         let Instruction {
@@ -41,10 +43,8 @@ impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> ShiftLogicalImmExecutor<NUM
             e,
             ..
         } = inst;
-        let c = c.as_canonical_u32();
-        if d.as_canonical_u32() != RV64_REGISTER_AS
-            || e.as_canonical_u32() != RV64_IMM_AS
-            || c >= (NUM_LIMBS * LIMB_BITS) as u32
+        let c = c.as_u32();
+        if d.as_u32() != REGISTER_AS || e.as_u32() != IMM_AS || c >= (NUM_LIMBS * LIMB_BITS) as u32
         {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
@@ -56,15 +56,15 @@ impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> ShiftLogicalImmExecutor<NUM
         }
         *data = ShiftLogicalImmPreCompute {
             shamt: c as u8,
-            rd_ptr: a.as_canonical_u32() as u8,
-            rs1_ptr: b.as_canonical_u32() as u8,
+            rd_ptr: a.as_u32() as u8,
+            rs1_ptr: b.as_u32() as u8,
         };
         Ok(local_opcode == ShiftImmOpcode::SLLI as usize)
     }
 }
 
 impl<F, const NUM_LIMBS: usize, const LIMB_BITS: usize> InterpreterExecutor<F>
-    for ShiftLogicalImmExecutor<NUM_LIMBS, LIMB_BITS>
+    for ShiftLogicalImmCoreExecutor<NUM_LIMBS, LIMB_BITS>
 where
     F: PrimeField32,
 {
@@ -85,7 +85,7 @@ where
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -103,7 +103,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -119,7 +119,7 @@ where
 }
 
 impl<F, const NUM_LIMBS: usize, const LIMB_BITS: usize> InterpreterMeteredExecutor<F>
-    for ShiftLogicalImmExecutor<NUM_LIMBS, LIMB_BITS>
+    for ShiftLogicalImmCoreExecutor<NUM_LIMBS, LIMB_BITS>
 where
     F: PrimeField32,
 {
@@ -133,7 +133,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -153,7 +153,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -179,8 +179,8 @@ unsafe fn execute_e12_impl<
     pre_compute: &ShiftLogicalImmPreCompute,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) {
-    let rs1 = exec_state
-        .vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.rs1_ptr as u32);
+    let rs1 =
+        exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.rs1_ptr as u32);
     let rs1 = u64::from_le_bytes(rs1);
     let shamt = pre_compute.shamt as u64;
     let rd = if NUM_LIMBS * LIMB_BITS == 32 {
@@ -188,8 +188,8 @@ unsafe fn execute_e12_impl<
     } else {
         <OP as ImmOp>::compute(rs1, shamt)
     };
-    exec_state.vm_write_bytes::<RV64_REGISTER_NUM_LIMBS>(
-        RV64_REGISTER_AS,
+    exec_state.vm_write_bytes::<REGISTER_NUM_LIMBS>(
+        REGISTER_AS,
         pre_compute.rd_ptr as u32,
         &rd.to_le_bytes(),
     );

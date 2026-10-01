@@ -1,32 +1,31 @@
 use std::borrow::BorrowMut;
 
 use openvm_circuit::{
-    arch::{Postflight, PostflightError},
+    arch::{fill_trace_rows, Postflight, PostflightError},
     utils::next_power_of_two_or_zero,
 };
 use openvm_instructions::LocalOpcode;
-use openvm_riscv_transpiler::Rv64LoadStoreOpcode::LOADBU;
+use openvm_riscv_transpiler::LoadStoreOpcode::LOADBU;
 use openvm_stark_backend::{p3_field::PrimeField32, p3_matrix::dense::RowMajorMatrix};
 
-use super::{LoadByteCoreCols, Rv64LoadByteChip};
+use super::{LoadByteChip, LoadByteCoreCols};
 use crate::{
-    adapters::{u16_cell_byte, Rv64LoadByteAdapterCols, BYTE_SHIFT_SELECTOR_WIDTH},
+    adapters::{u16_cell_byte, LoadByteAdapterCols, BYTE_SHIFT_SELECTOR_WIDTH},
     load::common::load_byte_write_data,
 };
 
 /// Generates the unsigned byte-load trace directly from immutable preflight history.
 pub fn generate_trace_from_postflight<F: PrimeField32>(
-    chip: &Rv64LoadByteChip<F>,
+    chip: &LoadByteChip<F>,
     postflight: &Postflight<'_, F>,
 ) -> Result<RowMajorMatrix<F>, PostflightError> {
     let steps = postflight.steps(LOADBU.global_opcode());
-    let adapter_width = Rv64LoadByteAdapterCols::<F>::width();
+    let adapter_width = LoadByteAdapterCols::<F>::width();
     let width = adapter_width + LoadByteCoreCols::<F>::width();
     let height = next_power_of_two_or_zero(steps.len());
     let mut trace = RowMajorMatrix::new(F::zero_vec(height * width), width);
 
-    for (row_index, &step) in steps.iter().enumerate() {
-        let row = &mut trace.values[row_index * width..(row_index + 1) * width];
+    fill_trace_rows(&mut trace, 0, steps, |row, step| {
         let (adapter_row, core_row) = row.split_at_mut(adapter_width);
         let (read_data, shift, _) = chip.inner.adapter.replay(
             postflight,
@@ -47,7 +46,8 @@ pub fn generate_trace_from_postflight<F: PrimeField32>(
         let selector: &[u32; BYTE_SHIFT_SELECTOR_WIDTH] =
             chip.inner.encoder.flag_pt(shift).try_into().unwrap();
         core_row.selector = (*selector).map(F::from_u32);
-    }
+        Ok(())
+    })?;
 
     Ok(trace)
 }

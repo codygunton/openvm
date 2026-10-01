@@ -3,7 +3,7 @@ use std::sync::{atomic::Ordering, Arc};
 use openvm_circuit::arch::{
     deferral::{DeferralResult, DeferralState},
     testing::{
-        memory::{gen_pointer, gen_register_pointer},
+        memory::{gen_distinct_register_pointers, gen_pointer},
         TestBuilder, TestChipHarness, TestPreflight, VmChipTestBuilder, BITWISE_OP_LOOKUP_BUS,
     },
     ExecutionError, Executor, MemoryConfig, Postflight, MEMORY_BLOCK_BYTES,
@@ -16,13 +16,10 @@ use openvm_deferral_transpiler::DeferralOpcode;
 use openvm_instructions::{
     instruction::Instruction,
     program::Program,
-    riscv::{RV64_BYTE_BITS, RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{BYTE_BITS, MEMORY_AS, REGISTER_AS},
     LocalOpcode, DEFERRAL_AS,
 };
-use openvm_stark_backend::{
-    interaction::BusIndex,
-    p3_field::{PrimeCharacteristicRing, PrimeField32},
-};
+use openvm_stark_backend::{interaction::BusIndex, p3_field::PrimeCharacteristicRing};
 use openvm_stark_sdk::{
     config::baby_bear_poseidon2::DIGEST_SIZE, p3_baby_bear::BabyBear, utils::create_seeded_rng,
 };
@@ -32,7 +29,7 @@ use {
     super::DeferralOutputChipGpu,
     crate::{count::DeferralCircuitCountChipGpu, poseidon2::DeferralPoseidon2ChipGpu},
     openvm_circuit::arch::testing::{
-        default_bitwise_lookup_bus, GpuChipTestBuilder, GpuTestChipHarness,
+        default_bitwise_lookup_bus, dummy_range_checker, GpuChipTestBuilder, GpuTestChipHarness,
     },
     openvm_cuda_common::d_buffer::DeviceBuffer,
 };
@@ -57,8 +54,8 @@ const DEFERRAL_POSEIDON2_BUS: BusIndex = 21;
 
 type Harness = TestChipHarness<F, DeferralOutputExecutor, DeferralOutputAir, DeferralOutputChip<F>>;
 type BitwisePeriphery = (
-    BitwiseOperationLookupAir<RV64_BYTE_BITS>,
-    SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+    BitwiseOperationLookupAir<BYTE_BITS>,
+    SharedBitwiseOperationLookupChip<BYTE_BITS>,
 );
 type CountPeriphery = (DeferralCircuitCountAir, Arc<DeferralCircuitCountChip>);
 type Poseidon2Periphery = (DeferralPoseidon2Air<F>, Arc<DeferralPoseidon2Chip<F>>);
@@ -108,7 +105,7 @@ fn write_output_key(
     for (chunk_idx, chunk) in output_key.chunks_exact(MEMORY_BLOCK_BYTES).enumerate() {
         let chunk: [u8; MEMORY_BLOCK_BYTES] = chunk.try_into().unwrap();
         tester.write_bytes(
-            RV64_MEMORY_AS as usize,
+            MEMORY_AS as usize,
             input_ptr + chunk_idx * MEMORY_BLOCK_BYTES,
             chunk.map(F::from_u8),
         );
@@ -134,26 +131,37 @@ fn make_result(
 fn set_and_execute_output<E, T>(
     tester: &mut T,
     executor: &mut E,
-    preflight: &mut TestPreflight<F>,
+    preflight: &mut TestPreflight,
     rng: &mut StdRng,
     num_deferrals: usize,
-) -> Instruction<F>
+) -> Instruction
 where
     E: Executor<F> + Clone,
     T: TestBuilder<F>,
 {
-    let rd = gen_register_pointer(rng, MEMORY_BLOCK_BYTES);
-    let mut rs = gen_register_pointer(rng, MEMORY_BLOCK_BYTES);
-    while rs == rd {
-        rs = gen_register_pointer(rng, MEMORY_BLOCK_BYTES);
-    }
+    let output_len = rng.random_range(0..=4) * DIGEST_SIZE;
+    set_and_execute_output_with_len(tester, executor, preflight, rng, num_deferrals, output_len)
+}
+
+fn set_and_execute_output_with_len<E, T>(
+    tester: &mut T,
+    executor: &mut E,
+    preflight: &mut TestPreflight,
+    rng: &mut StdRng,
+    num_deferrals: usize,
+    output_len: usize,
+) -> Instruction
+where
+    E: Executor<F> + Clone,
+    T: TestBuilder<F>,
+{
+    let [rd, rs] = gen_distinct_register_pointers(rng, MEMORY_BLOCK_BYTES);
     let output_ptr = gen_pointer(rng, MEMORY_BLOCK_BYTES);
     let input_ptr = gen_pointer(rng, MEMORY_BLOCK_BYTES);
     let deferral_idx = rng.random_range(0..num_deferrals);
 
     let mut input_commit = [0u8; COMMIT_NUM_BYTES];
     rng.fill_bytes(&mut input_commit);
-    let output_len = rng.random_range(0..=4) * DIGEST_SIZE;
     let mut output_raw = vec![0u8; output_len];
     rng.fill_bytes(&mut output_raw);
     let result = make_result(deferral_idx, input_commit, output_raw);
@@ -167,12 +175,12 @@ where
     );
 
     tester.write_bytes(
-        RV64_REGISTER_AS as usize,
+        REGISTER_AS as usize,
         rd,
         (output_ptr as u64).to_le_bytes().map(F::from_u8),
     );
     tester.write_bytes(
-        RV64_REGISTER_AS as usize,
+        REGISTER_AS as usize,
         rs,
         (input_ptr as u64).to_le_bytes().map(F::from_u8),
     );
@@ -190,8 +198,8 @@ where
             rd,
             rs,
             deferral_idx,
-            RV64_REGISTER_AS as usize,
-            RV64_MEMORY_AS as usize,
+            REGISTER_AS as usize,
+            MEMORY_AS as usize,
         ],
     );
     tester.execute(executor, preflight, &instruction);
@@ -200,9 +208,7 @@ where
 
 fn create_cpu_harness(tester: &VmChipTestBuilder<F>, num_deferrals: usize) -> CpuHarnessBundle {
     let bitwise_bus = BitwiseOperationLookupBus::new(BITWISE_OP_LOOKUP_BUS);
-    let bitwise_chip = Arc::new(BitwiseOperationLookupChip::<RV64_BYTE_BITS>::new(
-        bitwise_bus,
-    ));
+    let bitwise_chip = Arc::new(BitwiseOperationLookupChip::<BYTE_BITS>::new(bitwise_bus));
     let count_bus = DeferralCircuitCountBus::new(DEFERRAL_COUNT_BUS);
     let poseidon2_bus = DeferralPoseidon2Bus::new(DEFERRAL_POSEIDON2_BUS);
     let count_chip = Arc::new(DeferralCircuitCountChip::new(num_deferrals));
@@ -214,6 +220,7 @@ fn create_cpu_harness(tester: &VmChipTestBuilder<F>, num_deferrals: usize) -> Cp
         count_bus,
         poseidon2_bus,
         bitwise_bus,
+        tester.range_checker().bus(),
         tester.address_bits(),
     );
     let executor = DeferralOutputExecutor::new();
@@ -222,6 +229,7 @@ fn create_cpu_harness(tester: &VmChipTestBuilder<F>, num_deferrals: usize) -> Cp
             count_chip.clone(),
             poseidon2_chip.clone(),
             bitwise_chip.clone(),
+            tester.range_checker(),
             tester.address_bits(),
         ),
         tester.memory_helper(),
@@ -256,9 +264,7 @@ fn create_cpu_harness(tester: &VmChipTestBuilder<F>, num_deferrals: usize) -> Cp
 #[allow(clippy::type_complexity)]
 fn create_cuda_harness(tester: &GpuChipTestBuilder, num_deferrals: usize) -> CudaHarnessBundle {
     let bitwise_bus = default_bitwise_lookup_bus();
-    let dummy_bitwise_chip = Arc::new(BitwiseOperationLookupChip::<RV64_BYTE_BITS>::new(
-        bitwise_bus,
-    ));
+    let dummy_bitwise_chip = Arc::new(BitwiseOperationLookupChip::<BYTE_BITS>::new(bitwise_bus));
     let count_bus = DeferralCircuitCountBus::new(DEFERRAL_COUNT_BUS);
     let poseidon2_bus = DeferralPoseidon2Bus::new(DEFERRAL_POSEIDON2_BUS);
     let count_chip_cpu = Arc::new(DeferralCircuitCountChip::new(num_deferrals));
@@ -270,6 +276,7 @@ fn create_cuda_harness(tester: &GpuChipTestBuilder, num_deferrals: usize) -> Cud
         count_bus,
         poseidon2_bus,
         bitwise_bus,
+        tester.cpu_range_checker().bus(),
         tester.address_bits(),
     );
     let executor = DeferralOutputExecutor::new();
@@ -278,6 +285,9 @@ fn create_cuda_harness(tester: &GpuChipTestBuilder, num_deferrals: usize) -> Cud
             count_chip_cpu,
             poseidon2_chip_cpu,
             dummy_bitwise_chip,
+            // Dummy range checker: the GPU kernel already emits the AS-pointer range-check counts;
+            // using the real (hybrid) range checker here would double-count them.
+            dummy_range_checker(tester.cpu_range_checker().bus()),
             tester.address_bits(),
         ),
         tester.dummy_memory_helper(),
@@ -364,6 +374,74 @@ fn rand_deferral_output_test() {
 }
 
 #[test]
+fn deferral_output_non_canonical_len_negative_test() {
+    use std::borrow::BorrowMut;
+
+    use openvm_stark_backend::{
+        p3_matrix::{
+            dense::{DenseMatrix, RowMajorMatrix},
+            Matrix,
+        },
+        utils::disable_debug_builder,
+    };
+
+    use super::DeferralOutputCols;
+
+    let mut rng = create_seeded_rng();
+    let mut tester = VmChipTestBuilder::<F>::from_config(test_memory_config());
+    let CpuHarnessBundle {
+        mut harness,
+        bitwise,
+        count,
+        poseidon2,
+    } = create_cpu_harness(&tester, NUM_DEFERRALS);
+
+    init_streams(&mut tester, NUM_DEFERRALS);
+    // One section of exactly DIGEST_SIZE bytes, so the composed output_len is 8.
+    set_and_execute_output_with_len(
+        &mut tester,
+        &mut harness.executor,
+        &mut harness.preflight,
+        &mut rng,
+        NUM_DEFERRALS,
+        DIGEST_SIZE,
+    );
+
+    // `[0x09, 0x00, 0x00, 0x78]` encodes `p + 8`, which composes to the same field element
+    // `8` as the genuine length: all constraints on the composed value still hold, and the
+    // output_len canonicity constraint must reject the aliased byte encoding.
+    let aliased_len = [0x09u32, 0x00, 0x00, 0x78].map(F::from_u32);
+    let modify_trace = |trace: &mut DenseMatrix<F>| {
+        let width = trace.width();
+        let mut values = std::mem::take(&mut trace.values);
+        // Both rows of the section carry output_len (constrained equal within a section).
+        for row in 0..2 {
+            let cols: &mut DeferralOutputCols<F> =
+                values[row * width..(row + 1) * width].borrow_mut();
+            cols.output_len = aliased_len;
+        }
+        let cols: &mut DeferralOutputCols<F> = values[..width].borrow_mut();
+        // Best-effort canonicity witness: marker on the (big-endian) top byte, where the
+        // aliased byte 0x78 equals p's top byte so diff_val = 0 satisfies the polynomial
+        // constraints; the 8-bit range check on diff_val - 1 = -1 is what must fail.
+        cols.output_len_canonicity_aux.diff_marker = [F::ONE, F::ZERO, F::ZERO, F::ZERO];
+        cols.output_len_canonicity_aux.diff_val = F::ZERO;
+        *trace = RowMajorMatrix::new(values, width);
+    };
+
+    disable_debug_builder();
+    tester
+        .build()
+        .load_and_prank_trace(harness, modify_trace)
+        .load_periphery(count)
+        .load_periphery(poseidon2)
+        .load_periphery(bitwise)
+        .finalize()
+        .simple_test()
+        .expect_err("Expected verification to fail, but it passed");
+}
+
+#[test]
 fn postflight_output_trace_rejects_truncated_history_without_mutating_periphery() {
     let mut rng = create_seeded_rng();
     let mut tester = VmChipTestBuilder::<F>::from_config(test_memory_config());
@@ -381,7 +459,7 @@ fn postflight_output_trace_rejects_truncated_history_without_mutating_periphery(
         &mut rng,
         NUM_DEFERRALS,
     );
-    let from_pc = tester.last_from_pc().as_canonical_u32();
+    let from_pc = tester.last_from_pc();
     let sentinel = instruction.clone();
     let program = Program::new_without_debug_infos(&[instruction, sentinel], from_pc);
     let history = &mut harness.preflight.executions[0].history;
@@ -396,7 +474,6 @@ fn postflight_output_trace_rejects_truncated_history_without_mutating_periphery(
         .accesses
         .pop()
         .expect("OUTPUT has timed memory events");
-    let postflight = Postflight::new(&program, history, &memory_config, None).unwrap();
     let counts_before = count
         .1
         .count
@@ -404,11 +481,20 @@ fn postflight_output_trace_rejects_truncated_history_without_mutating_periphery(
         .map(|count| count.load(Ordering::Relaxed))
         .collect::<Vec<_>>();
     let poseidon_records_before = poseidon2.1.records.len();
-    let error = super::generate_trace_from_postflight(&harness.chip, &postflight)
-        .expect_err("truncated OUTPUT history must be rejected");
+    // Depending on which location the popped access referenced, the truncation is caught either
+    // by `Postflight::new`'s seed-reference validation or by trace generation; both must reject
+    // without mutating the periphery.
+    let error = match Postflight::new(&program, history, &memory_config, None) {
+        Err(error) => error,
+        Ok(postflight) => super::generate_trace_from_postflight(&harness.chip, &postflight)
+            .expect_err("truncated OUTPUT history must be rejected"),
+    };
     assert!(
         error.to_string().contains("too few memory events")
             || error.to_string().contains("ended at timestamp")
+            || error
+                .to_string()
+                .contains("initial-write seeds are not referenced")
     );
     assert_eq!(
         counts_before,
@@ -450,8 +536,7 @@ fn deferral_output_multi_row_trace_test() {
 
     init_streams(&mut tester, NUM_DEFERRALS);
 
-    let rd = gen_register_pointer(&mut rng, MEMORY_BLOCK_BYTES);
-    let rs = gen_register_pointer(&mut rng, MEMORY_BLOCK_BYTES);
+    let [rd, rs] = gen_distinct_register_pointers(&mut rng, MEMORY_BLOCK_BYTES);
     let output_ptr = gen_pointer(&mut rng, MEMORY_BLOCK_BYTES);
     let input_ptr = gen_pointer(&mut rng, MEMORY_BLOCK_BYTES);
     let deferral_idx = 0;
@@ -473,12 +558,12 @@ fn deferral_output_multi_row_trace_test() {
     );
 
     tester.write_bytes(
-        RV64_REGISTER_AS as usize,
+        REGISTER_AS as usize,
         rd,
         (output_ptr as u64).to_le_bytes().map(F::from_u8),
     );
     tester.write_bytes(
-        RV64_REGISTER_AS as usize,
+        REGISTER_AS as usize,
         rs,
         (input_ptr as u64).to_le_bytes().map(F::from_u8),
     );
@@ -499,8 +584,8 @@ fn deferral_output_multi_row_trace_test() {
                 rd,
                 rs,
                 deferral_idx,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
     );

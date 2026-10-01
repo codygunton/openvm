@@ -2,6 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use openvm_cuda_backend::prelude::F;
+use openvm_instructions::PUBLIC_VALUES_AS;
 
 /// A struct that has the same memory layout as `uint2` to be used in FFI functions
 #[repr(C)]
@@ -22,6 +23,172 @@ use openvm_cuda_common::{
     error::CudaError,
     stream::cudaStream_t,
 };
+
+#[cfg(feature = "rvr")]
+use crate::preflight::PostflightEventCount;
+
+#[cfg(feature = "rvr")]
+pub mod rvr_checkpoint_replay {
+    use super::*;
+
+    extern "C" {
+        fn _rvr_checkpoint_count(
+            instructions: DeviceBufferView,
+            pc_base: u32,
+            initial_registers: DeviceBufferView,
+            initial_memory: DeviceBufferView,
+            anchors: DeviceBufferView,
+            replay_values: DeviceBufferView,
+            schedule_dispatch: DeviceBufferView,
+            schedules: DeviceBufferView,
+            spans: DeviceBufferView,
+            static_values: DeviceBufferView,
+            register_as: u32,
+            memory_as: u32,
+            immediate_as: u32,
+            deferral_as: u32,
+            byte_pointer_max_bits: u32,
+            cell_pointer_max_bits: u32,
+            initial_pc: u32,
+            initial_timestamp: u32,
+            endpoint_kind: u32,
+            event_counts: *mut PostflightEventCount,
+            error: *mut u32,
+            stream: cudaStream_t,
+        ) -> i32;
+
+        fn _rvr_checkpoint_emit(
+            instructions: DeviceBufferView,
+            pc_base: u32,
+            initial_registers: DeviceBufferView,
+            initial_memory: DeviceBufferView,
+            anchors: DeviceBufferView,
+            replay_values: DeviceBufferView,
+            memory_offsets: DeviceBufferView,
+            schedule_dispatch: DeviceBufferView,
+            schedules: DeviceBufferView,
+            spans: DeviceBufferView,
+            static_values: DeviceBufferView,
+            register_as: u32,
+            memory_as: u32,
+            immediate_as: u32,
+            deferral_as: u32,
+            byte_pointer_max_bits: u32,
+            cell_pointer_max_bits: u32,
+            initial_pc: u32,
+            initial_timestamp: u32,
+            endpoint_kind: u32,
+            program: DeviceBufferView,
+            memory: DeviceBufferView,
+            write_masks: DeviceBufferView,
+            field_values: DeviceBufferView,
+            error: *mut u32,
+            stream: cudaStream_t,
+        ) -> i32;
+    }
+
+    pub unsafe fn count(
+        instructions: DeviceBufferView,
+        pc_base: u32,
+        initial_registers: DeviceBufferView,
+        initial_memory: DeviceBufferView,
+        anchors: DeviceBufferView,
+        replay_values: DeviceBufferView,
+        schedule_dispatch: DeviceBufferView,
+        schedules: DeviceBufferView,
+        spans: DeviceBufferView,
+        static_values: DeviceBufferView,
+        address_spaces: [u32; 4],
+        byte_pointer_max_bits: u32,
+        cell_pointer_max_bits: u32,
+        initial_pc: u32,
+        initial_timestamp: u32,
+        endpoint_kind: u32,
+        event_counts: &DeviceBuffer<PostflightEventCount>,
+        error: &DeviceBuffer<u32>,
+        stream: cudaStream_t,
+    ) -> Result<(), CudaError> {
+        CudaError::from_result(_rvr_checkpoint_count(
+            instructions,
+            pc_base,
+            initial_registers,
+            initial_memory,
+            anchors,
+            replay_values,
+            schedule_dispatch,
+            schedules,
+            spans,
+            static_values,
+            address_spaces[0],
+            address_spaces[1],
+            address_spaces[2],
+            address_spaces[3],
+            byte_pointer_max_bits,
+            cell_pointer_max_bits,
+            initial_pc,
+            initial_timestamp,
+            endpoint_kind,
+            event_counts.as_mut_ptr(),
+            error.as_mut_ptr(),
+            stream,
+        ))
+    }
+
+    pub unsafe fn emit(
+        instructions: DeviceBufferView,
+        pc_base: u32,
+        initial_registers: DeviceBufferView,
+        initial_memory: DeviceBufferView,
+        anchors: DeviceBufferView,
+        replay_values: DeviceBufferView,
+        memory_offsets: DeviceBufferView,
+        schedule_dispatch: DeviceBufferView,
+        schedules: DeviceBufferView,
+        spans: DeviceBufferView,
+        static_values: DeviceBufferView,
+        address_spaces: [u32; 4],
+        byte_pointer_max_bits: u32,
+        cell_pointer_max_bits: u32,
+        initial_pc: u32,
+        initial_timestamp: u32,
+        endpoint_kind: u32,
+        program: DeviceBufferView,
+        memory: DeviceBufferView,
+        write_masks: DeviceBufferView,
+        field_values: DeviceBufferView,
+        error: &DeviceBuffer<u32>,
+        stream: cudaStream_t,
+    ) -> Result<(), CudaError> {
+        CudaError::from_result(_rvr_checkpoint_emit(
+            instructions,
+            pc_base,
+            initial_registers,
+            initial_memory,
+            anchors,
+            replay_values,
+            memory_offsets,
+            schedule_dispatch,
+            schedules,
+            spans,
+            static_values,
+            address_spaces[0],
+            address_spaces[1],
+            address_spaces[2],
+            address_spaces[3],
+            byte_pointer_max_bits,
+            cell_pointer_max_bits,
+            initial_pc,
+            initial_timestamp,
+            endpoint_kind,
+            program,
+            memory,
+            write_masks,
+            field_values,
+            error.as_mut_ptr(),
+            stream,
+        ))
+    }
+}
 
 pub mod auipc_cuda {
     use super::*;
@@ -50,7 +217,6 @@ pub mod auipc_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -146,7 +312,6 @@ pub mod hintstore_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_count(
         d_instructions: DeviceBufferView,
         pc_base: u32,
@@ -185,7 +350,6 @@ pub mod hintstore_cuda {
         ))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -262,7 +426,6 @@ pub mod jalr_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -311,7 +474,7 @@ pub mod less_than_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_less_than_replay_tracegen(
+        fn _less_than_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -337,7 +500,6 @@ pub mod less_than_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -361,7 +523,7 @@ pub mod less_than_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_less_than_replay_tracegen(
+        CudaError::from_result(_less_than_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -392,7 +554,7 @@ pub mod load_byte_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_load_byte_replay_tracegen(
+        fn _load_byte_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -418,7 +580,6 @@ pub mod load_byte_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -442,7 +603,7 @@ pub mod load_byte_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_load_byte_replay_tracegen(
+        CudaError::from_result(_load_byte_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -473,7 +634,7 @@ pub mod load_halfword_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_load_halfword_replay_tracegen(
+        fn _load_halfword_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -499,7 +660,6 @@ pub mod load_halfword_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -523,7 +683,7 @@ pub mod load_halfword_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_load_halfword_replay_tracegen(
+        CudaError::from_result(_load_halfword_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -554,7 +714,7 @@ pub mod load_word_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_load_word_replay_tracegen(
+        fn _load_word_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -580,7 +740,6 @@ pub mod load_word_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -604,7 +763,7 @@ pub mod load_word_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_load_word_replay_tracegen(
+        CudaError::from_result(_load_word_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -635,7 +794,7 @@ pub mod load_doubleword_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_load_doubleword_replay_tracegen(
+        fn _load_doubleword_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -661,7 +820,6 @@ pub mod load_doubleword_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -685,7 +843,7 @@ pub mod load_doubleword_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_load_doubleword_replay_tracegen(
+        CudaError::from_result(_load_doubleword_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -716,7 +874,7 @@ pub mod store_byte_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_store_byte_replay_tracegen(
+        fn _store_byte_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -733,7 +891,6 @@ pub mod store_byte_cuda {
             opcode: u32,
             register_address_space: u32,
             main_memory_address_space: u32,
-            public_values_address_space: u32,
             pointer_max_bits: usize,
             d_range_checker: *mut u32,
             range_checker_num_bins: u32,
@@ -743,7 +900,6 @@ pub mod store_byte_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -760,7 +916,6 @@ pub mod store_byte_cuda {
         opcode: u32,
         register_address_space: u32,
         main_memory_address_space: u32,
-        public_values_address_space: u32,
         pointer_max_bits: usize,
         d_range_checker: &DeviceBuffer<F>,
         d_bitwise_lookup: &DeviceBuffer<F>,
@@ -768,7 +923,7 @@ pub mod store_byte_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_store_byte_replay_tracegen(
+        CudaError::from_result(_store_byte_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -785,7 +940,85 @@ pub mod store_byte_cuda {
             opcode,
             register_address_space,
             main_memory_address_space,
-            public_values_address_space,
+            pointer_max_bits,
+            d_range_checker.as_mut_ptr() as *mut u32,
+            d_range_checker.len() as u32,
+            d_bitwise_lookup.as_mut_ptr() as *mut u32,
+            timestamp_max_bits,
+            stream,
+        ))
+    }
+}
+
+pub mod reveal_cuda {
+    use super::*;
+
+    extern "C" {
+        fn _reveal_replay_tracegen(
+            d_trace: *mut F,
+            height: usize,
+            width: usize,
+            d_instructions: DeviceBufferView,
+            pc_base: u32,
+            d_program_log: DeviceBufferView,
+            d_memory_log: DeviceBufferView,
+            d_initial_write_log: DeviceBufferView,
+            d_memory_predecessors: DeviceBufferView,
+            d_steps: DeviceBufferView,
+            step_start: usize,
+            num_steps: usize,
+            d_error: *mut u32,
+            opcode: u32,
+            register_address_space: u32,
+            public_values_address_space: u32,
+            pointer_max_bits: usize,
+            d_range_checker: *mut u32,
+            range_checker_num_bins: u32,
+            d_bitwise_lookup: *mut u32,
+            timestamp_max_bits: u32,
+            stream: cudaStream_t,
+        ) -> i32;
+    }
+
+    pub unsafe fn replay_tracegen(
+        d_trace: &DeviceBuffer<F>,
+        height: usize,
+        d_instructions: DeviceBufferView,
+        pc_base: u32,
+        d_program_log: DeviceBufferView,
+        d_memory_log: DeviceBufferView,
+        d_initial_write_log: DeviceBufferView,
+        d_memory_predecessors: DeviceBufferView,
+        d_steps: DeviceBufferView,
+        step_start: usize,
+        num_steps: usize,
+        d_error: *mut u32,
+        opcode: u32,
+        register_address_space: u32,
+        pointer_max_bits: usize,
+        d_range_checker: &DeviceBuffer<F>,
+        d_bitwise_lookup: &DeviceBuffer<F>,
+        timestamp_max_bits: u32,
+        stream: cudaStream_t,
+    ) -> Result<(), CudaError> {
+        assert!(height.is_power_of_two());
+        CudaError::from_result(_reveal_replay_tracegen(
+            d_trace.as_mut_ptr(),
+            height,
+            d_trace.len() / height,
+            d_instructions,
+            pc_base,
+            d_program_log,
+            d_memory_log,
+            d_initial_write_log,
+            d_memory_predecessors,
+            d_steps,
+            step_start,
+            num_steps,
+            d_error,
+            opcode,
+            register_address_space,
+            PUBLIC_VALUES_AS,
             pointer_max_bits,
             d_range_checker.as_mut_ptr() as *mut u32,
             d_range_checker.len() as u32,
@@ -800,7 +1033,7 @@ pub mod store_halfword_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_store_halfword_replay_tracegen(
+        fn _store_halfword_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -817,7 +1050,6 @@ pub mod store_halfword_cuda {
             opcode: u32,
             register_address_space: u32,
             main_memory_address_space: u32,
-            public_values_address_space: u32,
             pointer_max_bits: usize,
             d_range_checker: *mut u32,
             range_checker_num_bins: u32,
@@ -843,7 +1075,6 @@ pub mod store_halfword_cuda {
         opcode: u32,
         register_address_space: u32,
         main_memory_address_space: u32,
-        public_values_address_space: u32,
         pointer_max_bits: usize,
         d_range_checker: &DeviceBuffer<F>,
         d_bitwise_lookup: &DeviceBuffer<F>,
@@ -851,7 +1082,7 @@ pub mod store_halfword_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_store_halfword_replay_tracegen(
+        CudaError::from_result(_store_halfword_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -868,7 +1099,6 @@ pub mod store_halfword_cuda {
             opcode,
             register_address_space,
             main_memory_address_space,
-            public_values_address_space,
             pointer_max_bits,
             d_range_checker.as_mut_ptr() as *mut u32,
             d_range_checker.len() as u32,
@@ -883,7 +1113,7 @@ pub mod store_word_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_store_word_replay_tracegen(
+        fn _store_word_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -900,7 +1130,6 @@ pub mod store_word_cuda {
             opcode: u32,
             register_address_space: u32,
             main_memory_address_space: u32,
-            public_values_address_space: u32,
             pointer_max_bits: usize,
             d_range_checker: *mut u32,
             range_checker_num_bins: u32,
@@ -926,7 +1155,6 @@ pub mod store_word_cuda {
         opcode: u32,
         register_address_space: u32,
         main_memory_address_space: u32,
-        public_values_address_space: u32,
         pointer_max_bits: usize,
         d_range_checker: &DeviceBuffer<F>,
         d_bitwise_lookup: &DeviceBuffer<F>,
@@ -934,7 +1162,7 @@ pub mod store_word_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_store_word_replay_tracegen(
+        CudaError::from_result(_store_word_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -951,7 +1179,6 @@ pub mod store_word_cuda {
             opcode,
             register_address_space,
             main_memory_address_space,
-            public_values_address_space,
             pointer_max_bits,
             d_range_checker.as_mut_ptr() as *mut u32,
             d_range_checker.len() as u32,
@@ -966,7 +1193,7 @@ pub mod store_doubleword_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_store_doubleword_replay_tracegen(
+        fn _store_doubleword_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -983,7 +1210,6 @@ pub mod store_doubleword_cuda {
             opcode: u32,
             register_address_space: u32,
             main_memory_address_space: u32,
-            public_values_address_space: u32,
             pointer_max_bits: usize,
             d_range_checker: *mut u32,
             range_checker_num_bins: u32,
@@ -1009,7 +1235,6 @@ pub mod store_doubleword_cuda {
         opcode: u32,
         register_address_space: u32,
         main_memory_address_space: u32,
-        public_values_address_space: u32,
         pointer_max_bits: usize,
         d_range_checker: &DeviceBuffer<F>,
         d_bitwise_lookup: &DeviceBuffer<F>,
@@ -1017,7 +1242,7 @@ pub mod store_doubleword_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_store_doubleword_replay_tracegen(
+        CudaError::from_result(_store_doubleword_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -1034,7 +1259,6 @@ pub mod store_doubleword_cuda {
             opcode,
             register_address_space,
             main_memory_address_space,
-            public_values_address_space,
             pointer_max_bits,
             d_range_checker.as_mut_ptr() as *mut u32,
             d_range_checker.len() as u32,
@@ -1049,7 +1273,7 @@ pub mod load_sign_extend_byte_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_load_sign_extend_byte_replay_tracegen(
+        fn _load_sign_extend_byte_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -1075,7 +1299,6 @@ pub mod load_sign_extend_byte_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1099,7 +1322,7 @@ pub mod load_sign_extend_byte_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_load_sign_extend_byte_replay_tracegen(
+        CudaError::from_result(_load_sign_extend_byte_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -1130,7 +1353,7 @@ pub mod load_sign_extend_halfword_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_load_sign_extend_halfword_replay_tracegen(
+        fn _load_sign_extend_halfword_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -1156,7 +1379,6 @@ pub mod load_sign_extend_halfword_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1180,7 +1402,7 @@ pub mod load_sign_extend_halfword_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_load_sign_extend_halfword_replay_tracegen(
+        CudaError::from_result(_load_sign_extend_halfword_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -1211,7 +1433,7 @@ pub mod load_sign_extend_word_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_load_sign_extend_word_replay_tracegen(
+        fn _load_sign_extend_word_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -1237,7 +1459,6 @@ pub mod load_sign_extend_word_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1261,7 +1482,7 @@ pub mod load_sign_extend_word_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_load_sign_extend_word_replay_tracegen(
+        CudaError::from_result(_load_sign_extend_word_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -1318,7 +1539,6 @@ pub mod mul_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1372,7 +1592,7 @@ pub mod divrem_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_div_rem_replay_tracegen(
+        fn _div_rem_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -1407,7 +1627,6 @@ pub mod divrem_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1439,7 +1658,7 @@ pub mod divrem_cuda {
         timestamp_max_bits: u32,
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
-        CudaError::from_result(_rv64_div_rem_replay_tracegen(
+        CudaError::from_result(_div_rem_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -1479,7 +1698,7 @@ pub mod shift_logical_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_shift_logical_replay_tracegen(
+        fn _shift_logical_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -1505,7 +1724,6 @@ pub mod shift_logical_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1529,7 +1747,7 @@ pub mod shift_logical_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_shift_logical_replay_tracegen(
+        CudaError::from_result(_shift_logical_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -1560,7 +1778,7 @@ pub mod shift_right_arithmetic_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_shift_right_arithmetic_replay_tracegen(
+        fn _shift_right_arithmetic_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -1583,7 +1801,6 @@ pub mod shift_right_arithmetic_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1604,7 +1821,7 @@ pub mod shift_right_arithmetic_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_shift_right_arithmetic_replay_tracegen(
+        CudaError::from_result(_shift_right_arithmetic_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -1657,7 +1874,6 @@ pub mod add_sub_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1736,7 +1952,6 @@ pub mod addi_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1809,7 +2024,6 @@ pub mod addi_w_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1889,7 +2103,6 @@ pub mod bitwise_logic_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -1978,7 +2191,6 @@ pub mod jal_lui_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2060,7 +2272,6 @@ pub mod beq_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2148,7 +2359,6 @@ pub mod branch_lt_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2247,7 +2457,6 @@ pub mod mulh_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2338,7 +2547,6 @@ pub mod add_sub_w_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2393,7 +2601,7 @@ pub mod shift_w_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_shift_w_logical_replay_tracegen(
+        fn _shift_w_logical_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -2418,7 +2626,7 @@ pub mod shift_w_cuda {
             stream: cudaStream_t,
         ) -> i32;
 
-        fn _rv64_shift_w_right_arithmetic_replay_tracegen(
+        fn _shift_w_right_arithmetic_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -2441,7 +2649,6 @@ pub mod shift_w_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen_logical(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2465,7 +2672,7 @@ pub mod shift_w_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_shift_w_logical_replay_tracegen(
+        CudaError::from_result(_shift_w_logical_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -2491,7 +2698,6 @@ pub mod shift_w_cuda {
         ))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen_right_arithmetic(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2512,7 +2718,7 @@ pub mod shift_w_cuda {
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
         assert!(height.is_power_of_two());
-        CudaError::from_result(_rv64_shift_w_right_arithmetic_replay_tracegen(
+        CudaError::from_result(_shift_w_right_arithmetic_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -2540,7 +2746,7 @@ pub mod mul_w_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_mul_w_replay_tracegen(
+        fn _mul_w_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -2566,7 +2772,6 @@ pub mod mul_w_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2589,7 +2794,7 @@ pub mod mul_w_cuda {
         timestamp_max_bits: u32,
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
-        CudaError::from_result(_rv64_mul_w_replay_tracegen(
+        CudaError::from_result(_mul_w_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -2620,7 +2825,7 @@ pub mod divrem_w_cuda {
     use super::*;
 
     extern "C" {
-        fn _rv64_div_rem_w_replay_tracegen(
+        fn _div_rem_w_replay_tracegen(
             d_trace: *mut F,
             height: usize,
             width: usize,
@@ -2655,7 +2860,6 @@ pub mod divrem_w_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2687,7 +2891,7 @@ pub mod divrem_w_cuda {
         timestamp_max_bits: u32,
         stream: cudaStream_t,
     ) -> Result<(), CudaError> {
-        CudaError::from_result(_rv64_div_rem_w_replay_tracegen(
+        CudaError::from_result(_div_rem_w_replay_tracegen(
             d_trace.as_mut_ptr(),
             height,
             d_trace.len() / height,
@@ -2753,7 +2957,6 @@ pub mod shift_logical_imm_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2836,7 +3039,6 @@ pub mod shift_w_logical_imm_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2916,7 +3118,6 @@ pub mod shift_right_arithmetic_imm_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -2990,7 +3191,6 @@ pub mod shift_w_right_arithmetic_imm_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -3067,7 +3267,6 @@ pub mod less_than_imm_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,
@@ -3154,7 +3353,6 @@ pub mod bitwise_logic_imm_cuda {
         ) -> i32;
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub unsafe fn replay_tracegen(
         d_trace: &DeviceBuffer<F>,
         height: usize,

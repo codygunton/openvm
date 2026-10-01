@@ -3,7 +3,7 @@ use std::sync::Arc;
 use connector::VmConnectorChipGPU;
 use memory::MemoryInventoryGPU;
 use openvm_circuit::{
-    arch::SystemConfig,
+    arch::{MemoryCellType, SystemConfig},
     system::{connector::VmConnectorChip, memory::online::GuestMemory, SystemChipComplex},
 };
 use openvm_circuit_primitives::{var_range::VariableRangeCheckerChipGPU, Chip};
@@ -26,6 +26,27 @@ pub mod merkle_tree;
 pub mod phantom;
 pub mod poseidon2;
 pub mod program;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum GpuMemoryCellType {
+    Unsupported = 0,
+    U8 = 1,
+    U16 = 2,
+    Field32 = 3,
+}
+
+impl From<MemoryCellType> for GpuMemoryCellType {
+    fn from(layout: MemoryCellType) -> Self {
+        match layout {
+            MemoryCellType::Null => Self::Unsupported,
+            MemoryCellType::U8 => Self::U8,
+            MemoryCellType::U16 => Self::U16,
+            MemoryCellType::FIELD32 => Self::Field32,
+            _ => Self::Unsupported,
+        }
+    }
+}
 
 pub struct SystemChipInventoryGPU {
     pub program: ProgramChipGPU,
@@ -79,13 +100,7 @@ impl SystemChipInventoryGPU {
         program.ensure_replay_inputs(transcript, replay_plan, &self.program.device_ctx)?;
         let program_ctx = {
             let _span = tracing::info_span!("program_trace_gen").entered();
-            // SAFETY: replay_plan owns this same-context buffer through the
-            // entire system tracegen call. Memory tracegen below synchronizes
-            // the same stream before returning.
-            unsafe {
-                self.program
-                    .generate_proving_ctx_from_device(replay_plan.program_frequencies())
-            }
+            self.program.generate_proving_ctx_from_plan(replay_plan)?
         };
 
         let (from_state, to_state, exit_code) = replay_plan.connector_boundary();
@@ -93,17 +108,12 @@ impl SystemChipInventoryGPU {
         self.connector.cpu_chip.end(to_state, exit_code);
         let connector_ctx = {
             let _span = tracing::info_span!("connector_trace_gen").entered();
-            self.connector.generate_proving_ctx(())
+            self.connector.generate_proving_ctx()
         };
 
-        // SAFETY: transcript owns the validated initialized prefix and remains
-        // borrowed until this synchronous memory-inventory call returns.
-        let memory_ctxs = unsafe {
-            self.memory_inventory.generate_proving_ctxs_from_device(
-                transcript.touched_blocks(),
-                transcript.num_touched_blocks(),
-            )
-        };
+        let memory_ctxs = self
+            .memory_inventory
+            .generate_proving_ctxs_from_transcript(transcript)?;
         Ok([program_ctx, connector_ctx]
             .into_iter()
             .chain(memory_ctxs)

@@ -1,7 +1,7 @@
 #include "riscv/store_multibyte_replay.cuh"
 
 
-__global__ void rv64_store_halfword_replay_tracegen(
+__global__ void store_halfword_replay_tracegen(
     Fp *trace,
     size_t height,
     DeviceBufferConstView<RvrReplayInstruction> instructions,
@@ -17,7 +17,6 @@ __global__ void rv64_store_halfword_replay_tracegen(
     uint32_t opcode,
     uint32_t register_as,
     uint32_t main_memory_as,
-    uint32_t public_values_as,
     size_t pointer_max_bits,
     uint32_t *range_checker,
     uint32_t range_checker_num_bins,
@@ -27,8 +26,7 @@ __global__ void rv64_store_halfword_replay_tracegen(
     size_t idx = blockIdx.x * static_cast<size_t>(blockDim.x) + threadIdx.x;
     if (idx >= height) return;
     RowSlice row(trace + idx, height);
-    row.fill_zero(0, sizeof(Rv64StoreHalfwordCols<uint8_t>));
-    COL_WRITE_VALUE(row, Rv64StoreHalfwordCols, adapter.mem_as, main_memory_as);
+    row.fill_zero(0, sizeof(StoreHalfwordCols<uint8_t>));
     if (idx >= num_steps) return;
 
     ReplayStoreMultiByteInput input = {};
@@ -43,7 +41,6 @@ __global__ void rv64_store_halfword_replay_tracegen(
             opcode,
             register_as,
             main_memory_as,
-            public_values_as,
             pointer_max_bits,
             input,
             error
@@ -51,7 +48,7 @@ __global__ void rv64_store_halfword_replay_tracegen(
         return;
     }
 
-    auto adapter = Rv64StoreAdapter(
+    auto adapter = StoreAdapter(
         pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_num_bins),
         timestamp_max_bits
@@ -68,12 +65,11 @@ __global__ void rv64_store_halfword_replay_tracegen(
         input.write_prev_timestamps[0],
         input.write_prev_timestamps[1],
         input.imm,
-        input.imm_sign,
-        input.memory_as
+        input.imm_sign
     );
     auto core = StoreHalfwordCore(BitwiseOperationLookup(bitwise_lookup));
     core.fill_trace_row(
-        row.slice_from(COL_INDEX(Rv64StoreHalfwordCols, core)),
+        row.slice_from(COL_INDEX(StoreHalfwordCols, core)),
         input.read_data,
         input.prev_data,
         input.shift
@@ -82,7 +78,7 @@ __global__ void rv64_store_halfword_replay_tracegen(
 
 
 
-extern "C" int _rv64_store_halfword_replay_tracegen(
+extern "C" int _store_halfword_replay_tracegen(
     Fp *d_trace,
     size_t height,
     size_t width,
@@ -99,7 +95,6 @@ extern "C" int _rv64_store_halfword_replay_tracegen(
     uint32_t opcode,
     uint32_t register_as,
     uint32_t main_memory_as,
-    uint32_t public_values_as,
     size_t pointer_max_bits,
     uint32_t *d_range_checker,
     uint32_t range_checker_num_bins,
@@ -107,13 +102,13 @@ extern "C" int _rv64_store_halfword_replay_tracegen(
     uint32_t timestamp_max_bits,
     cudaStream_t stream
 ) {
-    assert(width == sizeof(Rv64StoreHalfwordCols<uint8_t>));
+    assert(width == sizeof(StoreHalfwordCols<uint8_t>));
     assert(d_memory.len() == d_predecessors.len());
     assert(step_start <= d_steps.len());
     assert(num_steps <= d_steps.len() - step_start);
     assert(height >= num_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
-    rv64_store_halfword_replay_tracegen<<<grid, block, 0, stream>>>(
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
+    store_halfword_replay_tracegen<<<grid, block, 0, stream>>>(
         d_trace,
         height,
         d_instructions,
@@ -129,7 +124,6 @@ extern "C" int _rv64_store_halfword_replay_tracegen(
         opcode,
         register_as,
         main_memory_as,
-        public_values_as,
         pointer_max_bits,
         d_range_checker,
         range_checker_num_bins,

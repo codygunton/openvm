@@ -58,7 +58,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &BitwiseLogicCoreCols<_, NUM_LIMBS, LIMB_BITS> = local_core.borrow();
         let flags = [
@@ -100,7 +100,7 @@ where
         );
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: [cols.b.map(Into::into), cols.c.map(Into::into)].into(),
             writes: [cols.a.map(Into::into)].into(),
             instruction: MinimalInstruction {
@@ -117,12 +117,12 @@ where
 }
 
 #[derive(Clone, Copy, derive_new::new)]
-pub struct BitwiseLogicExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct BitwiseLogicCoreExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
     pub offset: usize,
 }
 
 #[derive(derive_new::new)]
-pub struct BitwiseLogicFiller<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct BitwiseLogicFiller<const LIMB_BITS: usize> {
     pub bitwise_lookup_chip: SharedBitwiseOperationLookupChip<LIMB_BITS>,
 }
 
@@ -137,7 +137,7 @@ pub(crate) fn run_bitwise_logic<const NUM_LIMBS: usize, const LIMB_BITS: usize>(
         BaseAluOpcode::XOR => run_xor::<NUM_LIMBS>(x, y),
         BaseAluOpcode::OR => run_or::<NUM_LIMBS>(x, y),
         BaseAluOpcode::AND => run_and::<NUM_LIMBS>(x, y),
-        _ => unreachable!("BitwiseLogicExecutor received non-XOR/OR/AND opcode"),
+        _ => unreachable!("BitwiseLogicCoreExecutor received non-XOR/OR/AND opcode"),
     }
 }
 

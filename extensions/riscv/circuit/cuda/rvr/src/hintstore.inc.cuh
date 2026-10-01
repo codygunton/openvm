@@ -215,30 +215,32 @@ __global__ void hintstore_replay_tracegen(
     uint32_t *error
 ) {
     size_t instruction_index = blockIdx.x;
-    if (instruction_index >= num_steps || *error != 0) return;
 
     __shared__ ReplayHintStoreInput input;
     __shared__ bool valid;
     if (threadIdx.x == 0) {
-        valid = replay_hintstore_instruction(
-            instructions,
-            pc_base,
-            program,
-            memory,
-            seeds,
-            predecessors,
-            steps[step_start + instruction_index],
-            hint_stored_opcode,
-            hint_buffer_opcode,
-            register_as,
-            memory_as,
-            pointer_max_bits,
-            input
-        );
-        if (!valid || row_offsets[instruction_index + 1] - row_offsets[instruction_index] !=
-                          input.num_words) {
-            preflight_set_error(error, HINTSTORE_REPLAY_ERROR);
-            valid = false;
+        valid = instruction_index < num_steps && *error == 0;
+        if (valid) {
+            valid = replay_hintstore_instruction(
+                instructions,
+                pc_base,
+                program,
+                memory,
+                seeds,
+                predecessors,
+                steps[step_start + instruction_index],
+                hint_stored_opcode,
+                hint_buffer_opcode,
+                register_as,
+                memory_as,
+                pointer_max_bits,
+                input
+            );
+            if (!valid || row_offsets[instruction_index + 1] - row_offsets[instruction_index] !=
+                              input.num_words) {
+                preflight_set_error(error, HINTSTORE_REPLAY_ERROR);
+                valid = false;
+            }
         }
     }
     __syncthreads();
@@ -286,7 +288,7 @@ __global__ void hintstore_replay_tracegen(
             return;
         }
 
-        Rv64HintStoreRecordHeader record{};
+        HintStoreRecordHeader record{};
         record.num_words = input.num_words;
         record.from_pc = input.from_pc;
         record.timestamp = input.from_timestamp;
@@ -296,7 +298,7 @@ __global__ void hintstore_replay_tracegen(
         record.num_words_ptr = input.num_words_ptr;
         record.num_words_read.prev_timestamp = num_words_previous.timestamp;
 
-        Rv64HintStoreVars vars{};
+        HintStoreVars vars{};
         vars.write_aux.prev_timestamp = write_previous.timestamp;
 #pragma unroll
         for (uint32_t cell = 0; cell < BLOCK_FE_WIDTH; cell++) {
@@ -306,7 +308,7 @@ __global__ void hintstore_replay_tracegen(
             vars.data[2 * cell + 1] = uint8_t(write.value[cell] >> 8);
         }
         RowSlice row(trace + row_index, height);
-        auto filler = Rv64HintStore(
+        auto filler = HintStore(
             pointer_max_bits,
             VariableRangeChecker(range_checker_ptr, range_checker_num_bins),
             timestamp_max_bits
@@ -339,7 +341,7 @@ extern "C" int _hintstore_replay_count(
     assert(step_start <= d_steps.len());
     assert(num_steps <= d_steps.len() - step_start);
     if (num_steps == 0) return 0;
-    auto [grid, block] = kernel_launch_params(num_steps, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(num_steps, REPLAY_THREADS);
     hintstore_replay_count<<<grid, block, 0, stream>>>(
         d_instructions,
         pc_base,
@@ -388,7 +390,7 @@ extern "C" int _hintstore_replay_tracegen(
     uint32_t *d_error,
     cudaStream_t stream
 ) {
-    assert(width == sizeof(Rv64HintStoreCols<uint8_t>));
+    assert(width == sizeof(HintStoreCols<uint8_t>));
     assert(d_memory.len() == d_predecessors.len());
     assert(step_start <= d_steps.len());
     assert(num_steps <= d_steps.len() - step_start);

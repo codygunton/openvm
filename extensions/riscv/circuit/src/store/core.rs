@@ -10,7 +10,7 @@ use openvm_circuit_primitives::{
     AlignedBorrow, ColumnsAir, StructReflection, StructReflectionHelper, SubAir,
 };
 use openvm_instructions::LocalOpcode;
-use openvm_riscv_transpiler::Rv64LoadStoreOpcode::{self, *};
+use openvm_riscv_transpiler::LoadStoreOpcode::{self, *};
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
     p3_air::BaseAir,
@@ -20,14 +20,13 @@ use openvm_stark_backend::{
 };
 
 use crate::adapters::{
-    is_multi_byte_access_width, shift_encoder, u16_cell_byte, Rv64StoreMultiByteAdapterCols,
-    Rv64StoreMultiByteAdapterFiller, StoreInstruction, BYTE_SHIFT_SELECTOR_WIDTH,
-    DOUBLEWORD_ACCESS_WIDTH, HALFWORD_ACCESS_WIDTH, NUM_BYTE_SHIFTS, RV64_BYTE_BITS,
-    WORD_ACCESS_WIDTH,
+    is_multi_byte_access_width, shift_encoder, u16_cell_byte, StoreInstruction,
+    StoreMultiByteAdapterCols, StoreMultiByteAdapterFiller, BYTE_BITS, BYTE_SHIFT_SELECTOR_WIDTH,
+    DOUBLEWORD_ACCESS_WIDTH, HALFWORD_ACCESS_WIDTH, NUM_BYTE_SHIFTS, WORD_ACCESS_WIDTH,
 };
 
 /// The single opcode handled by the store chip of the given width.
-pub(crate) fn store_opcode<const STORE_WIDTH: usize>() -> Rv64LoadStoreOpcode {
+pub(crate) fn store_opcode<const STORE_WIDTH: usize>() -> LoadStoreOpcode {
     match STORE_WIDTH {
         DOUBLEWORD_ACCESS_WIDTH => STORED,
         WORD_ACCESS_WIDTH => STOREW,
@@ -110,7 +109,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &StoreCoreCols<AB::Var, NUM_VALUE_CELLS> = (*local_core).borrow();
         let width = STORE_WIDTH / U16_CELL_SIZE;
@@ -140,7 +139,7 @@ where
             }
         };
 
-        let inv_2_pow_8 = AB::F::from_u32(1 << RV64_BYTE_BITS).inverse();
+        let inv_2_pow_8 = AB::F::from_u32(1 << BYTE_BITS).inverse();
         // read_data[i] = value_lo_bytes[i] + 2^8 * value_hi_bytes[i] on odd shifts.
         let value_hi_bytes: [AB::Expr; NUM_VALUE_CELLS] =
             std::array::from_fn(|i| (cols.read_data[i] - cols.value_lo_bytes[i]) * inv_2_pow_8);
@@ -162,7 +161,7 @@ where
         // prev_bound_cells[1] = overwritten_lo + 2^8 * preserved_hi.
         let first_cell_hi = (prev_bound_cells[0].clone() - cols.prev_bound_bytes[0]) * inv_2_pow_8;
         let last_cell_lo = prev_bound_cells[1].clone()
-            - cols.prev_bound_bytes[1] * AB::Expr::from_u32(1 << RV64_BYTE_BITS);
+            - cols.prev_bound_bytes[1] * AB::Expr::from_u32(1 << BYTE_BITS);
         self.bitwise_lookup_bus
             .send_range(cols.prev_bound_bytes[0], first_cell_hi)
             .eval(builder, odd_shift.clone());
@@ -203,21 +202,21 @@ where
                             prev_full(cell).into()
                         } else if cell == first {
                             cols.prev_bound_bytes[0]
-                                + cols.value_lo_bytes[0] * AB::Expr::from_u32(1 << RV64_BYTE_BITS)
+                                + cols.value_lo_bytes[0] * AB::Expr::from_u32(1 << BYTE_BITS)
                         } else if cell == first + width {
                             value_hi_bytes[width - 1].clone()
-                                + cols.prev_bound_bytes[1] * AB::Expr::from_u32(1 << RV64_BYTE_BITS)
+                                + cols.prev_bound_bytes[1] * AB::Expr::from_u32(1 << BYTE_BITS)
                         } else {
                             value_hi_bytes[cell - first - 1].clone()
                                 + cols.value_lo_bytes[cell - first]
-                                    * AB::Expr::from_u32(1 << RV64_BYTE_BITS)
+                                    * AB::Expr::from_u32(1 << BYTE_BITS)
                         };
                         acc + flag.clone() * term
                     })
             })
         });
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: (
                 cols.prev_data.map(|block| block.map(Into::into)),
                 cols.read_data.map(Into::into),
@@ -241,14 +240,14 @@ where
 
 #[derive(Clone)]
 pub struct StoreFiller<
-    A = Rv64StoreMultiByteAdapterFiller,
+    A = StoreMultiByteAdapterFiller,
     const STORE_WIDTH: usize = WORD_ACCESS_WIDTH,
     const NUM_VALUE_CELLS: usize = 2,
 > {
     adapter: A,
     pub offset: usize,
     encoder: Encoder,
-    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<BYTE_BITS>,
 }
 
 impl<A, const STORE_WIDTH: usize, const NUM_VALUE_CELLS: usize>
@@ -257,7 +256,7 @@ impl<A, const STORE_WIDTH: usize, const NUM_VALUE_CELLS: usize>
     pub fn new(
         adapter: A,
         offset: usize,
-        bitwise_lookup_chip: SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+        bitwise_lookup_chip: SharedBitwiseOperationLookupChip<BYTE_BITS>,
     ) -> Self {
         const {
             assert!(is_multi_byte_access_width(STORE_WIDTH));
@@ -273,7 +272,7 @@ impl<A, const STORE_WIDTH: usize, const NUM_VALUE_CELLS: usize>
 }
 
 impl<const STORE_WIDTH: usize, const NUM_VALUE_CELLS: usize>
-    StoreFiller<Rv64StoreMultiByteAdapterFiller, STORE_WIDTH, NUM_VALUE_CELLS>
+    StoreFiller<StoreMultiByteAdapterFiller, STORE_WIDTH, NUM_VALUE_CELLS>
 {
     fn fill_core_row<F: PrimeField32>(
         &self,
@@ -325,20 +324,16 @@ pub(crate) fn generate_trace_from_postflight<
     const STORE_WIDTH: usize,
     const NUM_VALUE_CELLS: usize,
 >(
-    chip: &VmChipWrapper<
-        F,
-        StoreFiller<Rv64StoreMultiByteAdapterFiller, STORE_WIDTH, NUM_VALUE_CELLS>,
-    >,
+    chip: &VmChipWrapper<F, StoreFiller<StoreMultiByteAdapterFiller, STORE_WIDTH, NUM_VALUE_CELLS>>,
     postflight: &Postflight<'_, F>,
 ) -> Result<RowMajorMatrix<F>, PostflightError> {
     let steps = postflight.steps(store_opcode::<STORE_WIDTH>().global_opcode());
-    let adapter_width = Rv64StoreMultiByteAdapterCols::<F>::width();
+    let adapter_width = StoreMultiByteAdapterCols::<F>::width();
     let width = adapter_width + StoreCoreCols::<F, NUM_VALUE_CELLS>::width();
     let height = next_power_of_two_or_zero(steps.len());
     let mut trace = RowMajorMatrix::new(F::zero_vec(height * width), width);
 
-    for (row_index, &step) in steps.iter().enumerate() {
-        let row = &mut trace.values[row_index * width..(row_index + 1) * width];
+    fill_trace_rows(&mut trace, 0, steps, |row, step| {
         let (adapter_row, core_row) = row.split_at_mut(adapter_width);
         let (read_data, prev_data, shift) = chip.inner.adapter.replay::<F, STORE_WIDTH>(
             postflight,
@@ -356,15 +351,7 @@ pub(crate) fn generate_trace_from_postflight<
         )?;
         chip.inner
             .fill_core_row(shift, read_data, prev_data, core_row.borrow_mut());
-    }
-    for row_index in steps.len()..height {
-        fill_padding_row(&mut trace.values[row_index * width..(row_index + 1) * width]);
-    }
+        Ok(())
+    })?;
     Ok(trace)
-}
-
-pub(crate) fn fill_padding_row<F: PrimeField32>(row: &mut [F]) {
-    let adapter_width = Rv64StoreMultiByteAdapterCols::<F>::width();
-    let adapter_row: &mut Rv64StoreMultiByteAdapterCols<F> = row[..adapter_width].borrow_mut();
-    adapter_row.mem_as = F::from_u32(2);
 }

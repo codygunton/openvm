@@ -27,7 +27,7 @@ __global__ void add_sub_replay_tracegen(
     size_t idx = blockIdx.x * static_cast<size_t>(blockDim.x) + threadIdx.x;
     if (idx >= height) return;
     RowSlice row(trace + idx, height);
-    row.fill_zero(0, sizeof(Rv64AddSubCols<uint8_t>));
+    row.fill_zero(0, sizeof(AddSubCols<uint8_t>));
     size_t total_steps = num_add_steps + num_sub_steps;
     if (idx >= total_steps) return;
 
@@ -59,8 +59,8 @@ __global__ void add_sub_replay_tracegen(
     uint32_t rs2_ptr = instruction.words[3];
     if (instruction.words[0] != expected_opcode ||
         instruction.words[4] != register_address_space ||
-        instruction.words[5] != register_address_space || rd_ptr == 0 || (rd_ptr & 1) != 0 ||
-        (rs1_ptr & 1) != 0 || (rs2_ptr & 1) != 0) {
+        instruction.words[5] != register_address_space || rd_ptr == 0 || !replay_canonical_register_pointer(rd_ptr) ||
+        !replay_canonical_register_pointer(rs1_ptr) || !replay_canonical_register_pointer(rs2_ptr)) {
         preflight_set_error(error, ADD_SUB_REPLAY_ERROR_BASE + 3);
         return;
     }
@@ -89,11 +89,9 @@ __global__ void add_sub_replay_tracegen(
     uint16_t b[BLOCK_FE_WIDTH];
     uint16_t c[BLOCK_FE_WIDTH];
     uint16_t logged_result[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(rs1.value, b) || !replay_u16_block(rs2.value, c) ||
-        !replay_u16_block(write.value, logged_result)) {
-        preflight_set_error(error, ADD_SUB_REPLAY_ERROR_BASE + 6);
-        return;
-    }
+    replay_u16_block(rs1.value, b);
+    replay_u16_block(rs2.value, c);
+    replay_u16_block(write.value, logged_result);
     uint16_t expected_result[BLOCK_FE_WIDTH];
     uint32_t carry[BLOCK_FE_WIDTH];
     if (is_add) {
@@ -126,7 +124,7 @@ __global__ void add_sub_replay_tracegen(
     }
 
     auto checker = VariableRangeChecker(range_checker, range_checker_num_bins);
-    auto adapter = Rv64BaseAluRegU16Adapter(checker, timestamp_max_bits);
+    auto adapter = BaseAluRegU16Adapter(checker, timestamp_max_bits);
     adapter.fill_trace_row(
         row,
         from.pc,
@@ -139,9 +137,9 @@ __global__ void add_sub_replay_tracegen(
         write_previous.timestamp,
         write_previous.value
     );
-    auto core = Rv64AddSubCore(checker);
+    auto core = AddSubCore<BLOCK_FE_WIDTH, U16_BITS, true>(checker);
     core.fill_trace_row(
-        row.slice_from(COL_INDEX(Rv64AddSubCols, core)), b, c, local_opcode
+        row.slice_from(COL_INDEX(AddSubCols, core)), b, c, local_opcode
     );
 }
 
@@ -171,7 +169,7 @@ extern "C" int _add_sub_replay_tracegen(
     uint32_t timestamp_max_bits,
     cudaStream_t stream
 ) {
-    assert(width == sizeof(Rv64AddSubCols<uint8_t>));
+    assert(width == sizeof(AddSubCols<uint8_t>));
     assert(memory.len() == predecessors.len());
     assert(add_step_start <= steps.len());
     assert(num_add_steps <= steps.len() - add_step_start);
@@ -179,7 +177,7 @@ extern "C" int _add_sub_replay_tracegen(
     assert(num_sub_steps <= steps.len() - sub_step_start);
     assert(num_add_steps <= SIZE_MAX - num_sub_steps);
     assert(height >= num_add_steps + num_sub_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     add_sub_replay_tracegen<<<grid, block, 0, stream>>>(
         trace,
         height,

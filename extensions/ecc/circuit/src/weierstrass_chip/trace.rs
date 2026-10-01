@@ -8,19 +8,19 @@ use openvm_circuit::{
     system::memory::SharedMemoryHelper,
 };
 use openvm_circuit_primitives::var_range::VariableRangeCheckerChip;
-use openvm_ecc_transpiler::Rv64WeierstrassOpcode;
+use openvm_ecc_transpiler::WeierstrassOpcode;
 use openvm_instructions::{
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
     VmOpcode,
 };
 use openvm_mod_circuit_builder::FieldExpressionFiller;
 use openvm_riscv_adapters::{
-    vec_heap_u16_blocks_to_bytes, Rv64VecHeapAdapterCols, Rv64VecHeapAdapterFiller,
-    VecHeapTraceInput,
+    vec_heap_u16_blocks_to_bytes, VecHeapAdapterCols, VecHeapAdapterFiller, VecHeapTraceInput,
 };
 use openvm_stark_backend::{
     p3_air::BaseAir, p3_field::PrimeField32, p3_matrix::dense::RowMajorMatrix,
+    p3_maybe_rayon::prelude::*,
 };
 
 use super::WeierstrassChip;
@@ -84,16 +84,14 @@ fn project_step<F: PrimeField32, const NUM_READS: usize, const BLOCKS: usize>(
             "unsupported vector-heap read count {NUM_READS}"
         )));
     }
-    if instruction.d.as_canonical_u32() != RV64_REGISTER_AS
-        || instruction.e.as_canonical_u32() != RV64_MEMORY_AS
-    {
+    if instruction.d.as_u32() != REGISTER_AS || instruction.e.as_u32() != MEMORY_AS {
         return Err(PostflightError::new(
             "vector-heap instruction uses invalid address spaces",
         ));
     }
-    if (NUM_READS == 1 && instruction.c.as_canonical_u32() != 0)
-        || instruction.f.as_canonical_u32() != 0
-        || instruction.g.as_canonical_u32() != 0
+    if (NUM_READS == 1 && instruction.c.as_u32() != 0)
+        || instruction.f.as_u32() != 0
+        || instruction.g.as_u32() != 0
     {
         return Err(PostflightError::new(
             "vector-heap instruction has nonzero unused operands",
@@ -102,26 +100,26 @@ fn project_step<F: PrimeField32, const NUM_READS: usize, const BLOCKS: usize>(
 
     let rs_ptrs = std::array::from_fn(|index| {
         if index == 0 {
-            instruction.b.as_canonical_u32()
+            instruction.b.as_u32()
         } else {
-            instruction.c.as_canonical_u32()
+            instruction.c.as_u32()
         }
     });
-    let rd_ptr = instruction.a.as_canonical_u32();
+    let rd_ptr = instruction.a.as_u32();
     let mut replay = postflight.replay(step);
 
     let mut rs_vals = [0u32; NUM_READS];
     let mut rs_prev_timestamps = [0u32; NUM_READS];
     for index in 0..NUM_READS {
         let access = replay.read_u16(
-            RV64_REGISTER_AS,
+            REGISTER_AS,
             checked_u16_pointer(rs_ptrs[index], "source register")?,
         )?;
         rs_vals[index] = pointer_from_register(access.value, pointer_max_bits)?;
         rs_prev_timestamps[index] = access.previous_timestamp;
     }
     let rd_access = replay.read_u16(
-        RV64_REGISTER_AS,
+        REGISTER_AS,
         checked_u16_pointer(rd_ptr, "destination register")?,
     )?;
     let rd_val = pointer_from_register(rd_access.value, pointer_max_bits)?;
@@ -131,10 +129,8 @@ fn project_step<F: PrimeField32, const NUM_READS: usize, const BLOCKS: usize>(
     for read in 0..NUM_READS {
         for block in 0..BLOCKS {
             let byte_pointer = add_byte_offset(rs_vals[read], block, pointer_max_bits)?;
-            let access = replay.read_u16(
-                RV64_MEMORY_AS,
-                checked_u16_pointer(byte_pointer, "heap read")?,
-            )?;
+            let access =
+                replay.read_u16(MEMORY_AS, checked_u16_pointer(byte_pointer, "heap read")?)?;
             heap_reads[read][block] = access.value;
             heap_prev_timestamps[read][block] = access.previous_timestamp;
         }
@@ -145,10 +141,8 @@ fn project_step<F: PrimeField32, const NUM_READS: usize, const BLOCKS: usize>(
     let mut write_prev_timestamps = [0u32; BLOCKS];
     for block in 0..BLOCKS {
         let byte_pointer = add_byte_offset(rd_val, block, pointer_max_bits)?;
-        let access = replay.write_observed_u16(
-            RV64_MEMORY_AS,
-            checked_u16_pointer(byte_pointer, "heap write")?,
-        )?;
+        let access = replay
+            .write_observed_u16(MEMORY_AS, checked_u16_pointer(byte_pointer, "heap write")?)?;
         writes[block] = access.value;
         write_predecessors[block] = access.previous_value;
         write_prev_timestamps[block] = access.previous_timestamp;
@@ -184,17 +178,14 @@ fn generate_trace_from_postflights<
     const NUM_READS: usize,
     const BLOCKS: usize,
 >(
-    chip: &VmChipWrapper<
-        F,
-        FieldExpressionFiller<Rv64VecHeapAdapterFiller<NUM_READS, BLOCKS, BLOCKS>>,
-    >,
+    chip: &VmChipWrapper<F, FieldExpressionFiller<VecHeapAdapterFiller<NUM_READS, BLOCKS, BLOCKS>>>,
     postflights: &[Postflight<'_, F>],
     opcode_base: usize,
-    local_opcodes: &[Rv64WeierstrassOpcode],
+    local_opcodes: &[WeierstrassOpcode],
 ) -> Result<RowMajorMatrix<F>, PostflightError> {
     let pointer_max_bits = chip.inner.adapter().pointer_max_bits();
-    let mut projection = Vec::new();
-    for postflight in postflights {
+    let mut selected_steps = Vec::new();
+    for (postflight_index, postflight) in postflights.iter().enumerate() {
         let mut selected = Vec::new();
         for &local_opcode in local_opcodes {
             let local_opcode = local_opcode as usize;
@@ -206,28 +197,21 @@ fn generate_trace_from_postflights<
                     .steps(VmOpcode::from_usize(global_opcode))
                     .iter()
                     .copied()
-                    .map(|step| (step, local_opcode)),
+                    .map(|step| (postflight_index, step, local_opcode)),
             );
         }
-        selected.sort_unstable_by_key(|&(step, _)| postflight.timestamp(step));
-        for (step, local_opcode) in selected {
-            projection.push(project_step::<F, NUM_READS, BLOCKS>(
-                postflight,
-                step,
-                local_opcode,
-                pointer_max_bits,
-            )?);
-        }
+        selected.sort_unstable_by_key(|&(_, step, _)| postflight.timestamp(step));
+        selected_steps.extend(selected);
     }
 
-    let adapter_width = Rv64VecHeapAdapterCols::<F, NUM_READS, BLOCKS, BLOCKS>::width();
+    let adapter_width = VecHeapAdapterCols::<F, NUM_READS, BLOCKS, BLOCKS>::width();
     let width = adapter_width
         .checked_add(BaseAir::<F>::width(&chip.inner.expr))
         .ok_or_else(|| PostflightError::new("Weierstrass trace width overflow"))?;
-    let height = if projection.is_empty() {
+    let height = if selected_steps.is_empty() {
         0
     } else {
-        projection
+        selected_steps
             .len()
             .checked_next_power_of_two()
             .ok_or_else(|| PostflightError::new("Weierstrass trace height overflow"))?
@@ -245,37 +229,48 @@ fn generate_trace_from_postflights<
         chip.mem_helper.timestamp_max_bits(),
     );
     let mem_helper = temporary_mem_helper.as_borrowed();
-    for (input, row) in projection.iter().zip(trace.values.chunks_exact_mut(width)) {
-        let (adapter_row, core_row) = row.split_at_mut(adapter_width);
-        let read_bytes = vec_heap_u16_blocks_to_bytes(input.heap_reads.iter().flatten().flatten());
-        let write_bytes = vec_heap_u16_blocks_to_bytes(input.writes.iter().flatten());
-        chip.inner
-            .fill_trace_row_from_execution_data(
+    trace.values[..selected_steps.len() * width]
+        .par_chunks_exact_mut(width)
+        .zip(selected_steps.par_iter().copied())
+        .try_for_each(|(row, (postflight_index, step, local_opcode))| {
+            let input = project_step::<F, NUM_READS, BLOCKS>(
+                &postflights[postflight_index],
+                step,
+                local_opcode,
+                pointer_max_bits,
+            )?;
+            let (adapter_row, core_row) = row.split_at_mut(adapter_width);
+            let read_bytes =
+                vec_heap_u16_blocks_to_bytes(input.heap_reads.iter().flatten().flatten());
+            let write_bytes = vec_heap_u16_blocks_to_bytes(input.writes.iter().flatten());
+            chip.inner
+                .fill_trace_row_from_execution_data(
+                    temporary_range_checker.as_ref(),
+                    local_opcode,
+                    &read_bytes,
+                    Some(&write_bytes),
+                    core_row,
+                )
+                .map_err(|error| {
+                    PostflightError::new(format!(
+                        "Weierstrass field-expression replay failed validation: {error:?}"
+                    ))
+                })?;
+            chip.inner.adapter().fill_trace_row_from_projection(
                 temporary_range_checker.as_ref(),
-                input.local_opcode as usize,
-                &read_bytes,
-                Some(&write_bytes),
-                core_row,
-            )
-            .map_err(|error| {
-                PostflightError::new(format!(
-                    "Weierstrass field-expression replay failed validation: {error:?}"
-                ))
-            })?;
-        chip.inner.adapter().fill_trace_row_from_projection(
-            temporary_range_checker.as_ref(),
-            &mem_helper,
-            adapter_row,
-            input,
-        );
-    }
-    if projection.len() < height {
+                &mem_helper,
+                adapter_row,
+                &input,
+            );
+            Ok::<_, PostflightError>(())
+        })?;
+    if selected_steps.len() < height {
         let mut dummy_row = F::zero_vec(width);
         chip.inner
             .fill_dummy_core_row(&mut dummy_row[adapter_width..]);
-        for row in trace.values.chunks_exact_mut(width).skip(projection.len()) {
-            row.copy_from_slice(&dummy_row);
-        }
+        trace.values[selected_steps.len() * width..]
+            .par_chunks_exact_mut(width)
+            .for_each(|row| row.copy_from_slice(&dummy_row));
     }
 
     if chip.inner.range_checker.count.len() != temporary_range_checker.count.len() {
@@ -308,8 +303,8 @@ pub(crate) fn generate_add_ne_trace_from_postflight<
         std::slice::from_ref(postflight),
         opcode_base,
         &[
-            Rv64WeierstrassOpcode::EC_ADD_NE,
-            Rv64WeierstrassOpcode::SETUP_EC_ADD_NE,
+            WeierstrassOpcode::EC_ADD_NE,
+            WeierstrassOpcode::SETUP_EC_ADD_NE,
         ],
     )
 }
@@ -328,8 +323,8 @@ pub(crate) fn generate_add_ne_trace_from_postflights<
         postflights,
         opcode_base,
         &[
-            Rv64WeierstrassOpcode::EC_ADD_NE,
-            Rv64WeierstrassOpcode::SETUP_EC_ADD_NE,
+            WeierstrassOpcode::EC_ADD_NE,
+            WeierstrassOpcode::SETUP_EC_ADD_NE,
         ],
     )
 }
@@ -347,8 +342,8 @@ pub(crate) fn generate_double_trace_from_postflight<
         std::slice::from_ref(postflight),
         opcode_base,
         &[
-            Rv64WeierstrassOpcode::EC_DOUBLE,
-            Rv64WeierstrassOpcode::SETUP_EC_DOUBLE,
+            WeierstrassOpcode::EC_DOUBLE,
+            WeierstrassOpcode::SETUP_EC_DOUBLE,
         ],
     )
 }
@@ -367,8 +362,8 @@ pub(crate) fn generate_double_trace_from_postflights<
         postflights,
         opcode_base,
         &[
-            Rv64WeierstrassOpcode::EC_DOUBLE,
-            Rv64WeierstrassOpcode::SETUP_EC_DOUBLE,
+            WeierstrassOpcode::EC_DOUBLE,
+            WeierstrassOpcode::SETUP_EC_DOUBLE,
         ],
     )
 }

@@ -24,7 +24,7 @@ __global__ void addi_w_replay_tracegen(
     size_t idx = blockIdx.x * static_cast<size_t>(blockDim.x) + threadIdx.x;
     if (idx >= height) return;
     RowSlice row(trace + idx, height);
-    row.fill_zero(0, sizeof(Rv64AddIWCols<uint8_t>));
+    row.fill_zero(0, sizeof(AddIWCols<uint8_t>));
     if (idx >= num_steps) return;
 
     auto const &step = steps[step_start + idx];
@@ -53,8 +53,8 @@ __global__ void addi_w_replay_tracegen(
     // destination-write clock slot.
     if (instruction.words[0] != addiw_opcode ||
         instruction.words[4] != register_address_space ||
-        instruction.words[5] != immediate_address_space || rd_ptr == 0 || (rd_ptr & 1) != 0 ||
-        (rs1_ptr & 1) != 0) {
+        instruction.words[5] != immediate_address_space || rd_ptr == 0 || !replay_canonical_register_pointer(rd_ptr) ||
+        !replay_canonical_register_pointer(rs1_ptr)) {
         preflight_set_error(error, 34);
         return;
     }
@@ -84,11 +84,9 @@ __global__ void addi_w_replay_tracegen(
     }
     uint16_t rs1[BLOCK_FE_WIDTH];
     uint16_t logged_rd[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(read.value, rs1) || !replay_u16_block(write.value, logged_rd)) {
-        preflight_set_error(error, 38);
-        return;
-    }
-    uint16_t expected_low[RV64_WORD_U16_LIMBS];
+    replay_u16_block(read.value, rs1);
+    replay_u16_block(write.value, logged_rd);
+    uint16_t expected_low[WORD_U16_LIMBS];
     uint32_t overflow = static_cast<uint32_t>(rs1[0]) + imm_low11 +
                         imm_sign * ((1u << U16_BITS) - (1u << 11));
     uint32_t carry = overflow >> U16_BITS;
@@ -115,10 +113,10 @@ __global__ void addi_w_replay_tracegen(
         return;
     }
 
-    uint16_t rs1_high[RV64_WORD_U16_LIMBS] = {rs1[2], rs1[3]};
-    uint16_t rs1_low[RV64_WORD_U16_LIMBS] = {rs1[0], rs1[1]};
+    uint16_t rs1_high[WORD_U16_LIMBS] = {rs1[2], rs1[3]};
+    uint16_t rs1_low[WORD_U16_LIMBS] = {rs1[0], rs1[1]};
     auto checker = VariableRangeChecker(range_checker, range_checker_num_bins);
-    auto adapter = Rv64BaseAluWImmU16Adapter(checker, timestamp_max_bits);
+    auto adapter = BaseAluWImmU16Adapter(checker, timestamp_max_bits);
     adapter.fill_trace_row(
         row,
         from.pc,
@@ -131,9 +129,9 @@ __global__ void addi_w_replay_tracegen(
         write_previous.timestamp,
         write_previous.value
     );
-    auto core = Rv64AddIWCore(checker);
+    auto core = AddIWCore(checker);
     core.fill_trace_row(
-        row.slice_from(COL_INDEX(Rv64AddIWCols, core)),
+        row.slice_from(COL_INDEX(AddIWCols, core)),
         rs1_low,
         static_cast<uint16_t>(imm_low11),
         static_cast<uint16_t>(imm_sign)
@@ -164,12 +162,12 @@ extern "C" int _addi_w_replay_tracegen(
     uint32_t timestamp_max_bits,
     cudaStream_t stream
 ) {
-    assert(width == sizeof(Rv64AddIWCols<uint8_t>));
+    assert(width == sizeof(AddIWCols<uint8_t>));
     assert(memory.len() == predecessors.len());
     assert(step_start <= steps.len());
     assert(num_steps <= steps.len() - step_start);
     assert(height >= num_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     addi_w_replay_tracegen<<<grid, block, 0, stream>>>(
         trace,
         height,

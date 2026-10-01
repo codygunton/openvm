@@ -27,7 +27,7 @@ __global__ void jal_lui_replay_tracegen(
     size_t idx = blockIdx.x * static_cast<size_t>(blockDim.x) + threadIdx.x;
     if (idx >= height) return;
     RowSlice row(trace + idx, height);
-    row.fill_zero(0, sizeof(Rv64JalLuiCols<uint8_t>));
+    row.fill_zero(0, sizeof(JalLuiCols<uint8_t>));
 
     size_t total_steps = num_jal_steps + num_lui_steps;
     if (idx >= total_steps) return;
@@ -59,7 +59,7 @@ __global__ void jal_lui_replay_tracegen(
     uint32_t needs_write = instruction.words[6];
     if (instruction.words[0] != expected_opcode || instruction.words[2] != 0 ||
         instruction.words[4] != register_as || instruction.words[5] != 0 ||
-        needs_write > 1 || (rd_ptr & 1) != 0 ||
+        needs_write > 1 || !replay_canonical_register_pointer(rd_ptr) ||
         needs_write != (rd_ptr != 0)) {
         preflight_set_error(error, 184);
         return;
@@ -68,15 +68,12 @@ __global__ void jal_lui_replay_tracegen(
     uint32_t rd_low;
     uint32_t expected_pc;
     if (is_jal) {
-        constexpr uint32_t MAX_PC = (1u << PC_BITS) - 1;
-        if (from.pc > MAX_PC - ::program::DEFAULT_PC_STEP) {
+        if (!replay_branch_target_in_bounds(from.pc, encoded_imm)) {
             preflight_set_error(error, 189);
             return;
         }
         rd_low = from.pc + ::program::DEFAULT_PC_STEP;
-        Fp target(from.pc);
-        target += Fp(encoded_imm);
-        expected_pc = target.asUInt32();
+        expected_pc = replay_taken_branch_pc(from.pc, encoded_imm);
     } else {
         if (encoded_imm >= (1u << LUI_IMM_BITS)) {
             preflight_set_error(error, 189);
@@ -90,12 +87,13 @@ __global__ void jal_lui_replay_tracegen(
         return;
     }
 
+    uint64_t rd = is_jal ? uint64_t(from.pc) + ::program::DEFAULT_PC_STEP : rd_low;
     uint16_t sign = !is_jal && (rd_low >> 31) ? UINT16_MAX : 0;
     uint16_t expected_data[BLOCK_FE_WIDTH] = {
-        static_cast<uint16_t>(rd_low),
-        static_cast<uint16_t>(rd_low >> U16_BITS),
-        sign,
-        sign,
+        static_cast<uint16_t>(rd),
+        static_cast<uint16_t>(rd >> U16_BITS),
+        is_jal ? static_cast<uint16_t>(rd >> (2 * U16_BITS)) : sign,
+        is_jal ? static_cast<uint16_t>(0) : sign,
     };
     ReplayPreviousValue previous = {};
     if (needs_write) {
@@ -112,10 +110,7 @@ __global__ void jal_lui_replay_tracegen(
             preflight_set_error(error, 185);
             return;
         }
-        if (!replay_u16_block(event.value, logged_data)) {
-            preflight_set_error(error, 186);
-            return;
-        }
+        replay_u16_block(event.value, logged_data);
         bool matches = true;
 #pragma unroll
         for (size_t i = 0; i < BLOCK_FE_WIDTH; i++) {
@@ -139,7 +134,7 @@ __global__ void jal_lui_replay_tracegen(
         return;
     }
 
-    Rv64CondRdWriteAdapter adapter(VariableRangeChecker(rc_ptr, rc_bins), timestamp_max_bits);
+    CondRdWriteAdapter adapter(VariableRangeChecker(rc_ptr, rc_bins), timestamp_max_bits);
     adapter.fill_trace_row(
         row,
         from.pc,
@@ -149,9 +144,9 @@ __global__ void jal_lui_replay_tracegen(
         previous.timestamp,
         previous.value
     );
-    Rv64JalLuiCore core(VariableRangeChecker(rc_ptr, rc_bins));
+    JalLuiCore core(VariableRangeChecker(rc_ptr, rc_bins));
     core.fill_trace_row(
-        row.slice_from(COL_INDEX(Rv64JalLuiCols, core)),
+        row.slice_from(COL_INDEX(JalLuiCols, core)),
         encoded_imm,
         expected_data,
         is_jal
@@ -184,7 +179,7 @@ extern "C" int _jal_lui_replay_tracegen(
     uint32_t timestamp_max_bits,
     cudaStream_t stream
 ) {
-    assert(width == sizeof(Rv64JalLuiCols<uint8_t>));
+    assert(width == sizeof(JalLuiCols<uint8_t>));
     assert(d_memory.len() == d_predecessors.len());
     assert(jal_step_start <= d_steps.len());
     assert(num_jal_steps <= d_steps.len() - jal_step_start);
@@ -193,7 +188,7 @@ extern "C" int _jal_lui_replay_tracegen(
     assert(num_jal_steps <= SIZE_MAX - num_lui_steps);
     assert(height >= num_jal_steps + num_lui_steps);
 
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     jal_lui_replay_tracegen<<<grid, block, 0, stream>>>(
         d_trace,
         height,

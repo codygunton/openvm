@@ -9,19 +9,21 @@ mod common;
 mod fp2;
 mod modular;
 
+#[cfg(test)]
+pub(crate) use common::BINARY_INPUTS_AND_OUTPUT;
 pub(crate) use common::{
     emit_word_alignment_guard, ArithKind, FieldArithInstr, FieldIsEqInstr, FieldKind,
-    FieldSetupInstr, IsEqKind, SetupKind,
+    FieldSetupInstr, IsEqKind, SetupKind, BINARY_INPUTS, MEMORY_BLOCK_BYTES_U32,
 };
 pub use fp2::Fp2RvrExtension;
 pub use modular::{HintNonQrInstr, HintSqrtInstr, ModularRvrExtension};
 use num_bigint::BigUint;
-use openvm_instructions::riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES};
+use openvm_instructions::riscv::{NUM_REGISTERS, REGISTER_BYTES};
 use rvr_openvm_ir::Variable;
 use rvr_openvm_lift::decode_variable;
 
 fn decode_reg(value: u32) -> Variable {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
 }
 
 /// Zero-pad `modulus` to the canonical limb boundary (32 or 48 bytes).

@@ -8,13 +8,13 @@ use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::ShiftOpcode;
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::ShiftLogicalExecutor;
+use super::ShiftLogicalCoreExecutor;
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
 struct ShiftLogicalPreCompute {
@@ -23,12 +23,14 @@ struct ShiftLogicalPreCompute {
     b: u8,
 }
 
-impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> ShiftLogicalExecutor<NUM_LIMBS, LIMB_BITS> {
+impl<const NUM_LIMBS: usize, const LIMB_BITS: usize>
+    ShiftLogicalCoreExecutor<NUM_LIMBS, LIMB_BITS>
+{
     #[inline(always)]
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut ShiftLogicalPreCompute,
     ) -> Result<ShiftOpcode, StaticProgramError> {
         let Instruction {
@@ -38,14 +40,13 @@ impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> ShiftLogicalExecutor<NUM_LI
         if shift_opcode == ShiftOpcode::SRA {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
-        if inst.d.as_canonical_u32() != RV64_REGISTER_AS || e.as_canonical_u32() != RV64_REGISTER_AS
-        {
+        if inst.d.as_u32() != REGISTER_AS || e.as_u32() != REGISTER_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         *data = ShiftLogicalPreCompute {
-            rs2_ptr: c.as_canonical_u32() as u8,
-            a: a.as_canonical_u32() as u8,
-            b: b.as_canonical_u32() as u8,
+            rs2_ptr: c.as_u32() as u8,
+            a: a.as_u32() as u8,
+            b: b.as_u32() as u8,
         };
         Ok(shift_opcode)
     }
@@ -62,7 +63,7 @@ macro_rules! dispatch {
 }
 
 impl<F, const NUM_LIMBS: usize, const LIMB_BITS: usize> InterpreterExecutor<F>
-    for ShiftLogicalExecutor<NUM_LIMBS, LIMB_BITS>
+    for ShiftLogicalCoreExecutor<NUM_LIMBS, LIMB_BITS>
 where
     F: PrimeField32,
 {
@@ -78,7 +79,7 @@ where
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let data: &mut ShiftLogicalPreCompute = data.borrow_mut();
@@ -90,7 +91,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -103,7 +104,7 @@ where
 }
 
 impl<F, const NUM_LIMBS: usize, const LIMB_BITS: usize> InterpreterMeteredExecutor<F>
-    for ShiftLogicalExecutor<NUM_LIMBS, LIMB_BITS>
+    for ShiftLogicalCoreExecutor<NUM_LIMBS, LIMB_BITS>
 where
     F: PrimeField32,
 {
@@ -116,7 +117,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let data: &mut E2PreCompute<ShiftLogicalPreCompute> = data.borrow_mut();
@@ -130,7 +131,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError> {
         let data: &mut E2PreCompute<ShiftLogicalPreCompute> = data.borrow_mut();
@@ -145,16 +146,15 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, OP: ShiftOp>(
     pre_compute: &ShiftLogicalPreCompute,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) {
-    let rs1 =
-        exec_state.vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.b as u32);
-    let rs2 = exec_state
-        .vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.rs2_ptr as u32);
+    let rs1 = exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.b as u32);
+    let rs2 =
+        exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.rs2_ptr as u32);
     let rs2 = u64::from_le_bytes(rs2);
 
     // Execute the shift operation
     let rd = <OP as ShiftOp>::compute(rs1, rs2);
     // Write the result back to memory
-    exec_state.vm_write_bytes(RV64_REGISTER_AS, pre_compute.a as u32, &rd);
+    exec_state.vm_write_bytes(REGISTER_AS, pre_compute.a as u32, &rd);
 
     let pc = exec_state.pc();
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
@@ -189,19 +189,19 @@ unsafe fn execute_e2_impl<CTX: MeteredExecutionCtxTrait, OP: ShiftOp>(
 }
 
 trait ShiftOp {
-    fn compute(rs1: [u8; RV64_REGISTER_NUM_LIMBS], rs2: u64) -> [u8; RV64_REGISTER_NUM_LIMBS];
+    fn compute(rs1: [u8; REGISTER_NUM_LIMBS], rs2: u64) -> [u8; REGISTER_NUM_LIMBS];
 }
 struct SllOp;
 struct SrlOp;
 impl ShiftOp for SllOp {
-    fn compute(rs1: [u8; RV64_REGISTER_NUM_LIMBS], rs2: u64) -> [u8; RV64_REGISTER_NUM_LIMBS] {
+    fn compute(rs1: [u8; REGISTER_NUM_LIMBS], rs2: u64) -> [u8; REGISTER_NUM_LIMBS] {
         let rs1 = u64::from_le_bytes(rs1);
         // RV64: only the low 6 bits of rs2 are used for the shift amount.
         (rs1 << (rs2 & 0x3F)).to_le_bytes()
     }
 }
 impl ShiftOp for SrlOp {
-    fn compute(rs1: [u8; RV64_REGISTER_NUM_LIMBS], rs2: u64) -> [u8; RV64_REGISTER_NUM_LIMBS] {
+    fn compute(rs1: [u8; REGISTER_NUM_LIMBS], rs2: u64) -> [u8; REGISTER_NUM_LIMBS] {
         let rs1 = u64::from_le_bytes(rs1);
         // RV64: only the low 6 bits of rs2 are used for the shift amount.
         (rs1 >> (rs2 & 0x3F)).to_le_bytes()

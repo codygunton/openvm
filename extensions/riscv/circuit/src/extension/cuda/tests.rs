@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use openvm_circuit::{
     arch::{
-        rvr::{cuda::CheckpointReplayProgram, PreflightEndpoint, PreflightLimits},
+        cuda::postflight::GpuPostflightError,
+        rvr::{PreflightEndpoint, PreflightLimits},
         PreflightHistory, PreflightMemoryLog, VirtualMachine, VmExecutor,
     },
     utils::{test_gpu_engine, test_system_config},
@@ -11,110 +12,86 @@ use openvm_circuit_primitives::{
     bitwise_op_lookup::BitwiseOperationLookupChipGPU, range_tuple::RangeTupleCheckerChipGPU,
     var_range::VariableRangeCheckerChipGPU,
 };
+use openvm_cuda_backend::prelude::F;
 use openvm_cuda_common::copy::MemCopyD2H;
 use openvm_instructions::{
     exe::{SparseMemoryImage, VmExe},
     instruction::Instruction,
     program::Program,
-    riscv::{RV64_IMM_AS, RV64_MEMORY_AS, RV64_REGISTER_AS},
-    LocalOpcode, PhantomDiscriminant, SysPhantom, SystemOpcode,
+    riscv::{IMM_AS, MEMORY_AS, REGISTER_AS},
+    LocalOpcode, PhantomDiscriminant, SysPhantom, SystemOpcode, PUBLIC_VALUES_AS,
 };
 use openvm_riscv_transpiler::{
-    BaseAluImmOpcode, BaseAluOpcode, BaseAluWImmOpcode, BaseAluWOpcode, BranchEqualOpcode,
-    BranchLessThanOpcode, DivRemOpcode, DivRemWOpcode, LessThanImmOpcode, LessThanOpcode,
-    MulHOpcode, MulOpcode, MulWOpcode, Rv64AuipcOpcode, Rv64HintStoreOpcode, Rv64JalLuiOpcode,
-    Rv64JalrOpcode, Rv64LoadStoreOpcode, ShiftImmOpcode, ShiftOpcode, ShiftWImmOpcode,
+    AuipcOpcode, BaseAluImmOpcode, BaseAluOpcode, BaseAluWImmOpcode, BaseAluWOpcode,
+    BranchEqualOpcode, BranchLessThanOpcode, DivRemOpcode, DivRemWOpcode, HintStoreOpcode,
+    JalLuiOpcode, JalrOpcode, LessThanImmOpcode, LessThanOpcode, LoadStoreOpcode, MulHOpcode,
+    MulOpcode, MulWOpcode, RevealOpcode, ShiftImmOpcode, ShiftOpcode, ShiftWImmOpcode,
     ShiftWOpcode,
 };
-use openvm_stark_backend::{
-    p3_field::{PrimeCharacteristicRing, PrimeField32},
-    StarkEngine,
-};
-use openvm_stark_sdk::p3_baby_bear::BabyBear;
+use openvm_stark_backend::{p3_field::PrimeField32, StarkEngine};
 
 use super::Rv64ImPreflightGpuTracegen;
 use crate::{
-    adapters::RV64_REGISTER_NUM_LIMBS, Rv64IConfig, Rv64IGpuBuilder, Rv64ImConfig,
-    Rv64ImGpuBuilder, Rv64MultiplicationChipGpu,
+    adapters::REGISTER_NUM_LIMBS, preflight::PreflightReplayProgram, MultiplicationChipGpu,
+    Rv64IConfig, Rv64IGpuBuilder, Rv64ImConfig, Rv64ImGpuBuilder,
 };
 
-type F = BabyBear;
-
-#[test]
-fn checkpoint_opcode_families_match_rv64_tracegen_coverage() {
-    let bases = Rv64ImPreflightGpuTracegen::postflight_opcode_bases();
-    let terminate = SystemOpcode::TERMINATE.global_opcode().as_usize() as u32;
-
-    for opcode in 0..=u16::MAX as u32 {
-        assert_eq!(
-            bases.owns(opcode),
-            Rv64ImPreflightGpuTracegen::supports_opcode(opcode) || opcode == terminate,
-            "checkpoint opcode ownership disagrees at {opcode:#x}"
-        );
-    }
-}
-
 fn reg(index: usize) -> usize {
-    index * RV64_REGISTER_NUM_LIMBS
+    index * REGISTER_NUM_LIMBS
 }
 
-fn instruction(opcode: impl LocalOpcode, operands: [usize; 5]) -> Instruction<F> {
+fn instruction(opcode: impl LocalOpcode, operands: [usize; 5]) -> Instruction {
     Instruction::from_usize(opcode.global_opcode(), operands)
 }
 
-fn checkpoint_ri(
-    opcode: impl LocalOpcode,
-    rd: usize,
-    rs1: usize,
-    immediate: usize,
-) -> Instruction<F> {
+fn checkpoint_ri(opcode: impl LocalOpcode, rd: usize, rs1: usize, immediate: usize) -> Instruction {
     instruction(
         opcode,
         [
             reg(rd),
             reg(rs1),
             immediate,
-            RV64_REGISTER_AS as usize,
-            RV64_IMM_AS as usize,
+            REGISTER_AS as usize,
+            IMM_AS as usize,
         ],
     )
 }
 
-fn checkpoint_rr(opcode: impl LocalOpcode, rd: usize, rs1: usize, rs2: usize) -> Instruction<F> {
+fn checkpoint_rr(opcode: impl LocalOpcode, rd: usize, rs1: usize, rs2: usize) -> Instruction {
     instruction(
         opcode,
         [
             reg(rd),
             reg(rs1),
             reg(rs2),
-            RV64_REGISTER_AS as usize,
-            RV64_REGISTER_AS as usize,
+            REGISTER_AS as usize,
+            REGISTER_AS as usize,
         ],
     )
 }
 
-fn checkpoint_m(opcode: impl LocalOpcode, rd: usize, rs1: usize, rs2: usize) -> Instruction<F> {
+fn checkpoint_m(opcode: impl LocalOpcode, rd: usize, rs1: usize, rs2: usize) -> Instruction {
     instruction(
         opcode,
         [
             reg(rd),
             reg(rs1),
             reg(rs2),
-            RV64_REGISTER_AS as usize,
-            RV64_IMM_AS as usize,
+            REGISTER_AS as usize,
+            IMM_AS as usize,
         ],
     )
 }
 
-fn checkpoint_branch(opcode: impl LocalOpcode, rs1: usize, rs2: usize) -> Instruction<F> {
+fn checkpoint_branch(opcode: impl LocalOpcode, rs1: usize, rs2: usize) -> Instruction {
     Instruction::from_usize(
         opcode.global_opcode(),
         [
             reg(rs1),
             reg(rs2),
             4,
-            RV64_REGISTER_AS as usize,
-            RV64_REGISTER_AS as usize,
+            REGISTER_AS as usize,
+            REGISTER_AS as usize,
         ],
     )
 }
@@ -126,8 +103,8 @@ fn preflight_gpu_tracegen_proves_system_and_rv64i_airs() {
             reg(rd),
             reg(rs1),
             reg(rs2),
-            RV64_REGISTER_AS as usize,
-            RV64_REGISTER_AS as usize,
+            REGISTER_AS as usize,
+            REGISTER_AS as usize,
         ]
     };
     let immediate_operands = |rd, rs1, imm| {
@@ -135,8 +112,8 @@ fn preflight_gpu_tracegen_proves_system_and_rv64i_airs() {
             reg(rd),
             reg(rs1),
             imm,
-            RV64_REGISTER_AS as usize,
-            RV64_IMM_AS as usize,
+            REGISTER_AS as usize,
+            IMM_AS as usize,
         ]
     };
     let instructions = [
@@ -168,211 +145,223 @@ fn preflight_gpu_tracegen_proves_system_and_rv64i_airs() {
         instruction(ShiftWImmOpcode::SRAIW, immediate_operands(19, 17, 1)),
         instruction(BaseAluImmOpcode::ORI, immediate_operands(20, 4, 2)),
         instruction(BaseAluImmOpcode::ANDI, immediate_operands(21, 20, 7)),
-        Instruction::<F>::from_isize(
+        Instruction::from_isize(
             BranchEqualOpcode::BEQ.global_opcode(),
             reg(1) as isize,
             reg(2) as isize,
             4,
-            RV64_REGISTER_AS as isize,
-            RV64_REGISTER_AS as isize,
+            REGISTER_AS as isize,
+            REGISTER_AS as isize,
         ),
         Instruction::from_isize(
             BranchEqualOpcode::BNE.global_opcode(),
             reg(1) as isize,
             reg(1) as isize,
             4,
-            RV64_REGISTER_AS as isize,
-            RV64_REGISTER_AS as isize,
+            REGISTER_AS as isize,
+            REGISTER_AS as isize,
         ),
         Instruction::from_isize(
             BranchLessThanOpcode::BLT.global_opcode(),
             reg(1) as isize,
             reg(2) as isize,
             4,
-            RV64_REGISTER_AS as isize,
-            RV64_REGISTER_AS as isize,
+            REGISTER_AS as isize,
+            REGISTER_AS as isize,
         ),
         Instruction::from_isize(
             BranchLessThanOpcode::BLTU.global_opcode(),
             reg(2) as isize,
             reg(1) as isize,
             4,
-            RV64_REGISTER_AS as isize,
-            RV64_REGISTER_AS as isize,
+            REGISTER_AS as isize,
+            REGISTER_AS as isize,
         ),
         Instruction::from_isize(
             BranchLessThanOpcode::BGE.global_opcode(),
             reg(1) as isize,
             reg(1) as isize,
             4,
-            RV64_REGISTER_AS as isize,
-            RV64_REGISTER_AS as isize,
+            REGISTER_AS as isize,
+            REGISTER_AS as isize,
         ),
         Instruction::from_isize(
             BranchLessThanOpcode::BGEU.global_opcode(),
             reg(0) as isize,
             reg(0) as isize,
             4,
-            RV64_REGISTER_AS as isize,
-            RV64_REGISTER_AS as isize,
+            REGISTER_AS as isize,
+            REGISTER_AS as isize,
         ),
         Instruction::from_usize(
-            Rv64JalLuiOpcode::LUI.global_opcode(),
-            [reg(31), 0, 0x80000, RV64_REGISTER_AS as usize, 0, 1],
+            JalLuiOpcode::LUI.global_opcode(),
+            [reg(31), 0, 0x80000, REGISTER_AS as usize, 0, 1],
         ),
         Instruction::from_usize(
-            Rv64JalLuiOpcode::JAL.global_opcode(),
-            [reg(31), 0, 4, RV64_REGISTER_AS as usize, 0, 1],
+            JalLuiOpcode::JAL.global_opcode(),
+            [reg(31), 0, 4, REGISTER_AS as usize, 0, 1],
         ),
         Instruction::from_usize(
-            Rv64JalLuiOpcode::JAL.global_opcode(),
-            [0, 0, 4, RV64_REGISTER_AS as usize, 0, 0],
+            JalLuiOpcode::JAL.global_opcode(),
+            [0, 0, 4, REGISTER_AS as usize, 0, 0],
         ),
         Instruction::from_usize(
-            Rv64AuipcOpcode::AUIPC.global_opcode(),
-            [reg(29), 0, 1, RV64_REGISTER_AS as usize, 0],
+            AuipcOpcode::AUIPC.global_opcode(),
+            [reg(29), 0, 1, REGISTER_AS as usize, 0],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADB.global_opcode(),
+            LoadStoreOpcode::LOADB.global_opcode(),
             [
                 reg(28),
                 reg(1),
                 0,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADBU.global_opcode(),
+            LoadStoreOpcode::LOADBU.global_opcode(),
             [
                 reg(29),
                 reg(1),
                 1,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADH.global_opcode(),
+            LoadStoreOpcode::LOADH.global_opcode(),
             [
                 reg(20),
                 reg(1),
                 4,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADHU.global_opcode(),
+            LoadStoreOpcode::LOADHU.global_opcode(),
             [
                 reg(21),
                 reg(1),
                 3,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADW.global_opcode(),
+            LoadStoreOpcode::LOADW.global_opcode(),
             [
                 reg(22),
                 reg(1),
                 0,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADWU.global_opcode(),
+            LoadStoreOpcode::LOADWU.global_opcode(),
             [
                 reg(23),
                 reg(1),
                 1,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADD.global_opcode(),
+            LoadStoreOpcode::LOADD.global_opcode(),
             [
                 reg(24),
                 reg(1),
                 2,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::STOREB.global_opcode(),
+            LoadStoreOpcode::STOREB.global_opcode(),
             [
                 reg(2),
                 reg(1),
                 5,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::STOREH.global_opcode(),
+            LoadStoreOpcode::STOREH.global_opcode(),
             [
                 reg(2),
                 reg(1),
                 4,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::STOREW.global_opcode(),
+            LoadStoreOpcode::STOREW.global_opcode(),
             [
                 reg(2),
                 reg(1),
                 5,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::STORED.global_opcode(),
+            LoadStoreOpcode::STORED.global_opcode(),
             [
                 reg(2),
                 reg(1),
                 6,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
         ),
         Instruction::from_usize(
-            Rv64JalrOpcode::JALR.global_opcode(),
-            [reg(30), 0, 200, RV64_REGISTER_AS as usize, 0, 1, 0],
+            JalrOpcode::JALR.global_opcode(),
+            [reg(30), 0, 200, REGISTER_AS as usize, 0, 1, 0],
         ),
         Instruction::phantom(
             PhantomDiscriminant(SysPhantom::Nop as u16),
-            F::from_u32(0x1234),
-            F::from_u32(0x5678),
+            0x1234u16,
+            0x5678u16,
             0x1234,
+        ),
+        Instruction::from_usize(
+            RevealOpcode::REVEAL.global_opcode(),
+            [
+                reg(2),
+                reg(1),
+                5,
+                REGISTER_AS as usize,
+                PUBLIC_VALUES_AS as usize,
+                1,
+                0,
+            ],
         ),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
     ];
@@ -384,22 +373,20 @@ fn preflight_gpu_tracegen_proves_system_and_rv64i_airs() {
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(move |(offset, byte)| {
-                    ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)
-                })
+                .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
         })
         .collect::<openvm_instructions::exe::SparseMemoryImage>();
-    init_memory.insert((RV64_MEMORY_AS, 3), 0x80);
-    init_memory.insert((RV64_MEMORY_AS, 4), 0xfe);
-    init_memory.insert((RV64_MEMORY_AS, 7), 0x7f);
-    init_memory.insert((RV64_MEMORY_AS, 8), 0x80);
+    init_memory.insert((MEMORY_AS, 3), 0x80);
+    init_memory.insert((MEMORY_AS, 4), 0xfe);
+    init_memory.insert((MEMORY_AS, 7), 0x7f);
+    init_memory.insert((MEMORY_AS, 8), 0x80);
     let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
     let config = Rv64IConfig {
         system: test_system_config(),
         ..Default::default()
     };
 
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let preflight = executor.preflight_instance(&exe).unwrap();
     let state = preflight.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let interpreter = executor.test_preflight_interpreter_instance(&exe).unwrap();
@@ -420,8 +407,7 @@ fn preflight_gpu_tracegen_proves_system_and_rv64i_airs() {
         .unwrap();
     let device_ctx = &vm.engine.device().device_ctx;
     let gpu_program =
-        CheckpointReplayProgram::upload(&program, &config.system.memory_config, device_ctx)
-            .unwrap();
+        PreflightReplayProgram::upload(&program, &config.system.memory_config, device_ctx).unwrap();
     let (gpu_transcript, replay_plan) =
         Rv64ImPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
             .unwrap();
@@ -461,8 +447,8 @@ fn preflight_gpu_replay_proves_a_suspended_segment() {
     let instructions = [
         checkpoint_ri(BaseAluImmOpcode::ADDI, 1, 0, 7),
         Instruction::from_usize(
-            Rv64JalLuiOpcode::JAL.global_opcode(),
-            [0, 0, 4, RV64_REGISTER_AS as usize, 0, 0, 0],
+            JalLuiOpcode::JAL.global_opcode(),
+            [0, 0, 4, REGISTER_AS as usize, 0, 0, 0],
         ),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
     ];
@@ -472,7 +458,7 @@ fn preflight_gpu_replay_proves_a_suspended_segment() {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, pk) =
@@ -487,7 +473,7 @@ fn preflight_gpu_replay_proves_a_suspended_segment() {
     assert_eq!(execution.endpoint, PreflightEndpoint::Suspended);
     assert_eq!(execution.retired, 2);
 
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.system.memory_config,
         &vm.engine.device().device_ctx,
@@ -501,9 +487,11 @@ fn preflight_gpu_replay_proves_a_suspended_segment() {
     )
     .err()
     .expect("a metered-boundary retirement mismatch must be rejected before replay");
-    assert!(error
-        .to_string()
-        .contains("retired 2 instructions, expected 3"));
+    assert!(matches!(
+        error,
+        GpuPostflightError::InvalidTranscript(message)
+            if message == "preflight instret 2 does not match segment num_insns 3"
+    ));
 
     let (transcript, replay_plan) =
         Rv64ImPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
@@ -522,15 +510,15 @@ fn preflight_gpu_replay_expands_more_than_one_launch_block() {
     const RETIRED: usize = 1025;
 
     let program = Program::from_instructions(&[Instruction::from_usize(
-        Rv64JalLuiOpcode::JAL.global_opcode(),
-        [0, 0, 0, RV64_REGISTER_AS as usize, 0, 0, 0],
+        JalLuiOpcode::JAL.global_opcode(),
+        [0, 0, 0, REGISTER_AS as usize, 0, 0, 0],
     )]);
     let exe = VmExe::new(program.clone());
     let config = Rv64IConfig {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, _) =
@@ -547,7 +535,7 @@ fn preflight_gpu_replay_expands_more_than_one_launch_block() {
     // the launcher's former 1024-thread threshold.
     assert_eq!(execution.transcript.checkpoints.len(), RETIRED - 1);
 
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.system.memory_config,
         &vm.engine.device().device_ctx,
@@ -570,11 +558,11 @@ fn preflight_gpu_replay_launches_high_register_m_kernels() {
         checkpoint_m(DivRemOpcode::DIV, 1, 0, 0),
         checkpoint_m(DivRemWOpcode::DIVW, 1, 0, 0),
         Instruction::large_from_isize(
-            Rv64JalLuiOpcode::JAL.global_opcode(),
+            JalLuiOpcode::JAL.global_opcode(),
             0,
             0,
             -(LOOP_INSNS as isize - 1) * 4,
-            RV64_REGISTER_AS as isize,
+            REGISTER_AS as isize,
             0,
             0,
             0,
@@ -589,7 +577,7 @@ fn preflight_gpu_replay_launches_high_register_m_kernels() {
         },
         mul: Default::default(),
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, _) =
@@ -603,7 +591,7 @@ fn preflight_gpu_replay_launches_high_register_m_kernels() {
         .unwrap();
     assert_eq!(execution.retired as usize, RETIRED);
 
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.rv64i.system.memory_config,
         &vm.engine.device().device_ctx,
@@ -623,8 +611,8 @@ fn preflight_gpu_replay_carries_a_register_across_segments() {
     let instructions = [
         checkpoint_ri(BaseAluImmOpcode::ADDI, 1, 0, 7),
         Instruction::from_usize(
-            Rv64JalLuiOpcode::JAL.global_opcode(),
-            [0, 0, 4, RV64_REGISTER_AS as usize, 0, 0, 0],
+            JalLuiOpcode::JAL.global_opcode(),
+            [0, 0, 4, REGISTER_AS as usize, 0, 0, 0],
         ),
         checkpoint_ri(BaseAluImmOpcode::ADDI, 2, 1, 5),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
@@ -635,7 +623,7 @@ fn preflight_gpu_replay_carries_a_register_across_segments() {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, pk) =
@@ -650,7 +638,7 @@ fn preflight_gpu_replay_carries_a_register_across_segments() {
     assert_eq!(execution.endpoint, PreflightEndpoint::Suspended);
     assert_eq!(execution.retired, 2);
 
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.system.memory_config,
         &vm.engine.device().device_ctx,
@@ -676,7 +664,7 @@ fn preflight_gpu_replay_carries_a_register_across_segments() {
         execution
             .state
             .memory
-            .read(RV64_REGISTER_AS, (reg(2) / 2) as u32)
+            .read(REGISTER_AS, (reg(2) / 2) as u32)
     };
     assert_eq!(x2, [12, 0, 0, 0]);
 
@@ -704,7 +692,7 @@ fn preflight_gpu_replay_proves_an_empty_suspended_segment() {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, pk) =
@@ -720,7 +708,7 @@ fn preflight_gpu_replay_proves_an_empty_suspended_segment() {
     assert_eq!(execution.retired, 0);
     assert!(execution.transcript.checkpoints.is_empty());
 
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.system.memory_config,
         &vm.engine.device().device_ctx,
@@ -740,7 +728,7 @@ fn preflight_gpu_replay_proves_an_empty_suspended_segment() {
 
 #[test]
 fn preflight_gpu_replay_rejects_terminate_in_a_suspended_segment() {
-    let instructions: [Instruction<F>; 1] = [Instruction::from_usize(
+    let instructions: [Instruction; 1] = [Instruction::from_usize(
         SystemOpcode::TERMINATE.global_opcode(),
         [0, 0, 0, 0, 0],
     )];
@@ -750,7 +738,7 @@ fn preflight_gpu_replay_rejects_terminate_in_a_suspended_segment() {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, _) =
@@ -761,7 +749,7 @@ fn preflight_gpu_replay_rejects_terminate_in_a_suspended_segment() {
         .execute_from_state(state, PreflightLimits::new(1, 0, 1))
         .unwrap();
     execution.endpoint = PreflightEndpoint::Suspended;
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.system.memory_config,
         &vm.engine.device().device_ctx,
@@ -778,12 +766,12 @@ fn preflight_gpu_replay_rejects_terminate_in_a_suspended_segment() {
 fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
     let jal = |rd| {
         Instruction::from_usize(
-            Rv64JalLuiOpcode::JAL.global_opcode(),
+            JalLuiOpcode::JAL.global_opcode(),
             [
                 reg(rd),
                 0,
                 4,
-                RV64_REGISTER_AS as usize,
+                REGISTER_AS as usize,
                 0,
                 usize::from(rd != 0),
                 0,
@@ -792,12 +780,12 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
     };
     let jalr = |rd, rs1| {
         Instruction::from_usize(
-            Rv64JalrOpcode::JALR.global_opcode(),
+            JalrOpcode::JALR.global_opcode(),
             [
                 reg(rd),
                 reg(rs1),
                 0,
-                RV64_REGISTER_AS as usize,
+                REGISTER_AS as usize,
                 0,
                 usize::from(rd != 0),
                 0,
@@ -844,12 +832,12 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
         checkpoint_branch(BranchLessThanOpcode::BGE, 1, 29),
         checkpoint_branch(BranchLessThanOpcode::BGEU, 29, 1),
         Instruction::from_usize(
-            Rv64JalLuiOpcode::LUI.global_opcode(),
-            [reg(20), 0, 0x8_0000, RV64_REGISTER_AS as usize, 0, 1, 0],
+            JalLuiOpcode::LUI.global_opcode(),
+            [reg(20), 0, 0x8_0000, REGISTER_AS as usize, 0, 1, 0],
         ),
         Instruction::from_usize(
-            Rv64AuipcOpcode::AUIPC.global_opcode(),
-            [reg(21), 0, 0, RV64_REGISTER_AS as usize, 0, 0, 0],
+            AuipcOpcode::AUIPC.global_opcode(),
+            [reg(21), 0, 0, REGISTER_AS as usize, 0, 0, 0],
         ),
         jal(0),
         jal(22),
@@ -876,13 +864,13 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
     instructions.extend([
         checkpoint_ri(BaseAluImmOpcode::ADDI, 27, 0, 8),
         Instruction::from_usize(
-            Rv64LoadStoreOpcode::LOADD.global_opcode(),
+            LoadStoreOpcode::LOADD.global_opcode(),
             [
                 reg(26),
                 reg(27),
                 0,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
@@ -908,12 +896,7 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
         checkpoint_m(DivRemWOpcode::REMUW, 12, 1, 0),
         checkpoint_m(DivRemWOpcode::DIVUW, 11, 1, 2),
         checkpoint_m(DivRemWOpcode::REMUW, 12, 1, 2),
-        Instruction::phantom(
-            PhantomDiscriminant(SysPhantom::Nop as u16),
-            F::ZERO,
-            F::ZERO,
-            0,
-        ),
+        Instruction::phantom(PhantomDiscriminant(SysPhantom::Nop as u16), 0u16, 0u16, 0),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
     ]);
     let program = Program::from_instructions(&instructions);
@@ -922,7 +905,7 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
         .to_le_bytes()
         .into_iter()
         .enumerate()
-        .map(|(offset, byte)| ((RV64_MEMORY_AS, 8 + offset as u32), byte))
+        .map(|(offset, byte)| ((MEMORY_AS, 8 + offset as u32), byte))
         .collect();
     let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
     let config = Rv64ImConfig {
@@ -932,7 +915,7 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
         },
         mul: Default::default(),
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let preflight = executor.preflight_instance(&exe).unwrap();
     let max_instructions = instructions.len();
     let preflight_state = preflight.create_initial_vm_state(Vec::<Vec<u8>>::new());
@@ -950,11 +933,11 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
         )
         .unwrap();
     assert!(!execution.transcript.checkpoints.is_empty());
-    assert_eq!(execution.transcript.residuals, vec![loaded]);
+    assert_eq!(execution.transcript.replay_values, vec![loaded]);
     assert_eq!(execution.endpoint, PreflightEndpoint::Terminated);
     assert_eq!(execution.retired as usize, max_instructions);
 
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.rv64i.system.memory_config,
         &vm.engine.device().device_ctx,
@@ -974,7 +957,7 @@ fn preflight_gpu_replay_proves_bounded_rv64i_slice() {
 
 #[test]
 fn preflight_gpu_replay_proves_all_memory_intent_shapes() {
-    let memory_instruction = |opcode: Rv64LoadStoreOpcode,
+    let memory_instruction = |opcode: LoadStoreOpcode,
                               reg_operand: usize,
                               offset: u16,
                               offset_is_negative: bool,
@@ -985,8 +968,8 @@ fn preflight_gpu_replay_proves_all_memory_intent_shapes() {
                 reg(reg_operand),
                 reg(1),
                 usize::from(offset),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 usize::from(!is_load || reg_operand != 0),
                 usize::from(offset_is_negative),
             ],
@@ -994,8 +977,8 @@ fn preflight_gpu_replay_proves_all_memory_intent_shapes() {
     };
     let block_boundary = || {
         Instruction::from_usize(
-            Rv64JalLuiOpcode::JAL.global_opcode(),
-            [0, 0, 4, RV64_REGISTER_AS as usize, 0, 0, 0],
+            JalLuiOpcode::JAL.global_opcode(),
+            [0, 0, 4, REGISTER_AS as usize, 0, 0, 0],
         )
     };
 
@@ -1021,42 +1004,30 @@ fn preflight_gpu_replay_proves_all_memory_intent_shapes() {
         instructions.push(block_boundary());
     };
     append_store_load(
-        Rv64LoadStoreOpcode::STOREB,
-        Rv64LoadStoreOpcode::LOADBU,
+        LoadStoreOpcode::STOREB,
+        LoadStoreOpcode::LOADBU,
         3,
         0,
         false,
     );
+    append_store_load(LoadStoreOpcode::STOREH, LoadStoreOpcode::LOADH, 4, 7, false);
+    append_store_load(LoadStoreOpcode::STOREW, LoadStoreOpcode::LOADW, 5, 6, false);
     append_store_load(
-        Rv64LoadStoreOpcode::STOREH,
-        Rv64LoadStoreOpcode::LOADH,
-        4,
-        7,
-        false,
-    );
-    append_store_load(
-        Rv64LoadStoreOpcode::STOREW,
-        Rv64LoadStoreOpcode::LOADW,
-        5,
-        6,
-        false,
-    );
-    append_store_load(
-        Rv64LoadStoreOpcode::STORED,
-        Rv64LoadStoreOpcode::LOADD,
+        LoadStoreOpcode::STORED,
+        LoadStoreOpcode::LOADD,
         6,
         u16::MAX,
         true,
     );
     instructions.extend([
-        memory_instruction(Rv64LoadStoreOpcode::LOADB, 7, 6, false, true),
-        memory_instruction(Rv64LoadStoreOpcode::LOADH, 10, 5, false, true),
-        memory_instruction(Rv64LoadStoreOpcode::LOADW, 11, 3, false, true),
-        memory_instruction(Rv64LoadStoreOpcode::LOADHU, 8, 7, false, true),
-        memory_instruction(Rv64LoadStoreOpcode::LOADWU, 9, 6, false, true),
+        memory_instruction(LoadStoreOpcode::LOADB, 7, 6, false, true),
+        memory_instruction(LoadStoreOpcode::LOADH, 10, 5, false, true),
+        memory_instruction(LoadStoreOpcode::LOADW, 11, 3, false, true),
+        memory_instruction(LoadStoreOpcode::LOADHU, 8, 7, false, true),
+        memory_instruction(LoadStoreOpcode::LOADWU, 9, 6, false, true),
         // A disabled destination still reserves its AIR timestamp slot but
-        // appends no residual and no register-write event.
-        memory_instruction(Rv64LoadStoreOpcode::LOADD, 0, u16::MAX, true, true),
+        // appends no replay value and no register-write event.
+        memory_instruction(LoadStoreOpcode::LOADD, 0, u16::MAX, true, true),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
     ]);
 
@@ -1068,9 +1039,7 @@ fn preflight_gpu_replay_proves_all_memory_intent_shapes() {
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(move |(offset, byte)| {
-                    ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)
-                })
+                .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
         })
         .collect();
     let exe = VmExe::new(program.clone()).with_init_memory(initial_registers);
@@ -1081,25 +1050,25 @@ fn preflight_gpu_replay_proves_all_memory_intent_shapes() {
         },
         mul: Default::default(),
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let checkpoint_state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
-    let (mut checkpoint_vm, checkpoint_pk) =
+    let (mut preflight_vm, preflight_pk) =
         VirtualMachine::new_with_keygen(test_gpu_engine(), Rv64ImGpuBuilder, config.clone())
             .unwrap();
-    let cached_program = checkpoint_vm.commit_program_on_device(&program);
-    checkpoint_vm.load_program(cached_program);
-    checkpoint_vm.transport_init_memory_to_device(&checkpoint_state.memory);
-    let checkpoint_execution = checkpoint
+    let cached_program = preflight_vm.commit_program_on_device(&program);
+    preflight_vm.load_program(cached_program);
+    preflight_vm.transport_init_memory_to_device(&checkpoint_state.memory);
+    let preflight_execution = checkpoint
         .execute_from_state(
             checkpoint_state,
             PreflightLimits::new(instructions.len(), 16, 1),
         )
         .unwrap();
 
-    assert!(checkpoint_execution.transcript.checkpoints.len() >= 4);
+    assert!(preflight_execution.transcript.checkpoints.len() >= 4);
     assert_eq!(
-        checkpoint_execution.transcript.residuals,
+        preflight_execution.transcript.replay_values,
         [
             0x11,
             0x2211,
@@ -1112,37 +1081,37 @@ fn preflight_gpu_replay_proves_all_memory_intent_shapes() {
             0x4433_2288,
         ]
     );
-    let checkpoint_program = CheckpointReplayProgram::upload(
+    let preflight_program = PreflightReplayProgram::upload(
         &program,
         &config.rv64i.system.memory_config,
-        &checkpoint_vm.engine.device().device_ctx,
+        &preflight_vm.engine.device().device_ctx,
     )
     .unwrap();
-    let (checkpoint_transcript, checkpoint_plan) = Rv64ImPreflightGpuTracegen::postflight(
-        &checkpoint_vm,
-        &checkpoint_program,
-        &checkpoint_execution,
-        checkpoint_execution.retired,
+    let (preflight_transcript, preflight_plan) = Rv64ImPreflightGpuTracegen::postflight(
+        &preflight_vm,
+        &preflight_program,
+        &preflight_execution,
+        preflight_execution.retired,
     )
     .unwrap();
-    let checkpoint_tracegen = Rv64ImPreflightGpuTracegen::new(
-        checkpoint_program.program(),
-        &checkpoint_transcript,
-        &checkpoint_plan,
+    let preflight_tracegen = Rv64ImPreflightGpuTracegen::new(
+        preflight_program.program(),
+        &preflight_transcript,
+        &preflight_plan,
     )
     .unwrap();
-    let checkpoint_ctx = checkpoint_tracegen
-        .generate_proving_ctx(&mut checkpoint_vm)
+    let preflight_ctx = preflight_tracegen
+        .generate_proving_ctx(&mut preflight_vm)
         .unwrap();
-    drop(checkpoint_plan);
-    drop(checkpoint_transcript);
-    let proof = checkpoint_vm
+    drop(preflight_plan);
+    drop(preflight_transcript);
+    let proof = preflight_vm
         .engine
-        .prove(checkpoint_vm.pk(), checkpoint_ctx)
+        .prove(preflight_vm.pk(), preflight_ctx)
         .unwrap();
-    checkpoint_vm
+    preflight_vm
         .engine
-        .verify(&checkpoint_pk.get_vk(), &proof)
+        .verify(&preflight_pk.get_vk(), &proof)
         .unwrap();
 }
 
@@ -1153,8 +1122,8 @@ fn preflight_gpu_tracegen_proves_rv64m_airs() {
             reg(rd),
             reg(rs1),
             reg(rs2),
-            RV64_REGISTER_AS as usize,
-            RV64_IMM_AS as usize,
+            REGISTER_AS as usize,
+            IMM_AS as usize,
         ]
     };
     let instructions = [
@@ -1196,7 +1165,7 @@ fn preflight_gpu_tracegen_proves_rv64m_airs() {
             .to_le_bytes()
             .into_iter()
             .enumerate()
-            .map(move |(offset, byte)| ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte))
+            .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
     })
     .collect();
     let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
@@ -1207,7 +1176,7 @@ fn preflight_gpu_tracegen_proves_rv64m_airs() {
         },
         mul: Default::default(),
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let preflight = executor.preflight_instance(&exe).unwrap();
     let state = preflight.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, pk) =
@@ -1222,7 +1191,7 @@ fn preflight_gpu_tracegen_proves_rv64m_airs() {
 
     let device_ctx = &vm.engine.device().device_ctx;
     let gpu_program =
-        CheckpointReplayProgram::upload(&program, &config.rv64i.system.memory_config, device_ctx)
+        PreflightReplayProgram::upload(&program, &config.rv64i.system.memory_config, device_ctx)
             .unwrap();
     let (gpu_transcript, replay_plan) =
         Rv64ImPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
@@ -1247,8 +1216,8 @@ fn preflight_mul_replay_rejects_corrupt_results_and_predecessors_before_lookups(
                 reg(3),
                 reg(1),
                 reg(1),
-                RV64_REGISTER_AS as usize,
-                RV64_IMM_AS as usize,
+                REGISTER_AS as usize,
+                IMM_AS as usize,
             ],
         ),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
@@ -1258,7 +1227,7 @@ fn preflight_mul_replay_rejects_corrupt_results_and_predecessors_before_lookups(
         .to_le_bytes()
         .into_iter()
         .enumerate()
-        .map(|(offset, byte)| ((RV64_REGISTER_AS, (reg(1) + offset) as u32), byte))
+        .map(|(offset, byte)| ((REGISTER_AS, (reg(1) + offset) as u32), byte))
         .collect();
     let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
     let config = Rv64ImConfig {
@@ -1268,7 +1237,7 @@ fn preflight_mul_replay_rejects_corrupt_results_and_predecessors_before_lookups(
         },
         mul: Default::default(),
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let preflight = executor.preflight_instance(&exe).unwrap();
     let state = preflight.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, _) =
@@ -1282,7 +1251,7 @@ fn preflight_mul_replay_rejects_corrupt_results_and_predecessors_before_lookups(
         .unwrap();
     let device_ctx = &vm.engine.device().device_ctx;
     let gpu_program =
-        CheckpointReplayProgram::upload(&program, &config.rv64i.system.memory_config, device_ctx)
+        PreflightReplayProgram::upload(&program, &config.rv64i.system.memory_config, device_ctx)
             .unwrap();
     let (gpu_transcript, replay_plan) =
         Rv64ImPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
@@ -1313,7 +1282,7 @@ fn preflight_mul_replay_rejects_corrupt_results_and_predecessors_before_lookups(
             config.mul.range_tuple_checker_sizes,
             device_ctx.clone(),
         ));
-        let chip = Rv64MultiplicationChipGpu::new(
+        let chip = MultiplicationChipGpu::new(
             range_checker.clone(),
             bitwise_lookup.clone(),
             range_tuple.clone(),
@@ -1350,13 +1319,7 @@ fn preflight_postflight_rejects_raw_x0_destination() {
     let instructions = [
         instruction(
             MulOpcode::MUL,
-            [
-                0,
-                reg(1),
-                reg(2),
-                RV64_REGISTER_AS as usize,
-                RV64_IMM_AS as usize,
-            ],
+            [0, reg(1), reg(2), REGISTER_AS as usize, IMM_AS as usize],
         ),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
     ];
@@ -1368,9 +1331,7 @@ fn preflight_postflight_rejects_raw_x0_destination() {
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(move |(offset, byte)| {
-                    ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)
-                })
+                .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
         })
         .collect();
     let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
@@ -1381,7 +1342,7 @@ fn preflight_postflight_rejects_raw_x0_destination() {
         },
         mul: Default::default(),
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let preflight = executor.preflight_instance(&exe).unwrap();
     let state = preflight.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, _) =
@@ -1395,7 +1356,7 @@ fn preflight_postflight_rejects_raw_x0_destination() {
         .unwrap();
     let device_ctx = &vm.engine.device().device_ctx;
     let gpu_program =
-        CheckpointReplayProgram::upload(&program, &config.rv64i.system.memory_config, device_ctx)
+        PreflightReplayProgram::upload(&program, &config.rv64i.system.memory_config, device_ctx)
             .unwrap();
     let error = match Rv64ImPreflightGpuTracegen::postflight(
         &vm,
@@ -1412,25 +1373,13 @@ fn preflight_postflight_rejects_raw_x0_destination() {
 #[test]
 fn preflight_gpu_replay_proves_hint_store() {
     let instructions = [
-        Instruction::<F>::from_usize(
-            Rv64HintStoreOpcode::HINT_STORED.global_opcode(),
-            [
-                0,
-                reg(1),
-                0,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
-            ],
+        Instruction::from_usize(
+            HintStoreOpcode::HINT_STORED.global_opcode(),
+            [0, reg(1), 0, REGISTER_AS as usize, MEMORY_AS as usize],
         ),
-        Instruction::<F>::from_usize(
-            Rv64HintStoreOpcode::HINT_BUFFER.global_opcode(),
-            [
-                reg(2),
-                reg(3),
-                0,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
-            ],
+        Instruction::from_usize(
+            HintStoreOpcode::HINT_BUFFER.global_opcode(),
+            [reg(2), reg(3), 0, REGISTER_AS as usize, MEMORY_AS as usize],
         ),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
     ];
@@ -1442,9 +1391,7 @@ fn preflight_gpu_replay_proves_hint_store() {
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(move |(offset, byte)| {
-                    ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)
-                })
+                .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
         })
         .collect();
     // Both hint instructions overwrite nonzero initial words. This exercises the first-write
@@ -1452,14 +1399,14 @@ fn preflight_gpu_replay_proves_hint_store() {
     init_memory.extend(
         [(32u32, 0x55u8), (39, 0xaa), (64, 0x12), (87, 0xfe)]
             .into_iter()
-            .map(|(byte_ptr, byte)| ((RV64_MEMORY_AS, byte_ptr), byte)),
+            .map(|(byte_ptr, byte)| ((MEMORY_AS, byte_ptr), byte)),
     );
     let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
     let config = Rv64IConfig {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let mut state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let hint_words = [
@@ -1486,37 +1433,138 @@ fn preflight_gpu_replay_proves_hint_store() {
             PreflightLimits::new(instructions.len(), hint_words.len(), 1),
         )
         .unwrap();
-    assert_eq!(execution.transcript.residuals, hint_words);
+    assert_eq!(execution.transcript.replay_values, hint_words);
     assert_eq!(execution.to_state.timestamp, 13);
 
-    let gpu_program = CheckpointReplayProgram::upload(
+    let gpu_program = PreflightReplayProgram::upload(
         &program,
         &config.system.memory_config,
         &vm.engine.device().device_ctx,
     )
     .unwrap();
-    let missing = execution.transcript.residuals.pop().unwrap();
+    let missing = execution.transcript.replay_values.pop().unwrap();
     let error =
         Rv64ImPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
             .err()
-            .expect("missing hint residual must fail checkpoint replay");
+            .expect("missing hint replay value must fail checkpoint replay");
     assert!(error.to_string().contains("code 306"), "{error}");
-    execution.transcript.residuals.push(missing);
+    execution.transcript.replay_values.push(missing);
 
     let (transcript, replay_plan) =
         Rv64ImPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
             .unwrap();
     assert_eq!(
         replay_plan
-            .opcode_range(Rv64HintStoreOpcode::HINT_STORED.global_opcode())
+            .opcode_range(HintStoreOpcode::HINT_STORED.global_opcode())
             .len(),
         1
     );
     assert_eq!(
         replay_plan
-            .opcode_range(Rv64HintStoreOpcode::HINT_BUFFER.global_opcode())
+            .opcode_range(HintStoreOpcode::HINT_BUFFER.global_opcode())
             .len(),
         1
+    );
+    let tracegen =
+        Rv64ImPreflightGpuTracegen::new(gpu_program.program(), &transcript, &replay_plan).unwrap();
+    let proving_ctx = tracegen.generate_proving_ctx(&mut vm).unwrap();
+    assert_eq!(transcript.error_code().unwrap(), 0);
+    drop(replay_plan);
+    drop(transcript);
+    let proof = vm.engine.prove(vm.pk(), proving_ctx).unwrap();
+    vm.engine.verify(&pk.get_vk(), &proof).unwrap();
+}
+
+#[test]
+fn preflight_gpu_replay_proves_aligned_reveals() {
+    let values = [0x0123_4567_89ab_cdefu64, 0xfedc_ba98_7654_3210];
+    let instructions = [
+        Instruction::from_usize(
+            RevealOpcode::REVEAL.global_opcode(),
+            [
+                reg(1),
+                reg(2),
+                0,
+                REGISTER_AS as usize,
+                PUBLIC_VALUES_AS as usize,
+                1,
+                0,
+            ],
+        ),
+        Instruction::from_usize(
+            AuipcOpcode::AUIPC.global_opcode(),
+            [reg(4), 0, 0, REGISTER_AS as usize, 0, 0, 0],
+        ),
+        Instruction::from_usize(
+            RevealOpcode::REVEAL.global_opcode(),
+            [
+                reg(3),
+                reg(2),
+                REGISTER_NUM_LIMBS,
+                REGISTER_AS as usize,
+                PUBLIC_VALUES_AS as usize,
+                1,
+                0,
+            ],
+        ),
+        Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
+    ];
+    let program = Program::from_instructions(&instructions);
+    let init_memory = [
+        (1usize, values[0]),
+        (2, REGISTER_NUM_LIMBS as u64),
+        (3, values[1]),
+    ]
+    .into_iter()
+    .flat_map(|(register, value)| {
+        value
+            .to_le_bytes()
+            .into_iter()
+            .enumerate()
+            .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
+    })
+    .collect::<SparseMemoryImage>();
+    let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
+    let config = Rv64IConfig {
+        system: test_system_config(),
+        ..Default::default()
+    };
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
+    let checkpoint = executor.preflight_instance(&exe).unwrap();
+    let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
+
+    let (mut vm, pk) =
+        VirtualMachine::new_with_keygen(test_gpu_engine(), Rv64IGpuBuilder, config.clone())
+            .unwrap();
+    let cached_program = vm.commit_program_on_device(&program);
+    vm.load_program(cached_program);
+    vm.transport_init_memory_to_device(&state.memory);
+    let execution = checkpoint
+        .execute_from_state(state, PreflightLimits::new(instructions.len(), 0, 1))
+        .unwrap();
+    let revealed = unsafe {
+        execution
+            .state
+            .memory
+            .read_bytes::<{ 2 * REGISTER_NUM_LIMBS }>(PUBLIC_VALUES_AS, REGISTER_NUM_LIMBS as u32)
+    };
+    assert_eq!(&revealed[..REGISTER_NUM_LIMBS], &values[0].to_le_bytes());
+    assert_eq!(&revealed[REGISTER_NUM_LIMBS..], &values[1].to_le_bytes());
+
+    let gpu_program = PreflightReplayProgram::upload(
+        &program,
+        &config.system.memory_config,
+        &vm.engine.device().device_ctx,
+    )
+    .unwrap();
+    let (transcript, replay_plan) =
+        Rv64ImPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
+            .unwrap();
+    assert_eq!(
+        replay_plan
+            .opcode_range(RevealOpcode::REVEAL.global_opcode())
+            .len(),
+        2
     );
     let tracegen =
         Rv64ImPreflightGpuTracegen::new(gpu_program.program(), &transcript, &replay_plan).unwrap();

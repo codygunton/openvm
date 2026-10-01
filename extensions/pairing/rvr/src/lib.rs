@@ -4,15 +4,16 @@
 //! `PairingExtension` for lifting and executing it via FFI.
 
 use openvm_instructions::{
-    riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES},
+    instruction::Instruction,
+    riscv::{NUM_REGISTERS, REGISTER_BYTES},
     LocalOpcode, SystemOpcode,
 };
 use openvm_pairing_transpiler::PairingPhantom;
 use rvr_openvm_ir::{CfgEffect, ExtEmitCtx, ExtInstr, InstrAt, LiftedInstr, Variable};
-use rvr_openvm_lift::{decode_variable, RvrExtension, RvrInstruction};
+use rvr_openvm_lift::{decode_variable, RvrExtension};
 
 fn decode_reg(value: u32) -> Variable {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -98,23 +99,22 @@ impl Default for PairingExtension {
 }
 
 impl RvrExtension for PairingExtension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         let opcode = insn.opcode.as_usize();
 
         if opcode != SystemOpcode::PHANTOM.global_opcode_usize() {
             return None;
         }
 
-        let c_val = insn.c;
-        let discriminant = (c_val & 0xffff) as u16;
-        let curve_idx = (c_val >> 16) as u16;
+        let discriminant = u16::try_from(insn.c.as_u32()).ok()?;
+        let curve_idx = u16::try_from(insn.d.as_u32()).ok()?;
 
         if discriminant != PairingPhantom::HintFinalExp as u16 {
             return None;
         }
 
-        let rs1_reg = decode_reg(insn.a);
-        let rs2_reg = decode_reg(insn.b);
+        let rs1_reg = decode_reg(insn.a.as_u32());
+        let rs2_reg = decode_reg(insn.b.as_u32());
         let curve = KnownPairingCurve::from_idx(curve_idx)?;
 
         Some(LiftedInstr::Body(InstrAt {
@@ -202,7 +202,7 @@ mod tests {
             unreachable!()
         }
 
-        fn reserve_preflight_writes(&mut self, _writes: &str, _slots: &str) {
+        fn reserve_preflight_timestamp_slots(&mut self, _slots: &str) {
             unreachable!()
         }
 

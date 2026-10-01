@@ -2,8 +2,8 @@ use std::array::from_fn;
 
 use itertools::Itertools;
 use openvm_circuit::arch::{PostflightError, BLOCK_FE_WIDTH, MEMORY_BLOCK_BYTES};
-use openvm_instructions::riscv::RV64_BYTE_BITS;
-use openvm_riscv_circuit::adapters::{byte_ptr_to_u16_ptr_value, rv64_u16_block_to_bytes};
+use openvm_instructions::riscv::BYTE_BITS;
+use openvm_riscv_circuit::adapters::{byte_ptr_to_u16_ptr_value, u16_block_to_bytes};
 use openvm_stark_sdk::config::baby_bear_poseidon2::DIGEST_SIZE;
 use p3_field::{PrimeCharacteristicRing, PrimeField32};
 
@@ -34,7 +34,7 @@ pub(crate) fn logged_u32_pointer(
     value: [u16; BLOCK_FE_WIDTH],
     name: &'static str,
 ) -> Result<u32, PostflightError> {
-    let bytes = rv64_u16_block_to_bytes(value);
+    let bytes = u16_block_to_bytes(value);
     if bytes[4..] != [0; 4] {
         return Err(PostflightError::new(format!(
             "{name} has nonzero upper bits"
@@ -67,7 +67,6 @@ pub(crate) fn checked_pointer_offset(
         .ok_or_else(|| PostflightError::new(message))
 }
 
-#[inline(always)]
 pub const fn num_byte_memory_ops(total_bytes: usize) -> usize {
     assert!(total_bytes.is_multiple_of(MEMORY_BLOCK_BYTES));
     total_bytes / MEMORY_BLOCK_BYTES
@@ -167,7 +166,7 @@ pub fn f_commit_to_bytes<F: PrimeField32>(f_commit: &[F; DIGEST_SIZE]) -> [u8; C
 pub fn bytes_to_f<F: PrimeCharacteristicRing, T: Into<F> + Clone>(register: &[T]) -> F {
     assert_eq!(register.len(), F_NUM_BYTES);
     register.iter().enumerate().fold(F::ZERO, |acc, (i, limb)| {
-        acc + (limb.clone().into() * F::from_usize(1 << (i * RV64_BYTE_BITS)))
+        acc + (limb.clone().into() * F::from_usize(1 << (i * BYTE_BITS)))
     })
 }
 

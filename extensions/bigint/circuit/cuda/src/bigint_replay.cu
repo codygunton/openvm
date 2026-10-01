@@ -56,68 +56,68 @@ using AddSub256Core = AddSubCore<INT256_NUM_U16_LIMBS, U16_BITS, true>;
 template <typename T>
 using AddSub256CoreCols = AddSubCoreCols<T, INT256_NUM_U16_LIMBS>;
 
-using Rv64VecHeapAdapter256 =
-    Rv64VecHeapAdapter<NUM_READS, INT256_NUM_MEMORY_BLOCKS, INT256_NUM_MEMORY_BLOCKS>;
+using VecHeapAdapter256 =
+    VecHeapAdapter<NUM_READS, INT256_NUM_MEMORY_BLOCKS, INT256_NUM_MEMORY_BLOCKS>;
 template <typename T>
-using Rv64VecHeapAdapter256Cols = Rv64VecHeapAdapterCols<
+using VecHeapAdapter256Cols = VecHeapAdapterCols<
     T,
     NUM_READS,
     INT256_NUM_MEMORY_BLOCKS,
     INT256_NUM_MEMORY_BLOCKS>;
-using Rv64VecHeapAdapter256Record = Rv64VecHeapAdapterRecord<
+using VecHeapAdapter256Record = VecHeapAdapterRecord<
     NUM_READS,
     INT256_NUM_MEMORY_BLOCKS,
     INT256_NUM_MEMORY_BLOCKS>;
-using Rv64VecHeapBranchU16Adapter256 =
-    Rv64VecHeapBranchU16Adapter<NUM_READS, INT256_NUM_MEMORY_BLOCKS>;
+using VecHeapBranchU16Adapter256 =
+    VecHeapBranchU16Adapter<NUM_READS, INT256_NUM_MEMORY_BLOCKS>;
 template <typename T>
-using Rv64VecHeapBranchU16Adapter256Cols =
-    Rv64VecHeapBranchU16AdapterCols<T, NUM_READS, INT256_NUM_MEMORY_BLOCKS>;
-using Rv64VecHeapBranchU16Adapter256Record =
-    Rv64VecHeapBranchU16AdapterRecord<NUM_READS, INT256_NUM_MEMORY_BLOCKS>;
-using Rv64VecHeapU16Adapter256 =
-    Rv64VecHeapU16Adapter<NUM_READS, INT256_NUM_MEMORY_BLOCKS, INT256_NUM_MEMORY_BLOCKS>;
+using VecHeapBranchU16Adapter256Cols =
+    VecHeapBranchU16AdapterCols<T, NUM_READS, INT256_NUM_MEMORY_BLOCKS>;
+using VecHeapBranchU16Adapter256Record =
+    VecHeapBranchU16AdapterRecord<NUM_READS, INT256_NUM_MEMORY_BLOCKS>;
+using VecHeapU16Adapter256 =
+    VecHeapU16Adapter<NUM_READS, INT256_NUM_MEMORY_BLOCKS, INT256_NUM_MEMORY_BLOCKS>;
 template <typename T>
-using Rv64VecHeapU16Adapter256Cols = Rv64VecHeapU16AdapterCols<
+using VecHeapU16Adapter256Cols = VecHeapU16AdapterCols<
     T,
     NUM_READS,
     INT256_NUM_MEMORY_BLOCKS,
     INT256_NUM_MEMORY_BLOCKS>;
-using Rv64VecHeapU16Adapter256Record = Rv64VecHeapU16AdapterRecord<
+using VecHeapU16Adapter256Record = VecHeapU16AdapterRecord<
     NUM_READS,
     INT256_NUM_MEMORY_BLOCKS,
     INT256_NUM_MEMORY_BLOCKS>;
 
 template <typename T> struct AddSub256Cols {
-    Rv64VecHeapU16Adapter256Cols<T> adapter;
+    VecHeapU16Adapter256Cols<T> adapter;
     AddSub256CoreCols<T> core;
 };
 template <typename T> struct BitwiseLogic256Cols {
-    Rv64VecHeapAdapter256Cols<T> adapter;
+    VecHeapAdapter256Cols<T> adapter;
     BitwiseLogic256CoreCols<T> core;
 };
 template <typename T> struct LessThan256Cols {
-    Rv64VecHeapU16Adapter256Cols<T> adapter;
+    VecHeapU16Adapter256Cols<T> adapter;
     LessThan256CoreCols<T> core;
 };
 template <typename T> struct ShiftLogical256Cols {
-    Rv64VecHeapU16Adapter256Cols<T> adapter;
+    VecHeapU16Adapter256Cols<T> adapter;
     ShiftLogical256CoreCols<T> core;
 };
 template <typename T> struct ShiftRightArithmetic256Cols {
-    Rv64VecHeapU16Adapter256Cols<T> adapter;
+    VecHeapU16Adapter256Cols<T> adapter;
     ShiftRightArithmetic256CoreCols<T> core;
 };
 template <typename T> struct Multiplication256Cols {
-    Rv64VecHeapAdapter256Cols<T> adapter;
+    VecHeapAdapter256Cols<T> adapter;
     Multiplication256CoreCols<T> core;
 };
 template <typename T> struct BranchEqual256Cols {
-    Rv64VecHeapBranchU16Adapter256Cols<T> adapter;
+    VecHeapBranchU16Adapter256Cols<T> adapter;
     BranchEqual256CoreCols<T> core;
 };
 template <typename T> struct BranchLessThan256Cols {
-    Rv64VecHeapBranchU16Adapter256Cols<T> adapter;
+    VecHeapBranchU16Adapter256Cols<T> adapter;
     BranchLessThan256CoreCols<T> core;
 };
 
@@ -552,10 +552,13 @@ __device__ bool int256_u8_write_matches(
     return true;
 }
 
-__device__ __forceinline__ uint32_t int256_branch_target(uint32_t pc, uint32_t immediate) {
-    uint64_t sum = uint64_t(pc) + immediate;
-    if (sum >= INT256_REPLAY_FIELD_ORDER) sum -= INT256_REPLAY_FIELD_ORDER;
-    return static_cast<uint32_t>(sum);
+// Taken targets must stay inside the implemented PC address space on an aligned slot
+// (mirrors the CPU trace filler's `checked_branch_target`).
+__device__ __forceinline__ bool int256_valid_branch_target(
+    uint32_t pc, uint32_t immediate, uint32_t to_pc
+) {
+    return replay_branch_target_in_bounds(pc, immediate) &&
+           to_pc == replay_taken_branch_pc(pc, immediate);
 }
 
 __global__ void add_sub256_replay_tracegen(
@@ -924,9 +927,9 @@ __global__ void add_sub256_replay_tracegen(
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_RESULT);
         return;
     }
-    Rv64VecHeapU16Adapter256Record adapter_record{};
+    VecHeapU16Adapter256Record adapter_record{};
     int256_fill_u16_adapter_record(replay, adapter_record);
-    Rv64VecHeapU16Adapter256 adapter(
+    VecHeapU16Adapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits
@@ -966,9 +969,9 @@ __global__ void bitwise_logic256_replay_tracegen(
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_RESULT);
         return;
     }
-    Rv64VecHeapAdapter256Record adapter_record{};
+    VecHeapAdapter256Record adapter_record{};
     int256_fill_u8_adapter_record(replay, adapter_record);
-    Rv64VecHeapAdapter256 adapter(
+    VecHeapAdapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits
@@ -1005,9 +1008,9 @@ __global__ void less_than256_replay_tracegen(
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_RESULT);
         return;
     }
-    Rv64VecHeapU16Adapter256Record adapter_record{};
+    VecHeapU16Adapter256Record adapter_record{};
     int256_fill_u16_adapter_record(replay, adapter_record);
-    Rv64VecHeapU16Adapter256 adapter(
+    VecHeapU16Adapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits
@@ -1051,9 +1054,9 @@ __global__ void shift_logical256_replay_tracegen(
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_RESULT);
         return;
     }
-    Rv64VecHeapU16Adapter256Record adapter_record{};
+    VecHeapU16Adapter256Record adapter_record{};
     int256_fill_u16_adapter_record(replay, adapter_record);
-    Rv64VecHeapU16Adapter256 adapter(
+    VecHeapU16Adapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits
@@ -1091,9 +1094,9 @@ __global__ void shift_right_arithmetic256_replay_tracegen(
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_RESULT);
         return;
     }
-    Rv64VecHeapU16Adapter256Record adapter_record{};
+    VecHeapU16Adapter256Record adapter_record{};
     int256_fill_u16_adapter_record(replay, adapter_record);
-    Rv64VecHeapU16Adapter256 adapter(
+    VecHeapU16Adapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits
@@ -1130,9 +1133,9 @@ __global__ void multiplication256_replay_tracegen(
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_RESULT);
         return;
     }
-    Rv64VecHeapAdapter256Record adapter_record{};
+    VecHeapAdapter256Record adapter_record{};
     int256_fill_u8_adapter_record(replay, adapter_record);
-    Rv64VecHeapAdapter256 adapter(
+    VecHeapAdapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits
@@ -1175,15 +1178,15 @@ __global__ void branch_equal256_replay_tracegen(
     for (size_t i = 0; i < INT256_NUM_U16_LIMBS; i++) equal &= a[i] == b[i];
     bool take = replay.local_opcode == 0 ? equal : !equal;
     bool valid_pc =
-        take ? replay.to_pc == int256_branch_target(replay.from_pc, replay.immediate)
+        take ? int256_valid_branch_target(replay.from_pc, replay.immediate, replay.to_pc)
              : int256_sequential_pc(replay.from_pc, replay.to_pc);
     if (!valid_pc) {
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_BRANCH);
         return;
     }
-    Rv64VecHeapBranchU16Adapter256Record adapter_record{};
+    VecHeapBranchU16Adapter256Record adapter_record{};
     int256_fill_branch_adapter_record(replay, adapter_record);
-    Rv64VecHeapBranchU16Adapter256 adapter(
+    VecHeapBranchU16Adapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits
@@ -1243,15 +1246,15 @@ __global__ void branch_less_than256_replay_tracegen(
     int256_flatten_u16_reads(replay, a, b);
     bool take = int256_branch_less_than(a, b, replay.local_opcode);
     bool valid_pc =
-        take ? replay.to_pc == int256_branch_target(replay.from_pc, replay.immediate)
+        take ? int256_valid_branch_target(replay.from_pc, replay.immediate, replay.to_pc)
              : int256_sequential_pc(replay.from_pc, replay.to_pc);
     if (!valid_pc) {
         preflight_set_error(inputs.error, INT256_REPLAY_BAD_BRANCH);
         return;
     }
-    Rv64VecHeapBranchU16Adapter256Record adapter_record{};
+    VecHeapBranchU16Adapter256Record adapter_record{};
     int256_fill_branch_adapter_record(replay, adapter_record);
-    Rv64VecHeapBranchU16Adapter256 adapter(
+    VecHeapBranchU16Adapter256 adapter(
         inputs.pointer_max_bits,
         VariableRangeChecker(range_checker, range_checker_bins),
         timestamp_max_bits

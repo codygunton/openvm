@@ -21,6 +21,7 @@ on:
       - "extensions/riscv/transpiler/**"
       - "extensions/riscv/guest/**"
       - "crates/rvr/**"
+      - "extensions/riscv-adapters/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -28,7 +29,6 @@ on:
       - ".github/actions/sccache/**"
       - ".github/workflows/riscv.yml"
       - "ci/install-openvm-toolchain.sh"
-      - "scripts/gpu_driver_setup.sh"
 
 concurrency:
   group: ${{ github.workflow_ref }}-riscv-${{ github.event.pull_request.number || github.sha }}
@@ -45,14 +45,14 @@ jobs:
         platform:
           - {
               name: "runtime (default)",
-              labels: "family=c9g.8xlarge+c8g.8xlarge+m9g.8xlarge+m8g.8xlarge/image=arm64-rust-riscv-dev-32gb/volume=80gb",
-              image: "arm64-rust-riscv-dev-32gb",
+              labels: "family=c8i-flex.8xlarge+c8i.8xlarge+c8a.8xlarge+m8i-flex.8xlarge+m8i.8xlarge+m8a.8xlarge+c7i.8xlarge+c7a.8xlarge+m7i.8xlarge+m7a.8xlarge/image=ubuntu24-full-x64/volume=80gb",
+              image: "ubuntu24-full-x64",
               features: "",
             }
           - {
               name: "runtime (RVR)",
-              labels: "family=c9g.8xlarge+c8g.8xlarge+m9g.8xlarge+m8g.8xlarge/image=arm64-rust-riscv-dev-32gb/volume=80gb",
-              image: "arm64-rust-riscv-dev-32gb",
+              labels: "family=c8i-flex.8xlarge+c8i.8xlarge+c8a.8xlarge+m8i-flex.8xlarge+m8i.8xlarge+m8a.8xlarge+c7i.8xlarge+c7a.8xlarge+m7i.8xlarge+m7a.8xlarge/image=ubuntu24-full-x64/volume=80gb",
+              image: "ubuntu24-full-x64",
               features: "rvr",
             }
           - {
@@ -94,11 +94,6 @@ jobs:
           git submodule update --init --depth 1 extensions/algebra/rvr/ffi/modular/blst
       - uses: ./.github/actions/sccache
 
-      # TODO: remove once https://github.com/runs-on/runner-images-for-aws/issues/55 is fixed
-      - name: Setup GPU driver
-        if: contains(matrix.platform.features, 'cuda')
-        run: bash ./scripts/gpu_driver_setup.sh
-
       - name: Set feature flags
         run: |
           if [ -n "${{ matrix.platform.features }}" ]; then
@@ -125,10 +120,6 @@ jobs:
           tar -xJf gcc.tar.xz
           echo "$GITHUB_WORKSPACE/riscv/bin" >> $GITHUB_PATH
           rm gcc.tar.xz
-
-      - name: Add RISC-V toolchain to PATH
-        if: matrix.platform.image == 'arm64-rust-riscv-dev-32gb'
-        run: echo "/opt/riscv/bin" >> "$GITHUB_PATH"
 
       - name: Install clang-22 and lld (required for rvr)
         if: matrix.platform.features == 'rvr'

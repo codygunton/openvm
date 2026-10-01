@@ -12,6 +12,7 @@
 #include "primitives/fp_array.cuh"
 #include "primitives/histogram.cuh"
 #include "primitives/trace_access.h"
+#include "riscv-adapters/pointer_conv.cuh"
 #include "system/memory/controller.cuh"
 #include "system/memory/offline_checker.cuh"
 
@@ -59,8 +60,8 @@ template <typename T> struct DeferralCallCoreCols {
     DeferralCallReads<T, T> reads;
     DeferralCallWrites<T, T> writes;
 
-    CanonicityAuxCols<T> input_commit_lt_aux[DIGEST_SIZE];
-    CanonicityAuxCols<T> output_commit_lt_aux[DIGEST_SIZE];
+    CanonicityAuxCols<T> input_commit_canonicity_aux[DIGEST_SIZE];
+    CanonicityAuxCols<T> output_commit_canonicity_aux[DIGEST_SIZE];
 };
 
 __device__ __forceinline__ void deferral_call_core_tracegen(
@@ -117,15 +118,15 @@ __device__ __forceinline__ void deferral_call_core_tracegen(
         bitwise_buffer.add_range(record.writes.output_len[i], record.writes.output_len[i + 1]);
     }
 
-    const uint32_t limb_shift_bits = RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS - address_bits;
+    const uint32_t limb_shift_bits = BYTE_BITS * WORD_NUM_LIMBS - address_bits;
     bitwise_buffer.add_range(
-        static_cast<uint32_t>(record.writes.output_len[RV64_WORD_NUM_LIMBS - 1])
+        static_cast<uint32_t>(record.writes.output_len[WORD_NUM_LIMBS - 1])
             << limb_shift_bits,
         0
     );
 
-    constexpr size_t input_aux_offset = COL_INDEX(DeferralCallCoreCols, input_commit_lt_aux);
-    constexpr size_t output_aux_offset = COL_INDEX(DeferralCallCoreCols, output_commit_lt_aux);
+    constexpr size_t input_aux_offset = COL_INDEX(DeferralCallCoreCols, input_commit_canonicity_aux);
+    constexpr size_t output_aux_offset = COL_INDEX(DeferralCallCoreCols, output_commit_canonicity_aux);
     constexpr size_t canonicity_aux_stride = sizeof(CanonicityAuxCols<uint8_t>);
 
     uint32_t input_commit_rcs[DIGEST_SIZE];
@@ -174,8 +175,8 @@ template <typename T> struct DeferralCallAdapterRecord {
     T rd_ptr;
     T rs_ptr;
 
-    uint8_t rd_val[RV64_WORD_NUM_LIMBS];
-    uint8_t rs_val[RV64_WORD_NUM_LIMBS];
+    uint8_t rd_val[WORD_NUM_LIMBS];
+    uint8_t rs_val[WORD_NUM_LIMBS];
     MemoryReadAuxRecord rd_aux;
     MemoryReadAuxRecord rs_aux;
 
@@ -194,8 +195,8 @@ template <typename T> struct DeferralCallAdapterCols {
     T rd_ptr;
     T rs_ptr;
 
-    T rd_val[RV64_WORD_NUM_LIMBS];
-    T rs_val[RV64_WORD_NUM_LIMBS];
+    T rd_val[WORD_NUM_LIMBS];
+    T rs_val[WORD_NUM_LIMBS];
     MemoryReadAuxCols<T> rd_aux;
     MemoryReadAuxCols<T> rs_aux;
 
@@ -206,6 +207,7 @@ template <typename T> struct DeferralCallAdapterCols {
     MemoryWriteAuxCols<T, BLOCK_FE_WIDTH> output_commit_and_len_aux[OUTPUT_TOTAL_MEMORY_OPS];
     MemoryWriteAuxCols<T, BLOCK_FE_WIDTH> new_input_acc_aux[DIGEST_F_MEMORY_OPS];
     MemoryWriteAuxCols<T, BLOCK_FE_WIDTH> new_output_acc_aux[DIGEST_F_MEMORY_OPS];
+
 };
 
 __device__ __forceinline__ void deferral_call_adapter_tracegen(
@@ -213,20 +215,21 @@ __device__ __forceinline__ void deferral_call_adapter_tracegen(
     const DeferralCallAdapterRecord<Fp> &record,
     BitwiseOperationLookup &bitwise_buffer,
     MemoryAuxColsFactory &mem_helper,
+    VariableRangeChecker &range_checker,
     const size_t address_bits
 ) {
-    const uint32_t limb_shift_bits = RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS - address_bits;
+    const uint32_t limb_shift_bits = BYTE_BITS * WORD_NUM_LIMBS - address_bits;
     bitwise_buffer.add_range(
-        static_cast<uint32_t>(record.rd_val[RV64_WORD_NUM_LIMBS - 1]) << limb_shift_bits,
-        static_cast<uint32_t>(record.rs_val[RV64_WORD_NUM_LIMBS - 1]) << limb_shift_bits
+        static_cast<uint32_t>(record.rd_val[WORD_NUM_LIMBS - 1]) << limb_shift_bits,
+        static_cast<uint32_t>(record.rs_val[WORD_NUM_LIMBS - 1]) << limb_shift_bits
     );
 #pragma unroll
-    for (size_t i = 0; i < RV64_WORD_NUM_LIMBS; i += 2) {
+    for (size_t i = 0; i < WORD_NUM_LIMBS; i += 2) {
         bitwise_buffer.add_range(record.rd_val[i], record.rd_val[i + 1]);
         bitwise_buffer.add_range(record.rs_val[i], record.rs_val[i + 1]);
     }
 
-    COL_WRITE_VALUE(row, DeferralCallAdapterCols, from_state.pc, record.from_pc);
+    COL_WRITE_VALUE(row, DeferralCallAdapterCols, from_state.pc, ::program::pc_to_idx(record.from_pc));
     COL_WRITE_VALUE(row, DeferralCallAdapterCols, from_state.timestamp, record.from_timestamp);
     COL_WRITE_VALUE(row, DeferralCallAdapterCols, rd_ptr, record.rd_ptr);
     COL_WRITE_VALUE(row, DeferralCallAdapterCols, rs_ptr, record.rs_ptr);
@@ -314,6 +317,27 @@ __device__ __forceinline__ void deferral_call_adapter_tracegen(
             aux_row, MemoryWriteAuxColsF, prev_data, record.new_output_acc_aux[i].prev_data
         );
         mem_helper.fill(aux_row, record.new_output_acc_aux[i].prev_timestamp, timestamp++);
+    }
+
+    // Convert the heap `input` (rs_val) and `output` (rd_val) base byte pointers to AS-native u16
+    // cell pointer limbs and emit the matching range-check counts. Mirrors the carry computation
+    // in the host `DeferralCallAdapterFiller`.
+    {
+        const uint32_t input_ptr =
+            static_cast<uint32_t>(record.rs_val[0]) |
+            (static_cast<uint32_t>(record.rs_val[1]) << BYTE_BITS) |
+            (static_cast<uint32_t>(record.rs_val[2]) << (2 * BYTE_BITS)) |
+            (static_cast<uint32_t>(record.rs_val[3]) << (3 * BYTE_BITS));
+        add_block_index_range_checks(range_checker, input_ptr, address_bits);
+    }
+
+    {
+        const uint32_t output_ptr =
+            static_cast<uint32_t>(record.rd_val[0]) |
+            (static_cast<uint32_t>(record.rd_val[1]) << BYTE_BITS) |
+            (static_cast<uint32_t>(record.rd_val[2]) << (2 * BYTE_BITS)) |
+            (static_cast<uint32_t>(record.rd_val[3]) << (3 * BYTE_BITS));
+        add_block_index_range_checks(range_checker, output_ptr, address_bits);
     }
 }
 

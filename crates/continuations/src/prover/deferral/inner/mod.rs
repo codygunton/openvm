@@ -18,9 +18,10 @@ use tracing::instrument;
 use crate::{
     circuit::{
         deferral::inner::{DeferralInnerCircuit, DeferralInnerTraceGen},
+        inner::VerifierCircuitType,
         Circuit,
     },
-    prover::trace_heights_tracing_info,
+    prover::{assert_all_airs_required, keygen_all_required, trace_heights_tracing_info},
     SC,
 };
 
@@ -95,7 +96,7 @@ where
     pub fn new<E: StarkEngine<SC = SC, PB = PB>>(
         child_vk: Arc<MultiStarkVerifyingKey<SC>>,
         system_params: SystemParams,
-        is_self_recursive: bool,
+        verifier_type: VerifierCircuitType,
     ) -> Self
     where
         S: VerifierTraceGen<PB, SC, EngineDeviceCtx<E>>,
@@ -110,10 +111,13 @@ where
         );
         let engine = E::new(system_params);
         let child_vk_pcs_data = verifier_circuit.commit_child_vk(&engine, &child_vk);
-        let circuit = Arc::new(DeferralInnerCircuit::new(Arc::new(verifier_circuit)));
-        let (pk, vk) = engine.keygen(&circuit.airs());
+        let circuit = Arc::new(DeferralInnerCircuit::new(
+            Arc::new(verifier_circuit),
+            verifier_type,
+        ));
+        let (pk, vk) = keygen_all_required(&engine, &circuit.airs());
         let d_pk = engine.device().transport_pk_to_device(&pk);
-        let self_vk_pcs_data = if is_self_recursive {
+        let self_vk_pcs_data = if verifier_type == VerifierCircuitType::InternalRecursive {
             Some(circuit.verifier_circuit.commit_child_vk(&engine, &vk))
         } else {
             None
@@ -133,12 +137,13 @@ where
     pub fn from_pk<E: StarkEngine<SC = SC, PB = PB>>(
         child_vk: Arc<MultiStarkVerifyingKey<SC>>,
         pk: Arc<MultiStarkProvingKey<SC>>,
-        is_self_recursive: bool,
+        verifier_type: VerifierCircuitType,
     ) -> Self
     where
         S: VerifierTraceGen<PB, SC, EngineDeviceCtx<E>>,
         T: DeferralInnerTraceGen<PB, EngineDeviceCtx<E>>,
     {
+        assert_all_airs_required(&pk);
         let verifier_circuit = S::new(
             child_vk.clone(),
             VerifierConfig {
@@ -148,10 +153,13 @@ where
         );
         let engine = E::new(pk.params.clone());
         let child_vk_pcs_data = verifier_circuit.commit_child_vk(&engine, &child_vk);
-        let circuit = Arc::new(DeferralInnerCircuit::new(Arc::new(verifier_circuit)));
+        let circuit = Arc::new(DeferralInnerCircuit::new(
+            Arc::new(verifier_circuit),
+            verifier_type,
+        ));
         let vk = Arc::new(pk.get_vk());
         let d_pk = engine.device().transport_pk_to_device(&pk);
-        let self_vk_pcs_data = if is_self_recursive {
+        let self_vk_pcs_data = if verifier_type == VerifierCircuitType::InternalRecursive {
             Some(circuit.verifier_circuit.commit_child_vk(&engine, &vk))
         } else {
             None

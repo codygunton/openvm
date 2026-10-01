@@ -31,7 +31,7 @@ use p3_field::PrimeCharacteristicRing;
 use test_case::test_case;
 use tracing::Level;
 
-use crate::{prover::ChildVkKind, SC};
+use crate::{circuit::inner::VerifierCircuitType, prover::ChildVkKind, SC};
 
 #[cfg(feature = "cuda")]
 mod dummy;
@@ -132,11 +132,11 @@ pub(in crate::tests) fn run_leaf_aggregation(
     let config = test_rv64im_config();
     let elf = Elf::decode(
         include_bytes!("../../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = VmExe::from_elf(
         elf,
-        Transpiler::<F>::default()
+        Transpiler::default()
             .with_extension(Rv64ITranspilerExtension)
             .with_extension(Rv64MTranspilerExtension)
             .with_extension(Rv64IoTranspilerExtension),
@@ -152,7 +152,7 @@ pub(in crate::tests) fn run_leaf_aggregation(
     let leaf_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         Arc::new(app_pk.get_vk()),
         leaf_system_params(),
-        false,
+        VerifierCircuitType::Leaf,
         None,
     );
     let leaf_proof =
@@ -182,7 +182,7 @@ fn run_full_aggregation(
     let internal_for_leaf_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         leaf_vk,
         internal_system_params(),
-        false,
+        VerifierCircuitType::InternalForLeaf,
         None,
     );
     let internal_for_leaf_proof = internal_for_leaf_prover
@@ -191,7 +191,7 @@ fn run_full_aggregation(
     let internal_recursive_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         internal_for_leaf_prover.get_vk(),
         internal_system_params(),
-        true,
+        VerifierCircuitType::InternalRecursive,
         None,
     );
     let mut internal_recursive_proof = internal_recursive_prover
@@ -244,19 +244,19 @@ fn test_internal_recursive_vk_stabilization(def_hook_cached_commit_set: bool) ->
     let leaf_prover = InnerProver::<MAX_LEAF_NUM_PROOFS>::new::<Engine>(
         Arc::new(app_vk),
         leaf_system_params(),
-        false,
+        VerifierCircuitType::Leaf,
         def_hook_cached_commit,
     );
     let internal_0_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         leaf_prover.get_vk(),
         internal_system_params(),
-        false,
+        VerifierCircuitType::InternalForLeaf,
         def_hook_cached_commit,
     );
     let internal_1_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         internal_0_prover.get_vk(),
         internal_system_params(),
-        false,
+        VerifierCircuitType::InternalRecursive,
         def_hook_cached_commit,
     );
 
@@ -264,7 +264,7 @@ fn test_internal_recursive_vk_stabilization(def_hook_cached_commit_set: bool) ->
     let test_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         internal_1_prover.get_vk(),
         internal_system_params(),
-        true,
+        VerifierCircuitType::InternalRecursive,
         def_hook_cached_commit,
     );
     assert_eq!(
@@ -440,13 +440,20 @@ pub(in crate::tests) fn generate_deferral_internal_recursive_proof_from_copies(
     let mut current_proofs = vec![def_proof.clone(); num_copies];
     let mut child_merkle_depth = 0usize;
 
-    let leaf_prover = DeferralInnerProver::new::<Engine>(deferral_vk, leaf_system_params(), false);
+    let leaf_prover = DeferralInnerProver::new::<Engine>(
+        deferral_vk,
+        leaf_system_params(),
+        VerifierCircuitType::Leaf,
+    );
     current_proofs =
         aggregate_deferral_layer(&leaf_prover, &current_proofs, false, child_merkle_depth)?;
     child_merkle_depth += 1;
 
-    let internal_for_leaf_prover =
-        DeferralInnerProver::new::<Engine>(leaf_prover.get_vk(), internal_system_params(), false);
+    let internal_for_leaf_prover = DeferralInnerProver::new::<Engine>(
+        leaf_prover.get_vk(),
+        internal_system_params(),
+        VerifierCircuitType::InternalForLeaf,
+    );
     current_proofs = aggregate_deferral_layer(
         &internal_for_leaf_prover,
         &current_proofs,
@@ -456,8 +463,11 @@ pub(in crate::tests) fn generate_deferral_internal_recursive_proof_from_copies(
     child_merkle_depth += 1;
 
     let child_vk = internal_for_leaf_prover.get_vk();
-    let internal_recursive_prover =
-        DeferralInnerProver::new::<Engine>(child_vk, internal_system_params(), true);
+    let internal_recursive_prover = DeferralInnerProver::new::<Engine>(
+        child_vk,
+        internal_system_params(),
+        VerifierCircuitType::InternalRecursive,
+    );
     loop {
         current_proofs = aggregate_deferral_layer(
             &internal_recursive_prover,
@@ -552,8 +562,11 @@ fn test_deferral_leaf_prover(num_children: usize) -> Result<()> {
     setup_tracing_with_log_level(Level::INFO);
     let (deferral_vk, def_proof) = dummy::generate_single_dummy_def_proof()?;
 
-    let deferral_inner_prover =
-        DeferralInnerProver::new::<Engine>(deferral_vk, leaf_system_params(), false);
+    let deferral_inner_prover = DeferralInnerProver::new::<Engine>(
+        deferral_vk,
+        leaf_system_params(),
+        VerifierCircuitType::Leaf,
+    );
     let wrapped_proof = deferral_inner_prover.agg_prove::<Engine>(
         &vec![def_proof.clone(); num_children],
         DeferralChildVkKind::DeferralCircuit,
@@ -628,18 +641,25 @@ fn test_deferral_internal_recursive_vk_stabilization() -> Result<()> {
     setup_tracing_with_log_level(Level::INFO);
     let (deferral_vk, _) = dummy::generate_single_dummy_def_proof()?;
 
-    let leaf_prover = DeferralInnerProver::new::<Engine>(deferral_vk, leaf_system_params(), false);
-    let internal_0_prover =
-        DeferralInnerProver::new::<Engine>(leaf_prover.get_vk(), internal_system_params(), false);
+    let leaf_prover = DeferralInnerProver::new::<Engine>(
+        deferral_vk,
+        leaf_system_params(),
+        VerifierCircuitType::Leaf,
+    );
+    let internal_0_prover = DeferralInnerProver::new::<Engine>(
+        leaf_prover.get_vk(),
+        internal_system_params(),
+        VerifierCircuitType::InternalForLeaf,
+    );
     let internal_1_prover = DeferralInnerProver::new::<Engine>(
         internal_0_prover.get_vk(),
         internal_system_params(),
-        false,
+        VerifierCircuitType::InternalRecursive,
     );
     let test_prover = DeferralInnerProver::new::<Engine>(
         internal_1_prover.get_vk(),
         internal_system_params(),
-        true,
+        VerifierCircuitType::InternalRecursive,
     );
 
     assert_eq!(

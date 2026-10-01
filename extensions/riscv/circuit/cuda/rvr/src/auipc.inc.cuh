@@ -23,7 +23,7 @@ __global__ void auipc_replay_tracegen(
     size_t idx = blockIdx.x * static_cast<size_t>(blockDim.x) + threadIdx.x;
     if (idx >= height) return;
     RowSlice row(trace + idx, height);
-    row.fill_zero(0, sizeof(Rv64AuipcCols<uint8_t>));
+    row.fill_zero(0, sizeof(AuipcCols<uint8_t>));
     if (idx >= num_steps) return;
 
     auto const &step = steps[step_start + idx];
@@ -43,18 +43,11 @@ __global__ void auipc_replay_tracegen(
     }
     auto const &from = *transition.from;
     auto const &to = *transition.to;
-    constexpr uint32_t MAX_PC = (1u << PC_BITS) - 1;
-    if (from.pc > MAX_PC - DEFAULT_PC_STEP) {
-        preflight_set_error(error, 192);
-        return;
-    }
     auto const &instruction = *transition.instruction;
     uint32_t rd_ptr = instruction.words[1];
     uint32_t imm = instruction.words[3];
-    constexpr uint32_t REGISTER_FILE_BYTES = 32 * RV64_REGISTER_NUM_LIMBS;
-    bool rd_is_canonical =
-        rd_ptr != 0 && rd_ptr < REGISTER_FILE_BYTES && rd_ptr % RV64_REGISTER_NUM_LIMBS == 0;
-    if (instruction.words[0] != auipc_opcode || !rd_is_canonical ||
+    if (instruction.words[0] != auipc_opcode || rd_ptr == 0 ||
+        !replay_canonical_register_pointer(rd_ptr) ||
         instruction.words[2] != 0 || imm >= (1u << 24) ||
         instruction.words[4] != register_as || instruction.words[5] != 0 ||
         instruction.words[6] != 0 || instruction.words[7] != 0) {
@@ -77,13 +70,10 @@ __global__ void auipc_replay_tracegen(
     }
 
     uint16_t logged_data[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(write.value, logged_data)) {
-        preflight_set_error(error, 196);
-        return;
-    }
+    replay_u16_block(write.value, logged_data);
     uint64_t expected_result = run_auipc(from.pc, imm);
     uint64_t expected_high = expected_result >> 32;
-    if (expected_high != 0 && expected_high != UINT32_MAX) {
+    if (expected_high != 0 && expected_high != 1 && expected_high != UINT32_MAX) {
         preflight_set_error(error, 199);
         return;
     }
@@ -111,14 +101,14 @@ __global__ void auipc_replay_tracegen(
         return;
     }
 
-    Rv64RdWriteAdapter adapter(
+    RdWriteAdapter adapter(
         VariableRangeChecker(range_checker, range_checker_num_bins), timestamp_max_bits
     );
     adapter.fill_trace_row(
         row, from.pc, from.timestamp, rd_ptr, previous.timestamp, previous.value
     );
-    Rv64AuipcCore core(VariableRangeChecker(range_checker, range_checker_num_bins));
-    core.fill_trace_row(row.slice_from(COL_INDEX(Rv64AuipcCols, core)), from.pc, imm);
+    AuipcCore core(VariableRangeChecker(range_checker, range_checker_num_bins));
+    core.fill_trace_row(row.slice_from(COL_INDEX(AuipcCols, core)), from.pc, imm);
 }
 
 
@@ -144,13 +134,13 @@ extern "C" int _auipc_replay_tracegen(
     uint32_t timestamp_max_bits,
     cudaStream_t stream
 ) {
-    assert(width == sizeof(Rv64AuipcCols<uint8_t>));
+    assert(width == sizeof(AuipcCols<uint8_t>));
     assert(d_memory.len() == d_predecessors.len());
     assert(step_start <= d_steps.len());
     assert(num_steps <= d_steps.len() - step_start);
     assert(height >= num_steps);
 
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     auipc_replay_tracegen<<<grid, block, 0, stream>>>(
         d_trace,
         height,

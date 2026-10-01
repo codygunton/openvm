@@ -4,17 +4,16 @@ use std::{
 };
 
 use num_bigint::BigUint;
-use openvm_algebra_transpiler::{Fp2Opcode, Rv64ModularArithmeticOpcode};
+use openvm_algebra_transpiler::{Fp2Opcode, ModularArithmeticOpcode};
 use openvm_circuit::{arch::*, system::memory::online::GuestMemory};
 use openvm_circuit_primitives::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
 };
 use openvm_mod_circuit_builder::{run_field_expression_precomputed, FieldExpressionProgram};
-use openvm_platform::memory::MEM_SIZE;
-use openvm_riscv_circuit::adapters::{rv64_bytes_to_u32, validate_memory_block_byte_ptr};
+use openvm_riscv_circuit::adapters::{bytes_to_u32, validate_memory_block_span};
 use openvm_stark_backend::p3_field::PrimeField32;
 
 use super::FieldExprVecHeapExecutor;
@@ -152,10 +151,10 @@ struct FieldExpressionPreCompute<'a> {
 }
 
 impl<'a, const BLOCKS: usize, const IS_FP2: bool> FieldExprVecHeapExecutor<BLOCKS, IS_FP2> {
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &'a self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut FieldExpressionPreCompute<'a>,
     ) -> Result<Option<Operation>, StaticProgramError> {
         let Instruction {
@@ -168,12 +167,12 @@ impl<'a, const BLOCKS: usize, const IS_FP2: bool> FieldExprVecHeapExecutor<BLOCK
             ..
         } = inst;
 
-        let a = a.as_canonical_u32();
-        let b = b.as_canonical_u32();
-        let c = c.as_canonical_u32();
-        let d = d.as_canonical_u32();
-        let e = e.as_canonical_u32();
-        if d != RV64_REGISTER_AS || e != RV64_MEMORY_AS {
+        let a = a.as_u32();
+        let b = b.as_u32();
+        let c = c.as_u32();
+        let d = d.as_u32();
+        let e = e.as_u32();
+        if d != REGISTER_AS || e != MEMORY_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
 
@@ -220,17 +219,17 @@ impl<'a, const BLOCKS: usize, const IS_FP2: bool> FieldExprVecHeapExecutor<BLOCK
 
             Ok(op)
         } else {
-            let is_setup = local_opcode == Rv64ModularArithmeticOpcode::SETUP_ADDSUB as usize
-                || local_opcode == Rv64ModularArithmeticOpcode::SETUP_MULDIV as usize;
+            let is_setup = local_opcode == ModularArithmeticOpcode::SETUP_ADDSUB as usize
+                || local_opcode == ModularArithmeticOpcode::SETUP_MULDIV as usize;
 
             let op = if is_setup {
                 None
             } else {
                 match local_opcode {
-                    x if x == Rv64ModularArithmeticOpcode::ADD as usize => Some(Operation::Add),
-                    x if x == Rv64ModularArithmeticOpcode::SUB as usize => Some(Operation::Sub),
-                    x if x == Rv64ModularArithmeticOpcode::MUL as usize => Some(Operation::Mul),
-                    x if x == Rv64ModularArithmeticOpcode::DIV as usize => Some(Operation::Div),
+                    x if x == ModularArithmeticOpcode::ADD as usize => Some(Operation::Add),
+                    x if x == ModularArithmeticOpcode::SUB as usize => Some(Operation::Sub),
+                    x if x == ModularArithmeticOpcode::MUL as usize => Some(Operation::Mul),
+                    x if x == ModularArithmeticOpcode::DIV as usize => Some(Operation::Div),
                     _ => unreachable!(),
                 }
             };
@@ -256,7 +255,7 @@ impl<F: PrimeField32, const BLOCKS: usize, const IS_FP2: bool> InterpreterExecut
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -278,7 +277,7 @@ impl<F: PrimeField32, const BLOCKS: usize, const IS_FP2: bool> InterpreterExecut
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -310,7 +309,7 @@ impl<F: PrimeField32, const BLOCKS: usize, const IS_FP2: bool> InterpreterMetere
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -336,7 +335,7 @@ impl<F: PrimeField32, const BLOCKS: usize, const IS_FP2: bool> InterpreterMetere
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -372,20 +371,18 @@ unsafe fn execute_e12_impl<
     let pc = exec_state.pc();
     let rs_vals = pre_compute
         .rs_addrs
-        .map(|addr| rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, addr as u32)));
+        .map(|addr| bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, addr as u32)));
     for &address in &rs_vals {
-        validate_memory_block_byte_ptr(pc, address)?;
+        validate_memory_block_span(pc, address, BLOCKS)?;
     }
-    let rd_val = validate_memory_block_byte_ptr(
+    let rd_val = validate_memory_block_span(
         pc,
-        rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.a as u32)),
+        bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, pre_compute.a as u32)),
+        BLOCKS,
     )?;
 
     let read_data: [[[u8; MEMORY_BLOCK_BYTES]; BLOCKS]; 2] = rs_vals.map(|address| {
-        debug_assert!(address as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-        from_fn(|i| {
-            exec_state.vm_read_bytes(RV64_MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32)
-        })
+        from_fn(|i| exec_state.vm_read_bytes(MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32))
     });
 
     let output_data = if IS_FP2 {
@@ -394,14 +391,8 @@ unsafe fn execute_e12_impl<
         field_operation::<FIELD_TYPE, BLOCKS, OP>(read_data)
     };
 
-    debug_assert!(rd_val as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-
     for (i, block) in output_data.into_iter().enumerate() {
-        exec_state.vm_write_bytes(
-            RV64_MEMORY_AS,
-            rd_val + (i * MEMORY_BLOCK_BYTES) as u32,
-            &block,
-        );
+        exec_state.vm_write_bytes(MEMORY_AS, rd_val + (i * MEMORY_BLOCK_BYTES) as u32, &block);
     }
 
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
@@ -416,20 +407,18 @@ unsafe fn execute_e12_generic_impl<CTX: ExecutionCtxTrait, const BLOCKS: usize>(
     let pc = exec_state.pc();
     let rs_vals = pre_compute
         .rs_addrs
-        .map(|addr| rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, addr as u32)));
+        .map(|addr| bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, addr as u32)));
     for &address in &rs_vals {
-        validate_memory_block_byte_ptr(pc, address)?;
+        validate_memory_block_span(pc, address, BLOCKS)?;
     }
-    let rd_val = validate_memory_block_byte_ptr(
+    let rd_val = validate_memory_block_span(
         pc,
-        rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.a as u32)),
+        bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, pre_compute.a as u32)),
+        BLOCKS,
     )?;
 
     let read_data: [[[u8; MEMORY_BLOCK_BYTES]; BLOCKS]; 2] = rs_vals.map(|address| {
-        debug_assert!(address as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-        from_fn(|i| {
-            exec_state.vm_read_bytes(RV64_MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32)
-        })
+        from_fn(|i| exec_state.vm_read_bytes(MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32))
     });
     let read_data_dyn: DynArray<u8> = read_data.into();
 
@@ -439,15 +428,9 @@ unsafe fn execute_e12_generic_impl<CTX: ExecutionCtxTrait, const BLOCKS: usize>(
         &read_data_dyn.0,
     );
 
-    debug_assert!(rd_val as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-
     let data: [[u8; MEMORY_BLOCK_BYTES]; BLOCKS] = writes.into();
     for (i, block) in data.into_iter().enumerate() {
-        exec_state.vm_write_bytes(
-            RV64_MEMORY_AS,
-            rd_val + (i * MEMORY_BLOCK_BYTES) as u32,
-            &block,
-        );
+        exec_state.vm_write_bytes(MEMORY_AS, rd_val + (i * MEMORY_BLOCK_BYTES) as u32, &block);
     }
 
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
@@ -467,19 +450,17 @@ unsafe fn execute_e12_setup_impl<
     // Read the first input (which should be the prime)
     let rs_vals = pre_compute
         .rs_addrs
-        .map(|addr| rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, addr as u32)));
+        .map(|addr| bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, addr as u32)));
     for &address in &rs_vals {
-        validate_memory_block_byte_ptr(pc, address)?;
+        validate_memory_block_span(pc, address, BLOCKS)?;
     }
-    let rd_val = validate_memory_block_byte_ptr(
+    let rd_val = validate_memory_block_span(
         pc,
-        rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.a as u32)),
+        bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, pre_compute.a as u32)),
+        BLOCKS,
     )?;
     let read_data: [[[u8; MEMORY_BLOCK_BYTES]; BLOCKS]; 2] = rs_vals.map(|address| {
-        debug_assert!(address as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-        from_fn(|i| {
-            exec_state.vm_read_bytes(RV64_MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32)
-        })
+        from_fn(|i| exec_state.vm_read_bytes(MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32))
     });
 
     // Extract first field element as the prime
@@ -505,15 +486,9 @@ unsafe fn execute_e12_setup_impl<
         &read_data_dyn.0,
     );
 
-    debug_assert!(rd_val as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-
     let data: [[u8; MEMORY_BLOCK_BYTES]; BLOCKS] = writes.into();
     for (i, block) in data.into_iter().enumerate() {
-        exec_state.vm_write_bytes(
-            RV64_MEMORY_AS,
-            rd_val + (i * MEMORY_BLOCK_BYTES) as u32,
-            &block,
-        );
+        exec_state.vm_write_bytes(MEMORY_AS, rd_val + (i * MEMORY_BLOCK_BYTES) as u32, &block);
     }
 
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));

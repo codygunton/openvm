@@ -5,6 +5,7 @@
 #include "primitives/trace_access.h"
 #include "primitives/constants.h"
 #include "primitives/utils.cuh"
+#include "riscv-adapters/pointer_conv.cuh"
 #include "system/memory/controller.cuh"
 #include "system/memory/offline_checker.cuh"
 
@@ -15,16 +16,17 @@ template <
     size_t NUM_READS,
     size_t BLOCKS_PER_READ,
     size_t BLOCKS_PER_WRITE>
-struct Rv64VecHeapU16AdapterCols {
+struct VecHeapU16AdapterCols {
     ExecutionState<T> from_state;
 
     T rs_ptr[NUM_READS];
     T rd_ptr;
 
     // Low 32 bits of rs registers as u16 limbs.
-    T rs_val[NUM_READS][RV64_PTR_U16_LIMBS];
+    T rs_val[NUM_READS][PTR_U16_LIMBS];
     // Low 32 bits of rd register as u16 limbs.
-    T rd_val[RV64_PTR_U16_LIMBS];
+    T rd_val[PTR_U16_LIMBS];
+
 
     MemoryReadAuxCols<T> rs_read_aux[NUM_READS];
     MemoryReadAuxCols<T> rd_read_aux;
@@ -37,7 +39,7 @@ template <
     size_t NUM_READS,
     size_t BLOCKS_PER_READ,
     size_t BLOCKS_PER_WRITE>
-struct Rv64VecHeapU16AdapterRecord {
+struct VecHeapU16AdapterRecord {
     uint32_t from_pc;
     uint32_t from_timestamp;
 
@@ -58,12 +60,12 @@ template <
     size_t NUM_READS,
     size_t BLOCKS_PER_READ,
     size_t BLOCKS_PER_WRITE>
-struct Rv64VecHeapU16Adapter {
+struct VecHeapU16Adapter {
     size_t pointer_max_bits;
     VariableRangeChecker range_checker;
     MemoryAuxColsFactory mem_helper;
 
-    __device__ Rv64VecHeapU16Adapter(
+    __device__ VecHeapU16Adapter(
         size_t pointer_max_bits,
         VariableRangeChecker range_checker,
         uint32_t timestamp_max_bits
@@ -72,7 +74,7 @@ struct Rv64VecHeapU16Adapter {
           mem_helper(range_checker, timestamp_max_bits) {}
 
     template <typename T>
-    using Cols = Rv64VecHeapU16AdapterCols<
+    using Cols = VecHeapU16AdapterCols<
         T,
         NUM_READS,
         BLOCKS_PER_READ,
@@ -80,21 +82,18 @@ struct Rv64VecHeapU16Adapter {
 
     __device__ void fill_trace_row(
         RowSlice row,
-        Rv64VecHeapU16AdapterRecord<
+        VecHeapU16AdapterRecord<
             NUM_READS,
             BLOCKS_PER_READ,
             BLOCKS_PER_WRITE> record
     ) {
-        // Bound each register pointer to pointer_max_bits by narrowing the high u16 limb.
-        const size_t limb_shift_bits = RV64_PTR_BITS - pointer_max_bits;
+        // Block-index range-check counts for each base pointer. Mirrors the host filler in
+        // vec_heap_u16.rs.
+#pragma unroll
         for (size_t i = 0; i < NUM_READS; i++) {
-            range_checker.add_count(
-                (record.rs_vals[i] >> U16_BITS) << limb_shift_bits, U16_BITS
-            );
+            add_block_index_range_checks(range_checker, record.rs_vals[i], pointer_max_bits);
         }
-        range_checker.add_count(
-            (record.rd_val >> U16_BITS) << limb_shift_bits, U16_BITS
-        );
+        add_block_index_range_checks(range_checker, record.rd_val, pointer_max_bits);
 
         uint32_t timestamp =
             record.from_timestamp + NUM_READS + 1 + NUM_READS * BLOCKS_PER_READ + BLOCKS_PER_WRITE;
@@ -138,12 +137,12 @@ struct Rv64VecHeapU16Adapter {
             );
         }
 
-        Fp rd_val_packed[RV64_PTR_U16_LIMBS];
+        Fp rd_val_packed[PTR_U16_LIMBS];
         ptr_to_u16_limbs(rd_val_packed, record.rd_val);
         COL_WRITE_ARRAY(row, Cols, rd_val, rd_val_packed);
 
         for (int i = NUM_READS - 1; i >= 0; i--) {
-            Fp rs_val_packed[RV64_PTR_U16_LIMBS];
+            Fp rs_val_packed[PTR_U16_LIMBS];
             ptr_to_u16_limbs(rs_val_packed, record.rs_vals[i]);
             COL_WRITE_ARRAY(row, Cols, rs_val[i], rs_val_packed);
         }
@@ -155,6 +154,6 @@ struct Rv64VecHeapU16Adapter {
         }
 
         COL_WRITE_VALUE(row, Cols, from_state.timestamp, record.from_timestamp);
-        COL_WRITE_VALUE(row, Cols, from_state.pc, record.from_pc);
+        COL_WRITE_VALUE(row, Cols, from_state.pc, ::program::pc_to_idx(record.from_pc));
     }
 };

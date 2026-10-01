@@ -1,18 +1,23 @@
 //! Shared RV64 instruction decoding and IR helpers.
 
-use openvm_instructions::riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES};
+use openvm_instructions::{
+    instruction::Instruction,
+    riscv::{NUM_REGISTERS, REGISTER_BYTES},
+};
 use rvr_openvm_ir::{CfgOperand, Variable};
-use rvr_openvm_lift::{decode_variable, RvrInstruction};
+use rvr_openvm_lift::decode_variable;
 
 /// The IR representation of an RV64 integer register.
 pub(crate) type Reg = Variable;
 
 pub(crate) const ZERO: Reg = Reg::new(0);
 pub(crate) const RA: Reg = Reg::new(1);
+// RISC-V register x2 is `sp`, the stack pointer.
+pub(crate) const SP: Reg = Reg::new(2);
 
 /// Decode an OpenVM RV64 register operand into its architectural register.
 pub(crate) fn decode_reg(value: u32) -> Reg {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
 }
 
 /// Decode the immediate from the `(c, g)` field pair used by JALR, loads, and stores.
@@ -20,9 +25,9 @@ pub(crate) fn decode_reg(value: u32) -> Reg {
 /// OpenVM stores the lower 16 bits of the sign-extended immediate in `c` and
 /// the sign marker in `g`. A negative value is reconstructed by adding
 /// `0xffff0000` to `(c & 0xffff)`.
-pub(crate) fn decode_imm_cg(insn: &RvrInstruction) -> u32 {
-    let low16 = insn.c & 0xffff;
-    low16.wrapping_add(if insn.g != 0 { 0xffff_0000 } else { 0 })
+pub(crate) fn decode_imm_cg(insn: &Instruction) -> u32 {
+    let low16 = insn.c.as_u32() & 0xffff;
+    low16.wrapping_add(if !insn.g.is_zero() { 0xffff_0000 } else { 0 })
 }
 
 pub(crate) const fn reg_operand(reg: Reg) -> CfgOperand {

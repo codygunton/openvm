@@ -1,4 +1,4 @@
-use openvm_bigint_transpiler::{Rv64BaseAlu256Opcode, Rv64BranchEqual256Opcode};
+use openvm_bigint_transpiler::{BaseAlu256Opcode, BranchEqual256Opcode};
 use openvm_circuit::{
     arch::{rvr::PreflightLimits, VmExecutor},
     utils::test_system_config,
@@ -7,11 +7,11 @@ use openvm_instructions::{
     exe::{SparseMemoryImage, VmExe},
     instruction::Instruction,
     program::Program,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_BYTES},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode, SystemOpcode,
 };
 use openvm_riscv_transpiler::{BaseAluOpcode, BranchEqualOpcode};
-use openvm_stark_sdk::p3_baby_bear::BabyBear;
+use openvm_stark_sdk::config::baby_bear_poseidon2::F;
 
 use crate::Int256Rv64Config;
 
@@ -20,7 +20,7 @@ const LHS_PTR: u32 = 0x200;
 const RHS_PTR: u32 = 0x300;
 
 fn reg(index: usize) -> usize {
-    index * RV64_REGISTER_BYTES as usize
+    index * REGISTER_BYTES as usize
 }
 
 fn operands(equal: bool) -> ([u8; 32], [u8; 32]) {
@@ -36,7 +36,7 @@ fn operands(equal: bool) -> ([u8; 32], [u8; 32]) {
     (lhs, rhs)
 }
 
-fn add_residuals(equal: bool) -> [u64; 4] {
+fn add_replay_values(equal: bool) -> [u64; 4] {
     let (lhs, rhs) = operands(equal);
     let mut carry = false;
     std::array::from_fn(|index| {
@@ -49,27 +49,21 @@ fn add_residuals(equal: bool) -> [u64; 4] {
     })
 }
 
-fn fixture_with_pointer_offset(equal: bool, pointer_offset: u32) -> VmExe<BabyBear> {
+fn fixture_with_pointer_offset(equal: bool, pointer_offset: u32) -> VmExe {
     let program = Program::from_instructions(&[
         Instruction::from_usize(
-            Rv64BaseAlu256Opcode(BaseAluOpcode::ADD).global_opcode(),
+            BaseAlu256Opcode(BaseAluOpcode::ADD).global_opcode(),
             [
                 reg(1),
                 reg(2),
                 reg(3),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
         Instruction::from_usize(
-            Rv64BranchEqual256Opcode(BranchEqualOpcode::BEQ).global_opcode(),
-            [
-                reg(2),
-                reg(3),
-                8,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
-            ],
+            BranchEqual256Opcode(BranchEqualOpcode::BEQ).global_opcode(),
+            [reg(2), reg(3), 8, REGISTER_AS as usize, MEMORY_AS as usize],
         ),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
@@ -83,25 +77,23 @@ fn fixture_with_pointer_offset(equal: bool, pointer_offset: u32) -> VmExe<BabyBe
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(|(offset, byte)| ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)),
+                .map(|(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte)),
         );
     }
-    memory.extend(lhs.into_iter().enumerate().map(|(offset, byte)| {
-        (
-            (RV64_MEMORY_AS, LHS_PTR + pointer_offset + offset as u32),
-            byte,
-        )
-    }));
-    memory.extend(rhs.into_iter().enumerate().map(|(offset, byte)| {
-        (
-            (RV64_MEMORY_AS, RHS_PTR + pointer_offset + offset as u32),
-            byte,
-        )
-    }));
+    memory.extend(
+        lhs.into_iter()
+            .enumerate()
+            .map(|(offset, byte)| ((MEMORY_AS, LHS_PTR + pointer_offset + offset as u32), byte)),
+    );
+    memory.extend(
+        rhs.into_iter()
+            .enumerate()
+            .map(|(offset, byte)| ((MEMORY_AS, RHS_PTR + pointer_offset + offset as u32), byte)),
+    );
     VmExe::new(program).with_init_memory(memory)
 }
 
-fn fixture(equal: bool) -> VmExe<BabyBear> {
+fn fixture(equal: bool) -> VmExe {
     fixture_with_pointer_offset(equal, 0)
 }
 
@@ -111,8 +103,8 @@ fn checkpoint_execution_preserves_int256_branch_outcomes() {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config).unwrap();
-    for (equal, expected_pc, expected_branch_residual) in [(false, 8, 0u64), (true, 12, 1u64)] {
+    let executor = VmExecutor::<F, _>::new(config).unwrap();
+    for (equal, expected_pc, expected_branch_replay_value) in [(false, 8, 0u64), (true, 12, 1u64)] {
         let checkpoint = executor.preflight_instance(&fixture(equal)).unwrap();
         let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
         let execution = checkpoint
@@ -120,9 +112,9 @@ fn checkpoint_execution_preserves_int256_branch_outcomes() {
             .unwrap();
         assert_eq!(execution.to_state.pc, expected_pc);
         assert_eq!(execution.to_state.timestamp, 26);
-        let mut expected_residuals = add_residuals(equal).to_vec();
-        expected_residuals.push(expected_branch_residual);
-        assert_eq!(execution.transcript.residuals, expected_residuals);
+        let mut expected_replay_values = add_replay_values(equal).to_vec();
+        expected_replay_values.push(expected_branch_replay_value);
+        assert_eq!(execution.transcript.replay_values, expected_replay_values);
     }
 }
 
@@ -132,7 +124,7 @@ fn int256_heap_pointers_follow_the_eight_byte_memory_equipartition() {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config).unwrap();
+    let executor = VmExecutor::<F, _>::new(config).unwrap();
 
     for pointer_offset in [0, 8] {
         let exe = fixture_with_pointer_offset(false, pointer_offset);

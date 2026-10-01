@@ -69,7 +69,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &ShiftLogicalImmCoreCols<_, NUM_LIMBS, LIMB_BITS> = local_core.borrow();
         builder.assert_bool(cols.opcode_sll_flag);
@@ -194,7 +194,7 @@ where
         );
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: [cols.b.map(Into::into)].into(),
             writes: [cols.a.map(Into::into)].into(),
             instruction: ImmInstruction {
@@ -212,11 +212,11 @@ where
 }
 
 #[derive(Clone, Copy, derive_new::new)]
-pub struct ShiftLogicalImmExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct ShiftLogicalImmCoreExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
     pub offset: usize,
 }
 
 #[derive(Clone, derive_new::new)]
-pub struct ShiftLogicalImmFiller<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct ShiftLogicalImmFiller {
     pub range_checker_chip: SharedVariableRangeCheckerChip,
 }

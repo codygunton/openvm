@@ -1,20 +1,24 @@
 use std::{mem::size_of, sync::Arc};
 
-use openvm_circuit::{primitives::Chip, system::program::ProgramExecutionCols};
+use openvm_circuit::system::program::ProgramExecutionCols;
 use openvm_cuda_backend::{base::DeviceMatrix, prelude::F, GpuBackend, GpuDevice};
-use openvm_cuda_common::{
-    copy::MemCopyH2D,
-    d_buffer::{DeviceBuffer, DeviceBufferView},
-    pinned,
-    stream::GpuDeviceCtx,
+#[cfg(test)]
+use openvm_cuda_common::pinned;
+use openvm_cuda_common::{copy::MemCopyH2D, d_buffer::DeviceBuffer, stream::GpuDeviceCtx};
+use openvm_instructions::{
+    program::{pc_to_idx, Program},
+    LocalOpcode, SystemOpcode,
 };
-use openvm_instructions::{program::Program, LocalOpcode, SystemOpcode};
 use openvm_stark_backend::prover::{
     AirProvingContext, CommittedTraceData, MatrixDimensions, TraceCommitter,
 };
 use p3_field::PrimeCharacteristicRing;
 
-use crate::cuda_abi::program;
+use crate::{
+    arch::cuda::postflight::{GpuPostflightError, GpuPostflightPlan},
+    cuda_abi::program,
+    system::program::trace::instruction_operand_to_field,
+};
 
 pub struct ProgramChipGPU {
     pub cached: Option<CommittedTraceData<GpuBackend>>,
@@ -29,24 +33,23 @@ impl ProgramChipGPU {
         }
     }
 
-    pub fn generate_cached_trace(
-        program: Program<F>,
-        device_ctx: &GpuDeviceCtx,
-    ) -> DeviceMatrix<F> {
+    pub fn generate_cached_trace(program: Program, device_ctx: &GpuDeviceCtx) -> DeviceMatrix<F> {
+        // The pc column contains pc indices (see `pc_to_idx`): byte pcs span 32 bits and do
+        // not fit in a field element.
         let instructions = program
             .enumerate_by_pc()
             .into_iter()
             .map(|(pc, instruction, _)| {
                 [
-                    F::from_u32(pc),
-                    instruction.opcode.to_field(),
-                    instruction.a,
-                    instruction.b,
-                    instruction.c,
-                    instruction.d,
-                    instruction.e,
-                    instruction.f,
-                    instruction.g,
+                    F::from_u32(pc_to_idx(pc)),
+                    F::from_usize(instruction.opcode.as_usize()),
+                    instruction_operand_to_field(instruction.a),
+                    instruction_operand_to_field(instruction.b),
+                    instruction_operand_to_field(instruction.c),
+                    instruction_operand_to_field(instruction.d),
+                    instruction_operand_to_field(instruction.e),
+                    instruction_operand_to_field(instruction.f),
+                    instruction_operand_to_field(instruction.g),
                 ]
             })
             .collect::<Vec<_>>();
@@ -93,41 +96,45 @@ impl ProgramChipGPU {
         }
     }
 
-    /// Generates the mutable frequency column directly from dense raw-u32
-    /// frequencies already resident on this chip's CUDA stream.
-    ///
+    /// Generates the mutable frequency column from a validated postflight plan.
+    pub(super) fn generate_proving_ctx_from_plan(
+        &self,
+        replay_plan: &GpuPostflightPlan,
+    ) -> Result<AirProvingContext<GpuBackend>, GpuPostflightError> {
+        let filtered_exec_freqs = replay_plan.program_frequencies_on(&self.device_ctx)?;
+        // SAFETY: the plan owns this typed allocation on the context just
+        // validated above. A later drop enqueues its free on the same stream.
+        Ok(unsafe { self.generate_proving_ctx_from_buffer(filtered_exec_freqs) })
+    }
+
     /// # Safety
     ///
-    /// `filtered_exec_freqs` must point to a valid device allocation on
-    /// `self.device_ctx`, and its owner must outlive the frequency-fill work
-    /// newly submitted to that stream. This method launches asynchronously.
-    pub(crate) unsafe fn generate_proving_ctx_from_device(
+    /// `filtered_exec_freqs` must be allocated on `self.device_ctx`. Its owner
+    /// must not enqueue deallocation ahead of this method's asynchronous work.
+    unsafe fn generate_proving_ctx_from_buffer(
         &self,
-        filtered_exec_freqs: DeviceBufferView,
+        filtered_exec_freqs: &DeviceBuffer<u32>,
     ) -> AirProvingContext<GpuBackend> {
         let cached = self.cached.clone().expect("Cached program must be loaded");
-        assert_eq!(
-            filtered_exec_freqs.size % size_of::<u32>(),
-            0,
-            "device program frequencies must be a dense u32 array"
-        );
-        let filtered_len = filtered_exec_freqs.size / size_of::<u32>();
+        let filtered_len = filtered_exec_freqs.len();
         let height = cached.height();
         assert!(
             filtered_len <= height,
             "device program frequencies len={filtered_len} > cached trace height={height}"
         );
         let buffer = DeviceBuffer::<F>::with_capacity_on(height, &self.device_ctx);
-        {
-            program::fill_frequencies_from_view(
+        // SAFETY: the caller guarantees that the typed input allocation uses
+        // this chip's stream and remains ordered before any deallocation.
+        unsafe {
+            program::fill_frequencies(
                 filtered_exec_freqs,
                 filtered_len,
                 &buffer,
                 height,
                 self.device_ctx.stream.as_raw(),
             )
-            .expect("program_fill_frequencies failed");
         }
+        .expect("program_fill_frequencies failed");
         AirProvingContext {
             cached_mains: vec![cached],
             common_main: DeviceMatrix::new(Arc::new(buffer), height, 1),
@@ -142,8 +149,12 @@ impl Default for ProgramChipGPU {
     }
 }
 
-impl Chip<Vec<u32>, GpuBackend> for ProgramChipGPU {
-    fn generate_proving_ctx(&self, filtered_exec_freqs: Vec<u32>) -> AirProvingContext<GpuBackend> {
+impl ProgramChipGPU {
+    #[cfg(test)]
+    pub(crate) fn generate_proving_ctx_from_host_for_test(
+        &self,
+        filtered_exec_freqs: Vec<u32>,
+    ) -> AirProvingContext<GpuBackend> {
         let cached = self.cached.clone().expect("Cached program must be loaded");
         let height = cached.height();
         let filtered_len = filtered_exec_freqs.len();
@@ -171,7 +182,11 @@ impl Chip<Vec<u32>, GpuBackend> for ProgramChipGPU {
         let d_freqs = words
             .to_device_on(&self.device_ctx)
             .expect("failed to copy exec frequencies to device");
-        pinned::give_back(h_freqs, off + bytes);
+        h_freqs.set_dirty_len(off + bytes);
+        h_freqs
+            .record_last_use(&self.device_ctx.stream)
+            .expect("failed to record exec-frequency upload completion");
+        drop(h_freqs);
         unsafe {
             crate::cuda_abi::program::fill_frequencies(
                 &d_freqs,
@@ -197,8 +212,7 @@ impl Chip<Vec<u32>, GpuBackend> for ProgramChipGPU {
 mod tests {
     use std::sync::Arc;
 
-    use openvm_circuit_primitives::Chip;
-    use openvm_cuda_backend::{data_transporter::assert_eq_host_and_device_matrix, prelude::F};
+    use openvm_cuda_backend::data_transporter::assert_eq_host_and_device_matrix;
     use openvm_cuda_common::copy::{MemCopyD2H, MemCopyH2D};
     use openvm_instructions::{
         instruction::Instruction,
@@ -220,7 +234,7 @@ mod tests {
         utils::{test_cpu_engine, test_gpu_engine},
     };
 
-    fn test_cached_committed_trace_data(program: Program<F>) {
+    fn test_cached_committed_trace_data(program: Program) {
         let gpu_engine = test_gpu_engine();
         let gpu_device = gpu_engine.device();
         let gpu_trace =
@@ -312,10 +326,10 @@ mod tests {
             .as_slice()
             .to_device_on(&gpu_device.device_ctx)
             .unwrap();
-        let legacy = chip.generate_proving_ctx(frequencies);
+        let legacy = chip.generate_proving_ctx_from_host_for_test(frequencies);
         // SAFETY: d_frequencies remains alive through the D2H synchronization
         // below on the same device context.
-        let direct = unsafe { chip.generate_proving_ctx_from_device(d_frequencies.view()) };
+        let direct = unsafe { chip.generate_proving_ctx_from_buffer(&d_frequencies) };
 
         assert_eq!(legacy.common_main.height(), direct.common_main.height());
         assert_eq!(legacy.common_main.width(), direct.common_main.width());

@@ -6,14 +6,16 @@ use openvm_circuit::{
     system::memory::MemoryAuxColsFactory,
     utils::next_power_of_two_or_zero,
 };
-use openvm_circuit_primitives::bitwise_op_lookup::SharedBitwiseOperationLookupChip;
+use openvm_circuit_primitives::{
+    bitwise_op_lookup::SharedBitwiseOperationLookupChip, var_range::SharedVariableRangeCheckerChip,
+};
 use openvm_deferral_transpiler::DeferralOpcode;
 use openvm_instructions::{
-    program::DEFAULT_PC_STEP,
-    riscv::{RV64_BYTE_BITS, RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_WORD_NUM_LIMBS},
+    program::{pc_to_idx, DEFAULT_PC_STEP},
+    riscv::{BYTE_BITS, MEMORY_AS, REGISTER_AS, WORD_NUM_LIMBS},
     LocalOpcode,
 };
-use openvm_riscv_circuit::adapters::rv64_u16_block_to_bytes;
+use openvm_riscv_circuit::adapters::{add_block_index_range_checks, u16_block_to_bytes};
 use openvm_stark_backend::p3_matrix::dense::RowMajorMatrix;
 use openvm_stark_sdk::config::baby_bear_poseidon2::DIGEST_SIZE;
 
@@ -62,14 +64,12 @@ pub fn generate_trace_from_postflight<F: VmField>(
     // Validate and collect every section before mutating lookup producers.
     for &step in steps {
         let instruction = postflight.instruction(step);
-        if instruction.d.as_canonical_u32() != RV64_REGISTER_AS
-            || instruction.e.as_canonical_u32() != RV64_MEMORY_AS
-        {
+        if instruction.d.as_u32() != REGISTER_AS || instruction.e.as_u32() != MEMORY_AS {
             return Err(PostflightError::new(
                 "Deferral OUTPUT has invalid address spaces",
             ));
         }
-        let deferral_idx = instruction.c.as_canonical_u32();
+        let deferral_idx = instruction.c.as_u32();
         if deferral_idx as usize >= chip.inner.count_chip.count.len() {
             return Err(PostflightError::new(
                 "Deferral OUTPUT index is out of bounds",
@@ -77,15 +77,15 @@ pub fn generate_trace_from_postflight<F: VmField>(
         }
         let from_pc = postflight.pc(step);
         let from_timestamp = postflight.timestamp(step);
-        let rd_ptr = instruction.a.as_canonical_u32();
-        let rs_ptr = instruction.b.as_canonical_u32();
+        let rd_ptr = instruction.a.as_u32();
+        let rs_ptr = instruction.b.as_u32();
         let mut replay = postflight.replay(step);
         let rd = replay.read_u16(
-            RV64_REGISTER_AS,
+            REGISTER_AS,
             checked_u16_pointer(rd_ptr, "Deferral OUTPUT destination register")?,
         )?;
         let rs = replay.read_u16(
-            RV64_REGISTER_AS,
+            REGISTER_AS,
             checked_u16_pointer(rs_ptr, "Deferral OUTPUT source register")?,
         )?;
         let rd_val = logged_u32_pointer(rd.value, "Deferral OUTPUT output pointer")?;
@@ -102,10 +102,10 @@ pub fn generate_trace_from_postflight<F: VmField>(
                 "Deferral OUTPUT input key pointer overflow",
             )?;
             let access = replay.read_u16(
-                RV64_MEMORY_AS,
+                MEMORY_AS,
                 checked_u16_pointer(byte_pointer, "Deferral OUTPUT input key pointer")?,
             )?;
-            output_key_bytes.extend(rv64_u16_block_to_bytes(access.value));
+            output_key_bytes.extend(u16_block_to_bytes(access.value));
             output_key_accesses.push(access);
         }
         let output_key: [u8; OUTPUT_TOTAL_BYTES] = output_key_bytes
@@ -148,10 +148,10 @@ pub fn generate_trace_from_postflight<F: VmField>(
                     "Deferral OUTPUT chunk pointer overflow",
                 )?;
                 let access = replay.write_observed_u16(
-                    RV64_MEMORY_AS,
+                    MEMORY_AS,
                     checked_u16_pointer(byte_pointer, "Deferral OUTPUT chunk pointer")?,
                 )?;
-                row_bytes.extend(rv64_u16_block_to_bytes(access.value));
+                row_bytes.extend(u16_block_to_bytes(access.value));
                 output_write_accesses.push(access);
             }
             output_chunks.push(
@@ -247,7 +247,7 @@ fn fill_output_section<F: VmField>(
         cols.is_first = F::from_bool(row_idx == 0);
         cols.is_last = F::from_bool(row_idx + 1 == num_rows);
         cols.section_idx = F::from_usize(row_idx);
-        cols.from_state.pc = F::from_u32(section.from_pc);
+        cols.from_state.pc = F::from_u32(pc_to_idx(section.from_pc));
         cols.from_state.timestamp = F::from_u32(section.from_timestamp);
         cols.rd_ptr = F::from_u32(section.rd_ptr);
         cols.rs_ptr = F::from_u32(section.rs_ptr);
@@ -258,11 +258,11 @@ fn fill_output_section<F: VmField>(
         cols.output_commit = output_commit_f;
 
         if row_idx == 0 {
-            debug_assert!(RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS >= filler.address_bits);
-            let limb_shift_bits = RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS - filler.address_bits;
+            debug_assert!(BYTE_BITS * WORD_NUM_LIMBS >= filler.address_bits);
+            let limb_shift_bits = BYTE_BITS * WORD_NUM_LIMBS - filler.address_bits;
             filler.bitwise_lookup_chip.request_range(
-                (section.rd_val.to_le_bytes()[RV64_WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
-                (section.rs_val.to_le_bytes()[RV64_WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
+                (section.rd_val.to_le_bytes()[WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
+                (section.rs_val.to_le_bytes()[WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
             );
             for pointer in [section.rd_val, section.rs_val] {
                 for bytes in pointer.to_le_bytes().chunks_exact(2) {
@@ -297,6 +297,17 @@ fn fill_output_section<F: VmField>(
             {
                 mem_helper.fill(access.previous_timestamp, access.timestamp, aux.as_mut());
             }
+
+            // Block-index range-check counts for the `input` base pointer (read on the first
+            // row) and the `output` base pointer (first write address).
+            for byte_ptr in [section.rs_val, section.rd_val] {
+                add_block_index_range_checks(
+                    &filler.range_checker_chip,
+                    byte_ptr,
+                    filler.address_bits,
+                );
+            }
+
             cols.sponge_inputs = initial_sponge_input;
             current_poseidon2_res = filler.poseidon2_chip.perm_and_record(
                 &cols.sponge_inputs,
@@ -339,7 +350,7 @@ fn fill_output_section<F: VmField>(
     let cols: &mut DeferralOutputCols<F> = trace.values[first_row..first_row + width].borrow_mut();
     let output_commit_rcs = output_commit_f
         .chunks_exact(F_NUM_BYTES)
-        .zip(cols.output_commit_lt_aux.iter_mut())
+        .zip(cols.output_commit_canonicity_aux.iter_mut())
         .map(|(bytes, aux)| {
             let x_le = from_fn(|i| bytes[i]);
             CanonicityTraceGen::generate_subrow(&x_le, aux)
@@ -348,6 +359,9 @@ fn fill_output_section<F: VmField>(
     for pair in output_commit_rcs.chunks_exact(2) {
         filler.bitwise_lookup_chip.request_range(pair[0], pair[1]);
     }
+    let output_len_rc =
+        CanonicityTraceGen::generate_subrow(&output_len_f, &mut cols.output_len_canonicity_aux);
+    filler.bitwise_lookup_chip.request_range(output_len_rc, 0);
 }
 
 #[derive(Clone, Copy, Debug, derive_new::new)]
@@ -357,6 +371,7 @@ pub struct DeferralOutputExecutor;
 pub struct DeferralOutputFiller<F: VmField> {
     count_chip: Arc<DeferralCircuitCountChip>,
     poseidon2_chip: Arc<DeferralPoseidon2Chip<F>>,
-    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<BYTE_BITS>,
+    range_checker_chip: SharedVariableRangeCheckerChip,
     address_bits: usize,
 }

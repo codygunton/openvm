@@ -6,7 +6,11 @@ fn install_cli() {
     static FORCE_INSTALL: OnceLock<bool> = OnceLock::new();
     FORCE_INSTALL.get_or_init(|| {
         if !matches!(env::var("SKIP_INSTALL"), Ok(x) if !x.is_empty()) {
-            run_cmd("cargo", &["install", "--path", ".", "--force", "--locked"]).unwrap();
+            let mut args = vec!["install", "--path", ".", "--force", "--locked"];
+            if cfg!(feature = "certified-verifier") {
+                args.extend(["--features", "certified-verifier"]);
+            }
+            run_cmd("cargo", &args).unwrap();
         }
         true
     });
@@ -56,6 +60,13 @@ fn test_cli_stark_e2e_simplified() -> Result<()> {
 fn test_cli_stark_e2e_no_commit() -> Result<()> {
     install_cli();
     run_script("cli_stark_e2e_no_commit.sh", &[])
+}
+
+#[cfg(feature = "certified-verifier")]
+#[test]
+fn test_cli_stark_e2e_certified() -> Result<()> {
+    install_cli();
+    run_script("cli_stark_e2e_certified.sh", &[])
 }
 
 #[cfg(feature = "evm-verify")]

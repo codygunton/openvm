@@ -10,22 +10,10 @@
 using namespace riscv;
 
 // Concrete type aliases for RV64
-using Rv64AddSubCoreRecord = AddSubCoreRecord<BLOCK_FE_WIDTH>;
-using Rv64AddSubCore = AddSubCore<BLOCK_FE_WIDTH, U16_BITS, true>;
-template <typename T> using Rv64AddSubCoreCols = AddSubCoreCols<T, BLOCK_FE_WIDTH>;
 
-template <typename T> struct Rv64AddSubCols {
-    Rv64BaseAluRegU16AdapterCols<T> adapter;
-    Rv64AddSubCoreCols<T> core;
+template <typename T> struct AddSubCols {
+    BaseAluRegU16AdapterCols<T> adapter;
+    AddSubCoreCols<T, BLOCK_FE_WIDTH> core;
 };
-
-struct Rv64AddSubRecord {
-    Rv64BaseAluRegU16AdapterRecord adapter;
-    Rv64AddSubCoreRecord core;
-};
-
-static_assert(sizeof(Rv64AddSubCoreRecord) == 18);
-static_assert(sizeof(Rv64AddSubRecord) == 60);
-static_assert(offsetof(Rv64AddSubRecord, core) == 40);
 
 #include "../rvr/src/add_sub.inc.cuh"

@@ -9,8 +9,7 @@ use openvm_instructions::{
     instruction::Instruction, PhantomDiscriminant, SysPhantom, SystemOpcode, VmOpcode,
 };
 #[cfg(all(feature = "cuda", feature = "rvr"))]
-use openvm_instructions::{program::Program, riscv::RV64_MEMORY_AS};
-use openvm_stark_backend::p3_field::{PrimeCharacteristicRing, PrimeField32};
+use openvm_instructions::{program::Program, riscv::MEMORY_AS};
 use openvm_stark_sdk::p3_baby_bear::BabyBear;
 use rand::rngs::StdRng;
 use rustc_hash::FxHashMap;
@@ -28,10 +27,7 @@ use crate::{
         Executor, MemoryConfig, PhantomSubExecutor, Postflight, PreflightHistory,
         PreflightMemoryEvent, PreflightProgramEvent, Streams,
     },
-    system::{
-        memory::online::GuestMemory,
-        phantom::{PhantomAir, PhantomChip, PhantomFiller},
-    },
+    system::{memory::online::GuestMemory, phantom::PhantomAir},
 };
 
 type F = BabyBear;
@@ -57,20 +53,20 @@ impl PhantomSubExecutor for CountingPhantomExecutor {
 fn run_phantom_test<E>(
     tester: &mut impl TestBuilder<F>,
     executor: &mut E,
-    preflight: &mut TestPreflight<F>,
+    preflight: &mut TestPreflight,
     phantom_opcode: VmOpcode,
     num_nops: usize,
 ) where
     E: Executor<F> + Clone,
 {
     let nop = Instruction::from_isize(phantom_opcode, 0, 0, 0, 0, 0);
-    let mut pc = F::ZERO;
+    let mut pc = 0u32;
 
     for _ in 0..num_nops {
-        tester.execute_with_pc(executor, preflight, &nop, pc.as_canonical_u32());
+        tester.execute_with_pc(executor, preflight, &nop, pc);
         let new_state = tester.execution_final_state();
-        assert_eq!(pc + F::from_usize(4), new_state.pc);
-        assert_eq!(F::TWO, new_state.timestamp);
+        assert_eq!(pc + 4, new_state.pc);
+        assert_eq!(2, new_state.timestamp);
         pc = new_state.pc;
     }
 }
@@ -88,7 +84,7 @@ fn test_nops_and_terminate() {
         Arc::new(NopPhantomExecutor),
     );
     let executor = PhantomExecutor::new(phantom_executors);
-    let chip = PhantomChip::new(PhantomFiller, tester.memory_helper());
+    let chip = ();
     let air = PhantomAir {
         execution_bridge: tester.execution_bridge(),
         phantom_opcode,
@@ -124,7 +120,7 @@ fn postflight_trace_does_not_replay_callbacks() {
 
     let mut tester = VmChipTestBuilder::default();
     let executor = PhantomExecutor::new(phantom_executors);
-    let chip = PhantomChip::new(PhantomFiller, tester.memory_helper());
+    let chip = ();
     let air = PhantomAir {
         execution_bridge: tester.execution_bridge(),
         phantom_opcode,
@@ -134,19 +130,9 @@ fn postflight_trace_does_not_replay_callbacks() {
             generate_trace_from_postflight(postflight)
         });
     let instructions = [
-        Instruction::phantom(
-            discriminant,
-            F::from_u32(0x1234),
-            F::from_u32(0x5678),
-            0x1234,
-        ),
-        Instruction::phantom(
-            discriminant,
-            F::from_u32(0x8765),
-            F::from_u32(0x4321),
-            0x4321,
-        ),
-        Instruction::phantom(discriminant, F::ZERO, F::ONE, 0),
+        Instruction::phantom(discriminant, 0x1234_u16, 0x5678_u16, 0x1234_u16),
+        Instruction::phantom(discriminant, 0x8765_u16, 0x4321_u16, 0x4321_u16),
+        Instruction::phantom(discriminant, 0_u16, 1_u16, 0_u16),
     ];
     for (index, instruction) in instructions.iter().enumerate() {
         tester.execute_with_pc(
@@ -168,9 +154,9 @@ fn postflight_trace_rejects_phantom_history_with_memory_events() {
     let phantom_opcode = SystemOpcode::PHANTOM.global_opcode();
     let instruction = Instruction::phantom(
         PhantomDiscriminant(0x7ffe),
-        F::from_u32(0x1234),
-        F::from_u32(0x5678),
-        0x1234,
+        0x1234_u16,
+        0x5678_u16,
+        0x1234_u16,
     );
     let program = openvm_instructions::program::Program::new_without_debug_infos(
         &[instruction, Instruction::from_usize(phantom_opcode, [0; 3])],
@@ -199,7 +185,7 @@ fn postflight_trace_rejects_phantom_history_with_memory_events() {
     };
     let memory_config = MemoryConfig::default();
     let postflight = Postflight::new(&program, &history, &memory_config, None).unwrap();
-    let error = generate_trace_from_postflight(&postflight).unwrap_err();
+    let error = generate_trace_from_postflight::<F>(&postflight).unwrap_err();
 
     assert!(error.to_string().contains("left 1 memory events unread"));
 }
@@ -225,7 +211,7 @@ fn test_cuda_phantom_tracegen() {
         phantom_opcode,
     };
     let gpu_chip = PhantomChipGPU::new(tester.range_checker().device_ctx.clone());
-    let cpu_chip = PhantomChip::new(PhantomFiller, tester.dummy_memory_helper());
+    let cpu_chip = ();
     let mut harness =
         GpuTestChipHarness::with_capacity(executor, air, gpu_chip, cpu_chip, NUM_NOPS)
             .with_trace_generators(
@@ -258,9 +244,9 @@ fn test_cuda_phantom_preflight_replay() {
     // GPU replay must treat it as an execution-bus operand and never invoke a callback.
     let instruction = Instruction::phantom(
         PhantomDiscriminant(0x7ffe),
-        F::from_u32(0x1234),
-        F::from_u32(0x5678),
-        0xabcd,
+        0x1234_u16,
+        0x5678_u16,
+        0xabcd_u16,
     );
     let program = Program::new_without_debug_infos(&[instruction.clone(), instruction.clone()], 0);
     let history = PreflightHistory {
@@ -296,7 +282,7 @@ fn test_cuda_phantom_preflight_replay() {
         memory: PreflightMemoryLog {
             accesses: vec![PreflightMemoryEvent {
                 timestamp: 1,
-                address_space_and_kind: RV64_MEMORY_AS,
+                address_space_and_kind: MEMORY_AS,
                 pointer: 0,
                 value: [0; 4],
             }],

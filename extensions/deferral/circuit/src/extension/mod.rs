@@ -80,8 +80,8 @@ impl<F: VmField> VmRvrExtension<F> for DeferralExtension {
     fn extend_rvr(&self, extensions: &mut RvrExtensions, ctx: Option<&RvrExtensionCtx>) {
         let hash = make_deferral_hash::<F>();
         let compress = make_deferral_compress::<F>();
-        let lifter =
-            DeferralRvrExtension::new(ctx).expect("failed to construct rvr DeferralRvrExtension");
+        let lifter = DeferralRvrExtension::new(ctx, self.fns.len())
+            .expect("failed to construct rvr DeferralRvrExtension");
         extensions.register_lifter(lifter);
         // SAFETY: This extension and the VM state use the same field `F`.
         extensions.register_runtime_hook(unsafe {
@@ -126,20 +126,23 @@ where
             inventory.system().port().program_bus,
         );
 
-        let count_bus = DeferralCircuitCountBus::new(inventory.new_bus_idx());
-        let poseidon2_bus = DeferralPoseidon2Bus::new(inventory.new_bus_idx());
+        let count_bus = DeferralCircuitCountBus::new(inventory.new_bus_idx_named("DeferralCount"));
+        let poseidon2_bus =
+            DeferralPoseidon2Bus::new(inventory.new_bus_idx_named("DeferralPoseidon2"));
         let bitwise_bus = {
             let existing_air = inventory.find_air::<BitwiseOperationLookupAir<8>>().next();
             if let Some(air) = existing_air {
                 air.bus
             } else {
-                let bus = BitwiseOperationLookupBus::new(inventory.new_bus_idx());
+                let bus =
+                    BitwiseOperationLookupBus::new(inventory.new_bus_idx_named("BitwiseLookup"));
                 let air = BitwiseOperationLookupAir::<8>::new(bus);
                 inventory.add_air(air);
                 air.bus
             }
         };
 
+        let range_bus = inventory.range_checker().bus;
         let base_num_airs = inventory.num_airs();
         let address_bits = to_byte_ptr_bits(inventory.pointer_max_bits());
 
@@ -150,7 +153,13 @@ where
 
         assert_eq!(inventory.num_airs() - base_num_airs, CALL_AIR_REL_IDX);
         inventory.add_air(DeferralCallAir::new(
-            DeferralCallAdapterAir::new(execution_bridge, memory_bridge, bitwise_bus, address_bits),
+            DeferralCallAdapterAir::new(
+                execution_bridge,
+                memory_bridge,
+                bitwise_bus,
+                range_bus,
+                address_bits,
+            ),
             DeferralCallCoreAir::new(count_bus, poseidon2_bus, bitwise_bus),
         ));
 
@@ -161,6 +170,7 @@ where
             count_bus,
             poseidon2_bus,
             bitwise_bus,
+            range_bus,
             address_bits,
         ));
 
@@ -195,8 +205,8 @@ where
             } else {
                 let air: &BitwiseOperationLookupAir<8> = inventory.next_air()?;
                 let chip = Arc::new(BitwiseOperationLookupChip::new(air.bus));
-                inventory.add_postflight_periphery_chip(chip.clone(), |chip, _| {
-                    Ok(chip.generate_proving_ctx(()))
+                inventory.add_periphery_chip_with_tracegen(chip.clone(), |chip, _| {
+                    Ok(chip.generate_proving_ctx())
                 });
                 chip
             }
@@ -205,26 +215,26 @@ where
         let poseidon2_chip = Arc::new(deferral_poseidon2_chip());
 
         inventory.next_air::<DeferralCircuitCountAir>()?;
-        inventory.add_postflight_periphery_chip_with_height(
+        inventory.add_periphery_chip_with_height_and_tracegen(
             count_chip.clone(),
             Some(next_power_of_two_or_zero(extension.fns.len())),
-            |chip, postflight| {
-                chip.generate_trace_from_postflight(postflight)
-                    .map(AirProvingContext::simple_no_pis)
-            },
+            |chip, _| Ok(chip.generate_proving_ctx()),
         );
 
         inventory.next_air::<DeferralPoseidon2Air<Val<SC>>>()?;
-        inventory.add_postflight_periphery_chip(poseidon2_chip.clone(), |chip, postflight| {
-            chip.generate_trace_from_postflight(postflight)
-                .map(AirProvingContext::simple_no_pis)
+        inventory.add_periphery_chip_with_tracegen(poseidon2_chip.clone(), |chip, _| {
+            Ok(chip.generate_proving_ctx())
         });
 
         inventory.next_air::<DeferralCallAir>()?;
-        inventory.add_postflight_executor_chip(
+        inventory.add_executor_chip_with_tracegen(
             DeferralCallChip::new(
                 DeferralCallCoreFiller::new(
-                    DeferralCallAdapterFiller::new(bitwise_lu.clone(), address_bits),
+                    DeferralCallAdapterFiller::new(
+                        bitwise_lu.clone(),
+                        range_checker.clone(),
+                        address_bits,
+                    ),
                     count_chip.clone(),
                     poseidon2_chip.clone(),
                     bitwise_lu.clone(),
@@ -239,12 +249,13 @@ where
         );
 
         inventory.next_air::<DeferralOutputAir>()?;
-        inventory.add_postflight_executor_chip(
+        inventory.add_executor_chip_with_tracegen(
             DeferralOutputChip::new(
                 DeferralOutputFiller::new(
                     count_chip.clone(),
                     poseidon2_chip.clone(),
                     bitwise_lu,
+                    range_checker.clone(),
                     address_bits,
                 ),
                 mem_helper,
@@ -259,7 +270,7 @@ where
     }
 }
 
-// =================================== VM Rv64 Config and Builder =================================
+// ====================================== VM Config and Builder ==================================
 
 #[derive(Clone, VmConfig, Serialize, Deserialize)]
 pub struct Rv64DeferralConfig {

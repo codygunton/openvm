@@ -7,15 +7,16 @@ use openvm_circuit::{arch::*, system::memory::online::GuestMemory};
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
-    program::{DEFAULT_PC_STEP, MAX_ALLOWED_PC},
-    riscv::{RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    program::DEFAULT_PC_STEP,
+    riscv::{REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
-use openvm_riscv_transpiler::Rv64JalrOpcode;
+use openvm_riscv_transpiler::JalrOpcode;
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::core::Rv64JalrExecutor;
-use crate::adapters::{rv64_address_add_imm, rv64_bytes_to_u32};
+use super::core::{checked_jalr_target, JalrExecutor};
+use crate::adapters::try_bytes_to_u32;
+
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
 struct JalrPreCompute {
@@ -24,22 +25,22 @@ struct JalrPreCompute {
     b: u8,
 }
 
-impl Rv64JalrExecutor {
+impl JalrExecutor {
     /// Return true if enabled.
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut JalrPreCompute,
     ) -> Result<bool, StaticProgramError> {
-        let imm_extended = inst.c.as_canonical_u32() + inst.g.as_canonical_u32() * 0xffff0000;
-        if inst.d.as_canonical_u32() != RV64_REGISTER_AS {
+        let imm_extended = inst.c.as_u32() + inst.g.as_u32() * 0xffff0000;
+        if inst.d.as_u32() != REGISTER_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         *data = JalrPreCompute {
             imm_extended,
-            a: inst.a.as_canonical_u32() as u8,
-            b: inst.b.as_canonical_u32() as u8,
+            a: inst.a.as_u32() as u8,
+            b: inst.b.as_u32() as u8,
         };
         let enabled = !inst.f.is_zero();
         Ok(enabled)
@@ -56,14 +57,14 @@ macro_rules! dispatch {
     };
 }
 
-impl<F> InterpreterExecutor<F> for Rv64JalrExecutor
+impl<F> InterpreterExecutor<F> for JalrExecutor
 where
     F: PrimeField32,
 {
     fn get_opcode_name(&self, opcode: usize) -> String {
         format!(
             "{:?}",
-            Rv64JalrOpcode::from_usize(opcode - Rv64JalrOpcode::CLASS_OFFSET)
+            JalrOpcode::from_usize(opcode - JalrOpcode::CLASS_OFFSET)
         )
     }
 
@@ -76,7 +77,7 @@ where
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let data: &mut JalrPreCompute = data.borrow_mut();
@@ -88,7 +89,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -100,7 +101,7 @@ where
     }
 }
 
-impl<F> InterpreterMeteredExecutor<F> for Rv64JalrExecutor
+impl<F> InterpreterMeteredExecutor<F> for JalrExecutor
 where
     F: PrimeField32,
 {
@@ -113,7 +114,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -130,7 +131,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -147,26 +148,28 @@ where
 unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, const ENABLED: bool>(
     pre_compute: &JalrPreCompute,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
-) {
+) -> Result<(), ExecutionError> {
     let pc = exec_state.pc();
-    let rs1 =
-        exec_state.vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.b as u32);
-    let rs1 = rv64_bytes_to_u32(rs1);
-    let unaligned_to_pc = rv64_address_add_imm(rs1, pre_compute.imm_extended);
-    // JALR clears bit 0 before jumping.
-    let to_pc = unaligned_to_pc & !1;
-    debug_assert!(to_pc <= u64::from(MAX_ALLOWED_PC));
-    let to_pc = to_pc as u32;
-    let mut rd = [0u8; RV64_REGISTER_NUM_LIMBS];
-    rd[..4].copy_from_slice(&(pc + DEFAULT_PC_STEP).to_le_bytes());
+    let rs1 = exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.b as u32);
+    let rs1 = try_bytes_to_u32(rs1).ok_or(ExecutionError::Fail {
+        pc,
+        msg: "JALR source register has nonzero upper 32 bits",
+    })?;
+    let (_, to_pc) =
+        checked_jalr_target(rs1, pre_compute.imm_extended).ok_or(ExecutionError::Fail {
+            pc,
+            msg: "JALR target is outside implemented PC address space or misaligned",
+        })?;
+    let rd = (u64::from(pc) + u64::from(DEFAULT_PC_STEP)).to_le_bytes();
 
     if ENABLED {
-        exec_state.vm_write_bytes(RV64_REGISTER_AS, pre_compute.a as u32, &rd);
+        exec_state.vm_write_bytes(REGISTER_AS, pre_compute.a as u32, &rd);
     } else {
         exec_state.ctx.advance_timestamp(1);
     }
 
     exec_state.set_pc(to_pc);
+    Ok(())
 }
 
 #[create_handler]
@@ -174,10 +177,10 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, const ENABLED: bool>(
 unsafe fn execute_e1_impl<CTX: ExecutionCtxTrait, const ENABLED: bool>(
     pre_compute: *const u8,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
-) {
+) -> Result<(), ExecutionError> {
     let pre_compute: &JalrPreCompute =
         std::slice::from_raw_parts(pre_compute, size_of::<JalrPreCompute>()).borrow();
-    execute_e12_impl::<CTX, ENABLED>(pre_compute, exec_state);
+    execute_e12_impl::<CTX, ENABLED>(pre_compute, exec_state)
 }
 
 #[create_handler]
@@ -185,11 +188,138 @@ unsafe fn execute_e1_impl<CTX: ExecutionCtxTrait, const ENABLED: bool>(
 unsafe fn execute_e2_impl<CTX: MeteredExecutionCtxTrait, const ENABLED: bool>(
     pre_compute: *const u8,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
-) {
+) -> Result<(), ExecutionError> {
     let pre_compute: &E2PreCompute<JalrPreCompute> =
         std::slice::from_raw_parts(pre_compute, size_of::<E2PreCompute<JalrPreCompute>>()).borrow();
     exec_state
         .ctx
         .on_height_change(pre_compute.chip_idx as usize, 1);
-    execute_e12_impl::<CTX, ENABLED>(&pre_compute.data, exec_state);
+    execute_e12_impl::<CTX, ENABLED>(&pre_compute.data, exec_state)
+}
+
+#[cfg(test)]
+mod tests {
+    use openvm_circuit::arch::{
+        execution_mode::{ExecutionCtx, MeteredCostCtx, PreflightCtx},
+        InterpretedInstance, Streams, VmExecutionConfig,
+    };
+    use openvm_instructions::{
+        exe::{SparseMemoryImage, VmExe},
+        program::Program,
+        SystemOpcode,
+    };
+    use openvm_stark_sdk::p3_baby_bear::BabyBear;
+
+    use super::*;
+    use crate::Rv64IConfig;
+
+    fn jalr_exe(rs1: u64, imm: usize) -> VmExe {
+        let jalr = Instruction::from_usize(
+            JalrOpcode::JALR.global_opcode(),
+            [16, 8, imm, REGISTER_AS as usize, 0, 1, 0],
+        );
+        let terminate = Instruction {
+            opcode: SystemOpcode::TERMINATE.global_opcode(),
+            ..Default::default()
+        };
+        let mut init_memory = SparseMemoryImage::new();
+        for (i, byte) in rs1.to_le_bytes().into_iter().enumerate() {
+            init_memory.insert((REGISTER_AS, 8 + i as u32), byte);
+        }
+        VmExe::new(Program::new_without_debug_infos(
+            &[jalr, terminate.clone(), terminate],
+            0,
+        ))
+        .with_init_memory(init_memory)
+    }
+
+    fn assert_jalr_failure(error: ExecutionError, expected_msg: &'static str) {
+        assert!(matches!(
+            error,
+            ExecutionError::Fail {
+                pc: 0,
+                msg
+            } if msg == expected_msg
+        ));
+    }
+
+    #[test]
+    fn jalr_invalid_targets_pure_or_tco_execution() {
+        let config = Rv64IConfig::default();
+        let inventory =
+            <Rv64IConfig as VmExecutionConfig<BabyBear>>::create_executors(&config).unwrap();
+        for (exe, expected_msg) in [
+            (
+                jalr_exe(0xffff_fff8, 16),
+                "JALR target is outside implemented PC address space or misaligned",
+            ),
+            (
+                jalr_exe(0, 2),
+                "JALR target is outside implemented PC address space or misaligned",
+            ),
+            (
+                jalr_exe(0x1_0000_0000, 0),
+                "JALR source register has nonzero upper 32 bits",
+            ),
+        ] {
+            let interpreter =
+                InterpretedInstance::<ExecutionCtx>::new::<BabyBear, _>(&inventory, &exe).unwrap();
+            let error = interpreter
+                .execute(Streams::default())
+                .err()
+                .expect("invalid JALR execution must fail");
+            assert_jalr_failure(error, expected_msg);
+        }
+    }
+
+    #[test]
+    fn jalr_invalid_targets_metered_or_tco_execution() {
+        let config = Rv64IConfig::default();
+        let inventory =
+            <Rv64IConfig as VmExecutionConfig<BabyBear>>::create_executors(&config).unwrap();
+        let executor_idx_to_air_idx = vec![0; inventory.executors.len()];
+        for (exe, expected_msg) in [
+            (
+                jalr_exe(0xffff_fff8, 16),
+                "JALR target is outside implemented PC address space or misaligned",
+            ),
+            (
+                jalr_exe(0, 2),
+                "JALR target is outside implemented PC address space or misaligned",
+            ),
+            (
+                jalr_exe(0x1_0000_0000, 0),
+                "JALR source register has nonzero upper 32 bits",
+            ),
+        ] {
+            let interpreter = InterpretedInstance::<MeteredCostCtx>::new_metered::<BabyBear, _>(
+                &inventory,
+                &exe,
+                &executor_idx_to_air_idx,
+            )
+            .unwrap();
+            let error = interpreter
+                .execute_metered_cost(Streams::default(), MeteredCostCtx::new(vec![0]))
+                .err()
+                .expect("invalid JALR execution must fail");
+            assert_jalr_failure(error, expected_msg);
+        }
+    }
+
+    #[test]
+    fn jalr_invalid_source_preflight_execution() {
+        let config = Rv64IConfig::default();
+        let inventory =
+            <Rv64IConfig as VmExecutionConfig<BabyBear>>::create_executors(&config).unwrap();
+        let exe = jalr_exe(0x1_0000_0000, 0);
+        let interpreter =
+            InterpretedInstance::<PreflightCtx>::new::<BabyBear, _>(&inventory, &exe).unwrap();
+        let state = interpreter.create_initial_vm_state(Streams::default());
+        let error = interpreter
+            .execute_preflight_from_state::<BabyBear>(state, Some(1))
+            .err()
+            .expect("invalid JALR source must fail");
+
+        assert_jalr_failure(error, "JALR source register has nonzero upper 32 bits");
+    }
 }

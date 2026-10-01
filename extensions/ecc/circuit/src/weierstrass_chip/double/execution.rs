@@ -7,15 +7,14 @@ use std::{
 use num_bigint::BigUint;
 use openvm_circuit::{arch::*, system::memory::online::GuestMemory};
 use openvm_circuit_primitives::AlignedBytesBorrow;
-use openvm_ecc_transpiler::Rv64WeierstrassOpcode;
+use openvm_ecc_transpiler::WeierstrassOpcode;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
 };
 use openvm_mod_circuit_builder::{run_field_expression_precomputed, FieldExpressionProgram};
-use openvm_platform::memory::MEM_SIZE;
-use openvm_riscv_circuit::adapters::{rv64_bytes_to_u32, validate_memory_block_byte_ptr};
+use openvm_riscv_circuit::adapters::{bytes_to_u32, validate_memory_block_span};
 use openvm_stark_backend::p3_field::PrimeField32;
 
 use super::EcDoubleExecutor;
@@ -31,10 +30,10 @@ struct EcDoublePreCompute<'a> {
 }
 
 impl<'a, const BLOCKS: usize> EcDoubleExecutor<BLOCKS> {
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &'a self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut EcDoublePreCompute<'a>,
     ) -> Result<bool, StaticProgramError> {
         let Instruction {
@@ -42,11 +41,11 @@ impl<'a, const BLOCKS: usize> EcDoubleExecutor<BLOCKS> {
         } = inst;
 
         // Validate instruction format
-        let a = a.as_canonical_u32();
-        let b = b.as_canonical_u32();
-        let d = d.as_canonical_u32();
-        let e = e.as_canonical_u32();
-        if d != RV64_REGISTER_AS || e != RV64_MEMORY_AS {
+        let a = a.as_u32();
+        let b = b.as_u32();
+        let d = d.as_u32();
+        let e = e.as_u32();
+        if d != REGISTER_AS || e != MEMORY_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
 
@@ -78,7 +77,7 @@ impl<'a, const BLOCKS: usize> EcDoubleExecutor<BLOCKS> {
         };
 
         let local_opcode = opcode.local_opcode_idx(self.offset);
-        let is_setup = local_opcode == Rv64WeierstrassOpcode::SETUP_EC_DOUBLE as usize;
+        let is_setup = local_opcode == WeierstrassOpcode::SETUP_EC_DOUBLE as usize;
 
         Ok(is_setup)
     }
@@ -139,7 +138,7 @@ impl<F: PrimeField32, const BLOCKS: usize> InterpreterExecutor<F> for EcDoubleEx
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -155,7 +154,7 @@ impl<F: PrimeField32, const BLOCKS: usize> InterpreterExecutor<F> for EcDoubleEx
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -181,7 +180,7 @@ impl<F: PrimeField32, const BLOCKS: usize> InterpreterMeteredExecutor<F>
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -200,7 +199,7 @@ impl<F: PrimeField32, const BLOCKS: usize> InterpreterMeteredExecutor<F>
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -229,22 +228,20 @@ unsafe fn execute_e12_impl<
     // Read register values
     let rs_vals = pre_compute
         .rs_addrs
-        .map(|addr| rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, addr as u32)));
+        .map(|addr| bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, addr as u32)));
     for &address in &rs_vals {
-        validate_memory_block_byte_ptr(pc, address)?;
+        validate_memory_block_span(pc, address, BLOCKS)?;
     }
-    let rd_val = validate_memory_block_byte_ptr(
+    let rd_val = validate_memory_block_span(
         pc,
-        rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.a as u32)),
+        bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, pre_compute.a as u32)),
+        BLOCKS,
     )?;
 
     // Read memory values for the point
     let read_data: [[u8; MEMORY_BLOCK_BYTES]; BLOCKS] = {
         let address = rs_vals[0];
-        debug_assert!(address as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-        from_fn(|i| {
-            exec_state.vm_read_bytes(RV64_MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32)
-        })
+        from_fn(|i| exec_state.vm_read_bytes(MEMORY_AS, address + (i * MEMORY_BLOCK_BYTES) as u32))
     };
 
     if IS_SETUP {
@@ -282,15 +279,9 @@ unsafe fn execute_e12_impl<
         ec_double::<CURVE_TYPE, BLOCKS>(read_data)
     };
 
-    debug_assert!(rd_val as usize + MEMORY_BLOCK_BYTES * BLOCKS - 1 < MEM_SIZE);
-
     // Write output data to memory
     for (i, block) in output_data.into_iter().enumerate() {
-        exec_state.vm_write_bytes(
-            RV64_MEMORY_AS,
-            rd_val + (i * MEMORY_BLOCK_BYTES) as u32,
-            &block,
-        );
+        exec_state.vm_write_bytes(MEMORY_AS, rd_val + (i * MEMORY_BLOCK_BYTES) as u32, &block);
     }
 
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));

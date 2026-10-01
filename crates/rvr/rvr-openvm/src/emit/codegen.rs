@@ -10,8 +10,6 @@ use super::context::EmitContext;
 pub struct TermCtx<'a> {
     /// Set of valid block start PCs for direct tail calls.
     pub valid_blocks: &'a HashSet<u64>,
-    /// Start PC of the block currently being emitted.
-    pub current_block: u64,
 }
 
 /// Emit C code for a terminator using tail calls between blocks.
@@ -27,20 +25,20 @@ pub fn emit_terminator(ctx: &mut EmitContext, term: &Terminator, pc: u64, tc: &T
         CfgTerm::FallThrough => emit_tail_call(ctx, next_pc, &args, tc),
         CfgTerm::Jump {
             link_dst,
-            link_write,
+            has_link_write_slot,
             target,
             ..
         } => {
             if let Some(dst) = link_dst {
                 ctx.write_var(dst, &hex_u64(next_pc));
-            } else if link_write {
+            } else if has_link_write_slot {
                 ctx.advance_timestamp(1);
             }
             emit_tail_call(ctx, target, &args, tc);
         }
         CfgTerm::JumpIndirect {
             link_dst,
-            link_write,
+            has_link_write_slot,
             base_value,
             offset,
             target_mask,
@@ -67,7 +65,7 @@ pub fn emit_terminator(ctx: &mut EmitContext, term: &Terminator, pc: u64, tc: &T
             };
             if let Some(dst) = link_dst {
                 ctx.write_var(dst, &hex_u64(next_pc));
-            } else if link_write {
+            } else if has_link_write_slot {
                 ctx.advance_timestamp(1);
             }
             let target = indirect_target_expr(ctx, &base_value, offset, target_mask);
@@ -200,10 +198,6 @@ pub(super) fn hex_u64(value: u64) -> String {
     format!("0x{value:016x}ull")
 }
 
-pub(super) fn hex_u32(value: u32) -> String {
-    format!("0x{value:08x}u")
-}
-
 #[cfg(test)]
 mod tests {
     use rvr_openvm_ir::{CfgEffect, ExtInstr, Variable};
@@ -243,7 +237,6 @@ mod tests {
         let valid_blocks = HashSet::from([8]);
         let tc = TermCtx {
             valid_blocks: &valid_blocks,
-            current_block: 0,
         };
 
         let mut direct = EmitContext::new(
@@ -256,16 +249,16 @@ mod tests {
         emit_terminator(&mut direct, &term, 0, &tc);
         assert!(!direct.buf().contains("reg_read"));
 
-        let mut checkpoint = EmitContext::new(
+        let mut preflight = EmitContext::new(
             HashSet::new(),
             EmitMode::Preflight,
             BlockAbi::Plain,
             None,
             None,
         );
-        emit_terminator(&mut checkpoint, &term, 0, &tc);
-        assert!(!checkpoint.buf().contains("preflight_local_reg_read"));
-        assert_eq!(checkpoint.checkpoint_preflight_budget(), (2, 0));
+        emit_terminator(&mut preflight, &term, 0, &tc);
+        assert!(!preflight.buf().contains("preflight_local_reg_read"));
+        assert_eq!(preflight.preflight_block_budget(), (2, 0));
     }
 
     #[test]

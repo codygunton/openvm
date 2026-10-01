@@ -32,8 +32,8 @@ jobs:
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
               - '.cargo/config.toml'
-              - 'scripts/gpu_driver_setup.sh'
               - '.github/workflows/lints.yml'
+              - '.github/actions/lean-toolchain/**'
               - '.github/actions/sccache/**'
               - '.github/actions/rust-cache-cuda/**'
   lint:
@@ -44,12 +44,13 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/lean-toolchain
       - name: Load SSH key
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: |
             ${{ secrets.GH_ACTIONS_DEPLOY_PRIVATE_KEY }}
-      - uses: actions/checkout@v5
       - name: Init rvr FFI submodules
         run: |
           git submodule update --init --depth 1 extensions/keccak256/rvr/ffi/openssl
@@ -68,18 +69,18 @@ jobs:
 
       - name: Run fmt
         run: |
-          rustup install nightly
-          rustup component add --toolchain nightly rustfmt
-          cargo +nightly fmt --all -- --check
+          rustup install nightly-2026-09-10
+          rustup component add --toolchain nightly-2026-09-10 rustfmt
+          cargo +nightly-2026-09-10 fmt --all -- --check
       - name: Run clippy
         run: |
           # list of all unique features across workspace generated using:
           # cargo metadata --format-version=1 --no-deps | jq -r '.packages[].features | to_entries[] | .key' | sort -u | tr '\n' ' ' && echo ""
           # (exclude mimalloc since it conflicts with jemalloc)
-          # cargo clippy --all-targets --all --tests --features "aggregation bls12_381 bn254 build-elfs default entrypoint evm-prove evm-verify export-intrinsics export-libm function-span getrandom-unsupported halo2-compiler halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime static-verifier std test-utils" -- -D warnings
-          cargo clippy --all-targets --all --tests --features "bls12_381 bn254 default entrypoint export-intrinsics export-libm function-span getrandom-unsupported halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime std test-utils" -- -D warnings
+          # cargo clippy --all-targets --all --tests --features "aggregation bls12_381 bn254 build-elfs default entrypoint evm-prove evm-verify export-intrinsics export-libm function-span getrandom-unsupported halo2-compiler halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime rvr static-verifier std test-utils" -- -D warnings
+          cargo clippy --all-targets --all --exclude openvm-certified-verifier --tests --features "bls12_381 bn254 default entrypoint export-intrinsics export-libm function-span getrandom-unsupported halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime rvr std test-utils" -- -D warnings
           # cargo clippy --all-targets --all --tests --no-default-features --features "mimalloc" -- -D warnings
-          cargo clippy --all-targets --all --tests --no-default-features --features "mimalloc" -- -D warnings
+          cargo clippy --all-targets --all --exclude openvm-certified-verifier --tests --no-default-features --features "mimalloc" -- -D warnings
       - name: Run fmt, clippy for guest
         run: |
           # Find all directories named "programs" and include additional static paths
@@ -87,7 +88,7 @@ jobs:
             # Check if Cargo.toml exists in the directory
             if [ -f "$crate_path/Cargo.toml" ]; then
               echo "Running cargo fmt, clippy for $crate_path"
-              cargo +nightly fmt --manifest-path "$crate_path/Cargo.toml" --all -- --check
+              cargo +nightly-2026-09-10 fmt --manifest-path "$crate_path/Cargo.toml" --all -- --check
               if [[ "$crate_path" == *"guest-libs/pairing/tests/programs"* ]]; then
                 echo "Running cargo clippy with openvm_pairing_guest::bn254 feature for $crate_path"
                 cargo clippy --manifest-path "$crate_path/Cargo.toml" --all-targets --features "std bn254" -- -D warnings
@@ -127,17 +128,15 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/lean-toolchain
       - name: Load SSH key
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: |
             ${{ secrets.GH_ACTIONS_DEPLOY_PRIVATE_KEY }}
-      - uses: actions/checkout@v5
-      - name: Init rvr FFI submodules
-        run: |
-          git submodule update --init --depth 1 extensions/keccak256/rvr/ffi/openssl
-          git submodule update --init --depth 1 extensions/algebra/rvr/ffi/modular/secp256k1
-          git submodule update --init --depth 1 extensions/algebra/rvr/ffi/modular/blst
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/sccache
       - uses: Swatinem/rust-cache@v2
@@ -165,12 +164,13 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/lean-toolchain
       - name: Load SSH key
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: |
             ${{ secrets.GH_ACTIONS_DEPLOY_PRIVATE_KEY }}
-      - uses: actions/checkout@v5
       - name: Init rvr FFI submodules
         run: |
           git submodule update --init --depth 1 extensions/keccak256/rvr/ffi/openssl
@@ -180,9 +180,6 @@ jobs:
         env:
           RUSTUP_PERMIT_COPY_RENAME: "1"
       - uses: ./.github/actions/sccache
-      # TODO: remove once https://github.com/runs-on/runner-images-for-aws/issues/55 is fixed
-      - name: Setup GPU driver
-        run: bash ./scripts/gpu_driver_setup.sh
       - uses: ./.github/actions/rust-cache-cuda
         with:
           cache-on-failure: true
@@ -194,8 +191,8 @@ jobs:
       - name: Run clippy
         run: |
           # includes GPU specific features cuda and touchemall
-          # cargo clippy --all-targets --all --tests --features "aggregation bls12_381 bn254 build-elfs cuda default entrypoint evm-prove evm-verify export-intrinsics export-libm function-span getrandom-unsupported halo2-compiler halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime static-verifier std test-utils touchemall" -- -D warnings
-          cargo clippy --all-targets --all --tests --features "bls12_381 bn254 cuda default entrypoint export-intrinsics export-libm function-span getrandom-unsupported halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime std test-utils touchemall" -- -D warnings
+          # cargo clippy --all-targets --all --tests --features "aggregation bls12_381 bn254 build-elfs cuda default entrypoint evm-prove evm-verify export-intrinsics export-libm function-span getrandom-unsupported halo2-compiler halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime rvr static-verifier std test-utils touchemall" -- -D warnings
+          cargo clippy --all-targets --all --exclude openvm-certified-verifier --tests --features "bls12_381 bn254 cuda default entrypoint export-intrinsics export-libm function-span getrandom-unsupported halo2curves heap-embedded-alloc jemalloc jemalloc-prof metrics panic-handler parallel perf-metrics rust-runtime rvr std test-utils touchemall" -- -D warnings
       # TODO: re-enable after stark-backend Fp() default constructor is __host__ __device__
       # - name: Run clang-tidy
       #   run: |

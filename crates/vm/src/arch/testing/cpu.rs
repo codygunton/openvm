@@ -10,7 +10,9 @@ use openvm_circuit_primitives::{
 };
 use openvm_cpu_backend::{CpuBackend, CpuDevice, CpuProverError};
 use openvm_instructions::{
-    instruction::Instruction, program::Program, riscv::RV64_REGISTER_NUM_LIMBS,
+    instruction::Instruction,
+    program::{Program, DEFAULT_PC_STEP, MAX_ALLOWED_PC},
+    riscv::REGISTER_NUM_LIMBS,
 };
 use openvm_poseidon2_air::Poseidon2SubAir;
 use openvm_stark_backend::{
@@ -41,7 +43,7 @@ use crate::{
         },
         to_byte_ptr_bits, vm_poseidon2_config, ExecutionBridge, ExecutionBus, ExecutionState,
         Executor, MemoryConfig, Postflight, Streams, VmField, VmState, BLOCK_FE_WIDTH,
-        MEMORY_BLOCK_BYTES, NUM_RV64_REGISTERS,
+        MEMORY_BLOCK_BYTES, NUM_REGISTERS,
     },
     system::{
         memory::{
@@ -74,20 +76,20 @@ where
     fn execute<E>(
         &mut self,
         executor: &mut E,
-        preflight: &mut TestPreflight<F>,
-        instruction: &Instruction<F>,
+        preflight: &mut TestPreflight,
+        instruction: &Instruction,
     ) where
         E: Executor<F> + Clone,
     {
-        let initial_pc = self.next_elem_size_u32();
+        let initial_pc = self.next_pc();
         self.execute_with_pc(executor, preflight, instruction, initial_pc);
     }
 
     fn execute_with_pc<E>(
         &mut self,
         executor: &mut E,
-        preflight: &mut TestPreflight<F>,
-        instruction: &Instruction<F>,
+        preflight: &mut TestPreflight,
+        instruction: &Instruction,
         initial_pc: u32,
     ) where
         E: Executor<F> + Clone,
@@ -100,7 +102,12 @@ where
         let memory = std::mem::replace(&mut self.memory.memory.data, empty_memory);
         let mut state = VmState::new_with_defaults(initial_pc, memory, self.streams.clone(), 0);
         state.rng = self.rng.clone();
-        let output = execute_test_preflight(executor, instruction, &program, initial_pc, state);
+        let output = execute_test_preflight::<F, E>(
+            self.memory.controller.memory_config(),
+            executor,
+            &program,
+            state,
+        );
         let initial_state = ExecutionState::new(initial_pc, 1u32);
         let final_event = *output
             .history
@@ -169,16 +176,16 @@ where
         to_byte_ptr_bits(self.memory.controller.memory_config().pointer_max_bits)
     }
 
-    fn last_to_pc(&self) -> F {
+    fn last_to_pc(&self) -> u32 {
         self.execution.last_to_pc()
     }
 
-    fn last_from_pc(&self) -> F {
+    fn last_from_pc(&self) -> u32 {
         self.execution.last_from_pc()
     }
 
-    fn execution_final_state(&self) -> ExecutionState<F> {
-        self.execution.records.last().unwrap().final_state
+    fn execution_final_state(&self) -> ExecutionState<u32> {
+        self.execution.last_states.unwrap().1
     }
 
     fn streams_mut(&mut self) -> &mut Streams {
@@ -186,7 +193,7 @@ where
     }
 
     fn get_default_register(&mut self, increment: usize) -> usize {
-        let register_file_bytes = NUM_RV64_REGISTERS * RV64_REGISTER_NUM_LIMBS;
+        let register_file_bytes = NUM_REGISTERS * REGISTER_NUM_LIMBS;
         assert!(increment <= register_file_bytes);
         if self.default_register + increment > register_file_bytes {
             self.default_register = 0;
@@ -210,7 +217,7 @@ where
         let pointer = self.get_default_pointer(pointer_increment);
         // Store the heap pointer as a 64-bit RV64 register value.
         let ptr_bytes = (pointer as u64).to_le_bytes();
-        for i in (0..RV64_REGISTER_NUM_LIMBS).step_by(MEMORY_BLOCK_BYTES) {
+        for i in (0..REGISTER_NUM_LIMBS).step_by(MEMORY_BLOCK_BYTES) {
             let chunk: [u8; MEMORY_BLOCK_BYTES] =
                 ptr_bytes[i..i + MEMORY_BLOCK_BYTES].try_into().unwrap();
             self.write_bytes::<MEMORY_BLOCK_BYTES>(1, register + i, chunk.map(F::from_u8));
@@ -254,8 +261,10 @@ impl<F: VmField> VmChipTestBuilder<F> {
         }
     }
 
-    fn next_elem_size_u32(&mut self) -> u32 {
-        (self.internal_rng.next_u32() % (1 << (F::bits() - 2))) & !3
+    /// Samples a DEFAULT_PC_STEP-aligned byte pc over the full 32-bit range, excluding the
+    /// last instruction slot (where the fallthrough pc would overflow).
+    fn next_pc(&mut self) -> u32 {
+        (self.internal_rng.next_u32() & !3).min(MAX_ALLOWED_PC - DEFAULT_PC_STEP)
     }
 
     fn write_heap<const NUM_LIMBS: usize>(
@@ -266,7 +275,7 @@ impl<F: VmField> VmChipTestBuilder<F> {
     ) {
         // Store the heap pointer as a 64-bit RV64 register value.
         let ptr_bytes = (pointer as u64).to_le_bytes();
-        for i in (0..RV64_REGISTER_NUM_LIMBS).step_by(MEMORY_BLOCK_BYTES) {
+        for i in (0..REGISTER_NUM_LIMBS).step_by(MEMORY_BLOCK_BYTES) {
             let chunk: [u8; MEMORY_BLOCK_BYTES] =
                 ptr_bytes[i..i + MEMORY_BLOCK_BYTES].try_into().unwrap();
             self.write_bytes::<MEMORY_BLOCK_BYTES>(1usize, register + i, chunk.map(F::from_u8));
@@ -413,7 +422,10 @@ where
     SC: StarkProtocolConfig,
     Val<SC>: VmField,
 {
-    pub fn load<E, A, C>(mut self, harness: TestChipHarness<Val<SC>, E, A, C>) -> Self
+    fn harness_trace<E, A, C>(
+        &mut self,
+        harness: &TestChipHarness<Val<SC>, E, A, C>,
+    ) -> RowMajorMatrix<Val<SC>>
     where
         A: AnyAir<SC> + 'static,
     {
@@ -455,15 +467,23 @@ where
                 values.extend_from_slice(&trace.values[..rows_used * width]);
             }
         }
-        if !values.is_empty() {
-            let rows_used = values.len() / width;
-            let height = next_power_of_two_or_zero(rows_used);
-            values.resize(height * width, Val::<SC>::ZERO);
-            for row_index in rows_used..height {
-                (harness.fill_padding)(&mut values[row_index * width..(row_index + 1) * width]);
-            }
+        let rows_used = values.len() / width;
+        let height = next_power_of_two_or_zero(rows_used);
+        values.resize(height * width, Val::<SC>::ZERO);
+        for row_index in rows_used..height {
+            (harness.fill_padding)(&mut values[row_index * width..(row_index + 1) * width]);
+        }
+        RowMajorMatrix::new(values, width)
+    }
+
+    pub fn load<E, A, C>(mut self, harness: TestChipHarness<Val<SC>, E, A, C>) -> Self
+    where
+        A: AnyAir<SC> + 'static,
+    {
+        let trace = self.harness_trace(&harness);
+        if trace.height() != 0 {
             let air = Arc::new(harness.air) as AirRef<SC>;
-            let ctx = AirProvingContext::simple_no_pis(RowMajorMatrix::new(values, width));
+            let ctx = AirProvingContext::simple_no_pis(trace);
             tracing::debug!("Generated air proving context for {}", air.name());
             self.air_ctxs.push((air, ctx));
         }
@@ -474,7 +494,7 @@ where
     pub fn load_periphery<A, C>(self, (air, chip): (A, C)) -> Self
     where
         A: AnyAir<SC> + 'static,
-        C: Chip<(), CpuBackend<SC>>,
+        C: Chip<CpuBackend<SC>>,
     {
         let air = Arc::new(air) as AirRef<SC>;
         self.load_periphery_ref((air, chip))
@@ -482,9 +502,9 @@ where
 
     pub fn load_periphery_ref<C>(mut self, (air, chip): (AirRef<SC>, C)) -> Self
     where
-        C: Chip<(), CpuBackend<SC>>,
+        C: Chip<CpuBackend<SC>>,
     {
-        let ctx = chip.generate_proving_ctx(());
+        let ctx = chip.generate_proving_ctx();
         tracing::debug!("Generated air proving context for {}", air.name());
         self.air_ctxs.push((air, ctx));
 
@@ -508,7 +528,7 @@ where
                 PermutationCheckBus::new(MEMORY_MERKLE_BUS),
                 PermutationCheckBus::new(POSEIDON2_DIRECT_BUS),
             );
-            let ctxs = memory_controller.generate_proving_ctx(touched_memory);
+            let ctxs = memory_controller.generate_proving_ctx(&touched_memory);
             for (air, ctx) in
                 zip_eq(mem_inventory.into_airs(), ctxs).filter(|(_, ctx)| ctx.height() > 0)
             {
@@ -555,52 +575,8 @@ where
         A: AnyAir<SC> + 'static,
         P: Fn(&mut RowMajorMatrix<Val<SC>>),
     {
-        let width = harness.air.width();
+        let mut trace = self.harness_trace(&harness);
         let air = Arc::new(harness.air) as AirRef<SC>;
-        let memory = self
-            .memory
-            .as_mut()
-            .expect("chip traces must be loaded before memory finalization");
-        let memory_config = memory.controller.memory_config().clone();
-        let mut values = Vec::new();
-        let postflights = harness
-            .preflight
-            .executions
-            .iter()
-            .map(|execution| {
-                Postflight::new_for_test(&execution.program, &execution.history, &memory_config)
-                    .expect("test preflight history must be valid")
-            })
-            .collect::<Vec<_>>();
-        for postflight in &postflights {
-            if harness.balance_memory {
-                postflight.balance_test_memory(&mut memory.chip);
-            }
-        }
-        if let Some(generate_batch_trace) = &harness.generate_batch_trace {
-            let trace = generate_batch_trace(&harness.chip, &postflights)
-                .expect("test postflight trace generation must succeed");
-            assert_eq!(trace.width(), width);
-            let rows_used = (harness.rows_used)(&trace);
-            assert!(rows_used <= trace.height());
-            values.extend_from_slice(&trace.values[..rows_used * width]);
-        } else {
-            for postflight in &postflights {
-                let trace = (harness.generate_trace)(&harness.chip, postflight)
-                    .expect("test postflight trace generation must succeed");
-                assert_eq!(trace.width(), width);
-                let rows_used = (harness.rows_used)(&trace);
-                assert!(rows_used <= trace.height());
-                values.extend_from_slice(&trace.values[..rows_used * width]);
-            }
-        }
-        let rows_used = values.len() / width;
-        let height = next_power_of_two_or_zero(rows_used);
-        values.resize(height * width, Val::<SC>::ZERO);
-        for row_index in rows_used..height {
-            (harness.fill_padding)(&mut values[row_index * width..(row_index + 1) * width]);
-        }
-        let mut trace = RowMajorMatrix::new(values, width);
         modify_trace(&mut trace);
         self.air_ctxs
             .push((air, AirProvingContext::simple_no_pis(trace)));
@@ -614,10 +590,10 @@ where
     ) -> Self
     where
         A: AnyAir<SC> + 'static,
-        C: Chip<(), CpuBackend<SC>>,
+        C: Chip<CpuBackend<SC>>,
         P: Fn(&mut RowMajorMatrix<Val<SC>>),
     {
-        let mut ctx = chip.generate_proving_ctx(());
+        let mut ctx = chip.generate_proving_ctx();
         modify_trace(&mut ctx.common_main);
         self.air_ctxs.push((Arc::new(air), ctx));
         self

@@ -1,66 +1,88 @@
 use openvm_circuit::{
     arch::{
-        cuda::postflight::GpuPostflightProgram,
-        rvr::{
-            cuda::{CheckpointReplayProgram, PostflightAccessRegistry, PostflightAccessSpan},
-            PreflightLimits,
-        },
+        cuda::postflight::GpuPostflightProgram, rvr::PreflightLimits, MemoryConfig,
         PreflightHistory, PreflightMemoryLog, VirtualMachine, VmExecutor,
     },
     utils::{test_gpu_engine, test_system_config},
 };
+use openvm_cuda_backend::prelude::F;
+use openvm_cuda_common::stream::GpuDeviceCtx;
 use openvm_instructions::{
     exe::{SparseMemoryImage, VmExe},
     instruction::Instruction,
     program::Program,
-    riscv::{RV64_IMM_AS, RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_BYTES},
+    riscv::{IMM_AS, MEMORY_AS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode, SystemOpcode, VmOpcode,
 };
 use openvm_keccak256_transpiler::{KeccakfOpcode, XorinOpcode};
-use openvm_riscv_circuit::Rv64ImPreflightGpuTracegen;
+use openvm_riscv_circuit::{
+    preflight::{
+        PostflightAccessRegistry, PostflightAccessSchedule, PostflightAccessSpan,
+        PreflightReplayProgram,
+    },
+    Rv64ImPreflightGpuTracegen,
+};
 use openvm_riscv_transpiler::BaseAluImmOpcode;
 use openvm_stark_backend::StarkEngine;
-use openvm_stark_sdk::p3_baby_bear::BabyBear;
 use rvr_state::PreflightProgramEvent;
 
 use super::{Keccak256PreflightGpuTracegen, Keccak256Rv64GpuBuilder};
 use crate::Keccak256Rv64Config;
 
-type F = BabyBear;
-
 fn reg(index: usize) -> usize {
-    index * RV64_REGISTER_BYTES as usize
+    index * REGISTER_BYTES as usize
 }
 
 #[test]
 fn checkpoint_access_registry_rejects_duplicate_and_invalid_schedules() {
     let opcode = KeccakfOpcode::KECCAKF.global_opcode().as_usize() as u32;
-    let span = PostflightAccessSpan::write_fixed_from_residuals(RV64_MEMORY_AS, 0, 25);
+    let span = PostflightAccessSpan::write_fixed_from_replay_values(MEMORY_AS, 0, 25);
+    let schedule = PostflightAccessSchedule {
+        register_operands: &[1],
+        zero_operand_mask: 0,
+        register_as_operand: 4,
+        memory_as_operand: 5,
+        spans: &[span],
+    };
     let mut registry = PostflightAccessRegistry::default();
-    registry.register(opcode, &[1], 0, 4, 5, &[span]).unwrap();
-    let duplicate = registry
-        .register(opcode, &[1], 0, 4, 5, &[span])
-        .unwrap_err();
+    registry.register(opcode, schedule).unwrap();
+    let duplicate = registry.register(opcode, schedule).unwrap_err();
     assert!(duplicate.to_string().contains("duplicate"), "{duplicate}");
 
-    let invalid_span = PostflightAccessSpan::read_fixed(RV64_MEMORY_AS, 1, 1);
+    let invalid_span = PostflightAccessSpan::read_fixed(MEMORY_AS, 1, 1);
     let invalid = PostflightAccessRegistry::default()
-        .register(opcode, &[1], 0, 4, 5, &[invalid_span])
+        .register(
+            opcode,
+            PostflightAccessSchedule {
+                spans: &[invalid_span],
+                ..schedule
+            },
+        )
         .unwrap_err();
     assert!(
-        invalid.to_string().contains("invalid access span"),
+        invalid
+            .to_string()
+            .contains("span base references a missing register operand"),
         "{invalid}"
     );
 
     let invalid_mask = PostflightAccessRegistry::default()
-        .register(opcode, &[1], 1, 4, 5, &[span])
+        .register(
+            opcode,
+            PostflightAccessSchedule {
+                zero_operand_mask: 1,
+                ..schedule
+            },
+        )
         .unwrap_err();
     assert!(
-        invalid_mask.to_string().contains("invalid operand layout"),
+        invalid_mask
+            .to_string()
+            .contains("zero-operand mask may only reference instruction operands a..g"),
         "{invalid_mask}"
     );
     let oversized = PostflightAccessRegistry::default()
-        .register(u32::MAX, &[1], 0, 4, 5, &[span])
+        .register(u32::MAX, schedule)
         .unwrap_err();
     assert!(
         oversized.to_string().contains("dense checkpoint dispatch"),
@@ -69,49 +91,41 @@ fn checkpoint_access_registry_rejects_duplicate_and_invalid_schedules() {
 
     let native_opcode = BaseAluImmOpcode::ADDI.global_opcode().as_usize() as u32;
     let mut collision = PostflightAccessRegistry::default();
-    collision
-        .register(native_opcode, &[1], 0, 4, 5, &[span])
-        .unwrap();
-    let collision = collision
-        .validate_no_native_collisions(Rv64ImPreflightGpuTracegen::postflight_opcode_bases())
-        .unwrap_err();
+    collision.register(native_opcode, schedule).unwrap();
+    let device_ctx = GpuDeviceCtx::for_current_device().unwrap();
+    let collision = PreflightReplayProgram::upload_with_postflight_access_registry(
+        &Program::from_instructions(&[]),
+        &MemoryConfig::default(),
+        &collision,
+        &device_ctx,
+    )
+    .err()
+    .expect("native and extension opcode collision should fail");
     assert!(collision.to_string().contains("both native"), "{collision}");
 }
 
 #[test]
-fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
+fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_replay_values() {
     let instructions = [
-        Instruction::<F>::from_usize(
+        Instruction::from_usize(
             BaseAluImmOpcode::ADDI.global_opcode(),
-            [
-                reg(4),
-                reg(0),
-                7,
-                RV64_REGISTER_AS as usize,
-                RV64_IMM_AS as usize,
-            ],
+            [reg(4), reg(0), 7, REGISTER_AS as usize, IMM_AS as usize],
         ),
-        Instruction::<F>::from_usize(
+        Instruction::from_usize(
             XorinOpcode::XORIN.global_opcode(),
             [
                 reg(1),
                 reg(2),
                 reg(3),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
-        Instruction::<F>::from_usize(
+        Instruction::from_usize(
             KeccakfOpcode::KECCAKF.global_opcode(),
-            [
-                reg(1),
-                0,
-                0,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
-            ],
+            [reg(1), 0, 0, REGISTER_AS as usize, MEMORY_AS as usize],
         ),
-        Instruction::<F>::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
+        Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0, 0, 0, 0, 0]),
     ];
     let program = Program::from_instructions(&instructions);
     let buffer_ptr = 64u64;
@@ -126,20 +140,18 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(move |(offset, byte)| {
-                    ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)
-                })
+                .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
         })
         .collect();
     init_memory.extend((0..200u32).map(|offset| {
         (
-            (RV64_MEMORY_AS, buffer_ptr as u32 + offset),
+            (MEMORY_AS, buffer_ptr as u32 + offset),
             offset.wrapping_mul(17) as u8,
         )
     }));
     init_memory.extend((0..xorin_len as u32).map(|offset| {
         (
-            (RV64_MEMORY_AS, input_ptr as u32 + offset),
+            (MEMORY_AS, input_ptr as u32 + offset),
             offset.wrapping_mul(29).wrapping_add(3) as u8,
         )
     }));
@@ -148,7 +160,7 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
         system: test_system_config(),
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, pk) =
@@ -165,20 +177,20 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
     // 2 * (read, read, write). KECCAKF: one register read + 25 writes.
     // TERMINATE consumes no clock slot.
     assert_eq!(execution.to_state.timestamp, 83);
-    assert_eq!(execution.transcript.residuals.len(), 42);
+    assert_eq!(execution.transcript.replay_values.len(), 42);
 
     let malformed = Program::from_instructions(&[
-        Instruction::<F>::from_usize(
+        Instruction::from_usize(
             XorinOpcode::XORIN.global_opcode(),
             [
                 reg(1) + 1,
                 reg(2),
                 reg(3),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
-        Instruction::<F>::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
+        Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
     ]);
     let malformed = Keccak256PreflightGpuTracegen::upload_postflight_program(
         &malformed,
@@ -194,9 +206,10 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
         "{malformed}"
     );
 
-    let unclaimed_program = CheckpointReplayProgram::upload(
+    let unclaimed_program = PreflightReplayProgram::upload_with_postflight_access_registry(
         &program,
         &config.system.memory_config,
+        &PostflightAccessRegistry::default(),
         &vm.engine.device().device_ctx,
     )
     .unwrap();
@@ -216,13 +229,13 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
         &vm.engine.device().device_ctx,
     )
     .unwrap();
-    let missing = execution.transcript.residuals.pop().unwrap();
+    let missing = execution.transcript.replay_values.pop().unwrap();
     let error =
         Keccak256PreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
             .err()
-            .expect("missing Keccak residual must fail checkpoint replay");
+            .expect("missing Keccak replay value must fail checkpoint replay");
     assert!(error.to_string().contains("code 306"), "{error}");
-    execution.transcript.residuals.push(missing);
+    execution.transcript.replay_values.push(missing);
 
     let (transcript, replay_plan) =
         Keccak256PreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
@@ -276,7 +289,7 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
     unsafe {
         invalid_state
             .memory
-            .write_bytes(RV64_REGISTER_AS, reg(3) as u32, 7u64.to_le_bytes());
+            .write_bytes(REGISTER_AS, reg(3) as u32, 7u64.to_le_bytes());
     }
     let invalid = checkpoint.execute_from_state(
         invalid_state,
@@ -288,28 +301,28 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
     );
 
     let zero_program = Program::from_instructions(&[
-        Instruction::<F>::from_usize(
+        Instruction::from_usize(
             XorinOpcode::XORIN.global_opcode(),
             [
                 reg(1),
                 reg(2),
                 reg(3),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
-        Instruction::<F>::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
+        Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
     ]);
-    let zero_memory: SparseMemoryImage = [(1usize, 3u64), (2, 5), (3, 0)]
+    // The pointers are never dereferenced for a len = 0 XORIN, but replay still converts them to
+    // cell pointers on every enabled row, so they must be 2-byte aligned.
+    let zero_memory: SparseMemoryImage = [(1usize, 2u64), (2, 4), (3, 0)]
         .into_iter()
         .flat_map(|(register, value)| {
             value
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(move |(offset, byte)| {
-                    ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)
-                })
+                .map(move |(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte))
         })
         .collect();
     let zero_exe = VmExe::new(zero_program.clone()).with_init_memory(zero_memory);
@@ -322,7 +335,7 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
         .execute_from_state(zero_state, PreflightLimits::new(2, 0, 1))
         .unwrap();
     assert_eq!(zero_execution.to_state.timestamp, 4);
-    assert!(zero_execution.transcript.residuals.is_empty());
+    assert!(zero_execution.transcript.replay_values.is_empty());
     let zero_gpu_program = Keccak256PreflightGpuTracegen::upload_postflight_program(
         &zero_program,
         &config.system.memory_config,
@@ -354,8 +367,8 @@ fn checkpoint_replay_expands_keccak_schedules_and_rejects_missing_residuals() {
 fn combined_keccak_coordinator_rejects_an_unclaimed_opcode() {
     let unknown_opcode = 0x00ff_0000usize;
     let instructions = [
-        Instruction::<F>::from_usize(VmOpcode::from_usize(unknown_opcode), [0; 5]),
-        Instruction::<F>::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
+        Instruction::from_usize(VmOpcode::from_usize(unknown_opcode), [0; 5]),
+        Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
     ];
     let program = Program::from_instructions(&instructions);
     let history = PreflightHistory {

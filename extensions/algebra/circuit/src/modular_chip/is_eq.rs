@@ -4,7 +4,7 @@ use std::{
 };
 
 use num_bigint::BigUint;
-use openvm_algebra_transpiler::Rv64ModularArithmeticOpcode;
+use openvm_algebra_transpiler::ModularArithmeticOpcode;
 use openvm_circuit::{arch::*, system::memory::online::GuestMemory};
 use openvm_circuit_primitives::{
     bigint::utils::big_uint_to_limbs,
@@ -17,12 +17,11 @@ use openvm_circuit_primitives_derive::AlignedBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
-use openvm_platform::memory::MEM_SIZE;
 use openvm_riscv_circuit::adapters::{
-    rv64_bytes_to_u16_block, rv64_bytes_to_u32, validate_memory_block_byte_ptr,
+    bytes_to_u16_block, bytes_to_u32, validate_memory_block_span,
 };
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
@@ -125,7 +124,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &ModularIsEqualCoreCols<_, READ_LIMBS> = local_core.borrow();
 
@@ -257,15 +256,14 @@ where
             .eval(builder, cols.is_valid - cols.is_setup);
 
         let expected_opcode = AB::Expr::from_usize(self.offset)
-            + cols.is_setup
-                * AB::Expr::from_usize(Rv64ModularArithmeticOpcode::SETUP_ISEQ as usize)
+            + cols.is_setup * AB::Expr::from_usize(ModularArithmeticOpcode::SETUP_ISEQ as usize)
             + (AB::Expr::ONE - cols.is_setup)
-                * AB::Expr::from_usize(Rv64ModularArithmeticOpcode::IS_EQ as usize);
+                * AB::Expr::from_usize(ModularArithmeticOpcode::IS_EQ as usize);
         let mut a: [AB::Expr; WRITE_LIMBS] = array::from_fn(|_| AB::Expr::ZERO);
         a[0] = cols.cmp_result.into();
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: [cols.b.map(Into::into), cols.c.map(Into::into)].into(),
             writes: [a].into(),
             instruction: MinimalInstruction {
@@ -282,34 +280,19 @@ where
 }
 
 #[derive(derive_new::new, Clone)]
-pub struct ModularIsEqualExecutor<
-    const READ_LIMBS: usize,
-    const WRITE_LIMBS: usize,
-    const LIMB_BITS: usize,
-> {
+pub struct ModularIsEqualExecutor<const READ_LIMBS: usize> {
     pub offset: usize,
     pub modulus_limbs: [u16; READ_LIMBS],
 }
 
 #[derive(derive_new::new, Clone)]
-pub struct ModularIsEqualFiller<
-    const NUM_LANES: usize,
-    const READ_LIMBS: usize,
-    const WRITE_LIMBS: usize,
-    const LIMB_BITS: usize,
-> {
+pub struct ModularIsEqualFiller<const READ_LIMBS: usize, const LIMB_BITS: usize> {
     pub offset: usize,
     pub modulus_limbs: [u16; READ_LIMBS],
     pub range_checker_chip: SharedVariableRangeCheckerChip,
 }
 
-impl<
-        const NUM_LANES: usize,
-        const READ_LIMBS: usize,
-        const WRITE_LIMBS: usize,
-        const LIMB_BITS: usize,
-    > ModularIsEqualFiller<NUM_LANES, READ_LIMBS, WRITE_LIMBS, LIMB_BITS>
-{
+impl<const READ_LIMBS: usize, const LIMB_BITS: usize> ModularIsEqualFiller<READ_LIMBS, LIMB_BITS> {
     pub(crate) fn fill_trace_row_from_execution_data<F: PrimeField32>(
         &self,
         range_checker: &openvm_circuit_primitives::var_range::VariableRangeCheckerChip,
@@ -398,10 +381,10 @@ struct ModularIsEqualPreCompute<const READ_LIMBS: usize> {
 impl<const NUM_LANES: usize, const TOTAL_READ_SIZE: usize>
     VmModularIsEqualU16Executor<NUM_LANES, TOTAL_READ_SIZE>
 {
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut ModularIsEqualPreCompute<TOTAL_READ_SIZE>,
     ) -> Result<bool, StaticProgramError> {
         let Instruction {
@@ -415,21 +398,21 @@ impl<const NUM_LANES: usize, const TOTAL_READ_SIZE: usize>
         } = inst;
 
         let local_opcode =
-            Rv64ModularArithmeticOpcode::from_usize(opcode.local_opcode_idx(self.0.offset));
+            ModularArithmeticOpcode::from_usize(opcode.local_opcode_idx(self.0.offset));
 
         // Validate instruction format
-        let a = a.as_canonical_u32();
-        let b = b.as_canonical_u32();
-        let c = c.as_canonical_u32();
-        let d = d.as_canonical_u32();
-        let e = e.as_canonical_u32();
-        if a == 0 || d != RV64_REGISTER_AS || e != RV64_MEMORY_AS {
+        let a = a.as_u32();
+        let b = b.as_u32();
+        let c = c.as_u32();
+        let d = d.as_u32();
+        let e = e.as_u32();
+        if a == 0 || d != REGISTER_AS || e != MEMORY_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
 
         if !matches!(
             local_opcode,
-            Rv64ModularArithmeticOpcode::IS_EQ | Rv64ModularArithmeticOpcode::SETUP_ISEQ
+            ModularArithmeticOpcode::IS_EQ | ModularArithmeticOpcode::SETUP_ISEQ
         ) {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
@@ -441,7 +424,7 @@ impl<const NUM_LANES: usize, const TOTAL_READ_SIZE: usize>
             modulus_limbs: self.0.modulus_limbs,
         };
 
-        let is_setup = local_opcode == Rv64ModularArithmeticOpcode::SETUP_ISEQ;
+        let is_setup = local_opcode == ModularArithmeticOpcode::SETUP_ISEQ;
 
         Ok(is_setup)
     }
@@ -465,7 +448,7 @@ where
     fn get_opcode_name(&self, opcode: usize) -> String {
         format!(
             "{:?}",
-            Rv64ModularArithmeticOpcode::from_usize(opcode - self.0.offset)
+            ModularArithmeticOpcode::from_usize(opcode - self.0.offset)
         )
     }
 
@@ -478,7 +461,7 @@ where
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let pre_compute: &mut ModularIsEqualPreCompute<TOTAL_READ_SIZE> = data.borrow_mut();
@@ -491,7 +474,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -519,7 +502,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let pre_compute: &mut E2PreCompute<ModularIsEqualPreCompute<TOTAL_READ_SIZE>> =
@@ -536,7 +519,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError> {
         let pre_compute: &mut E2PreCompute<ModularIsEqualPreCompute<TOTAL_READ_SIZE>> =
@@ -606,18 +589,17 @@ unsafe fn execute_e12_impl<
     // Read register values (RV64: read 8 bytes, assert upper 4 are zero, cast to u32)
     let rs_vals = pre_compute
         .rs_addrs
-        .map(|addr| rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, addr as u32)));
+        .map(|addr| bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, addr as u32)));
     for &address in &rs_vals {
-        validate_memory_block_byte_ptr(pc, address)?;
+        validate_memory_block_span(pc, address, NUM_LANES)?;
     }
 
     // Read memory values
     let [b, c]: [[u16; TOTAL_READ_SIZE]; 2] = rs_vals.map(|address| {
-        debug_assert!(address as usize + TOTAL_READ_SIZE * U16_CELL_SIZE - 1 < MEM_SIZE);
         let mut limbs = [0u16; TOTAL_READ_SIZE];
         for i in 0..NUM_LANES {
-            let block = rv64_bytes_to_u16_block(exec_state.vm_read_bytes::<MEMORY_BLOCK_BYTES>(
-                RV64_MEMORY_AS,
+            let block = bytes_to_u16_block(exec_state.vm_read_bytes::<MEMORY_BLOCK_BYTES>(
+                MEMORY_AS,
                 address + (i * MEMORY_BLOCK_BYTES) as u32,
             ));
             let start = i * BLOCK_FE_WIDTH;
@@ -635,11 +617,11 @@ unsafe fn execute_e12_impl<
     debug_assert!(c_cmp, "{:?} >= modulus {:?}", c, pre_compute.modulus_limbs);
 
     // Compute result (RV64: 8-byte result register)
-    let mut write_data = [0u8; RV64_REGISTER_NUM_LIMBS];
+    let mut write_data = [0u8; REGISTER_NUM_LIMBS];
     write_data[0] = (b == c) as u8;
 
     // Write result to register
-    exec_state.vm_write_bytes(RV64_REGISTER_AS, pre_compute.a as u32, &write_data);
+    exec_state.vm_write_bytes(REGISTER_AS, pre_compute.a as u32, &write_data);
 
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
     Ok(())

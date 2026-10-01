@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use std::{mem::size_of, ops::RangeInclusive};
 
 use openvm_instructions::SysPhantom;
 use openvm_stark_backend::p3_field::PrimeField32;
@@ -9,8 +9,8 @@ use rvr_state::{
 
 use crate::{
     arch::{
-        AddressSpaceHostLayout, ExecutionCtxTrait, MemoryCellType, PreflightHistory,
-        PreflightMemoryLog, BLOCK_FE_WIDTH,
+        preflight::encode_u8_block, AddressSpaceHostLayout, ExecutionCtxTrait, MemoryCellType,
+        PreflightHistory, PreflightMemoryLog, BLOCK_FE_WIDTH,
     },
     system::memory::online::{GuestMemory, PagedVec, PAGE_SIZE},
 };
@@ -31,7 +31,8 @@ struct PendingWrite {
 pub struct PreflightCtx {
     history: PreflightHistory,
     timestamp: u32,
-    last_access: Vec<PagedVec<u32, PAGE_SIZE>>,
+    block_byte_shifts: Vec<u32>,
+    seen_blocks: Vec<PagedVec<bool, PAGE_SIZE>>,
     pending_writes: Vec<PendingWrite>,
     read_canonical_field_block: unsafe fn(&GuestMemory, u32, u32) -> [u32; BLOCK_FE_WIDTH],
     pub instret_left: u64,
@@ -48,24 +49,43 @@ impl PreflightCtx {
                 || size_of::<F>() == size_of::<u32>(),
             "field32 memory requires a four-byte proof field"
         );
-        let last_access = memory
+        let block_byte_shifts = memory
+            .memory
+            .config
+            .iter()
+            .map(|config| {
+                let block_bytes = BLOCK_FE_WIDTH * config.layout.size();
+                assert!(
+                    block_bytes.is_power_of_two(),
+                    "memory-bus block byte width must be a power of two"
+                );
+                block_bytes.ilog2()
+            })
+            .collect();
+        let seen_blocks = memory
             .memory
             .config
             .iter()
             .map(|config| PagedVec::new(config.num_cells.div_ceil(BLOCK_FE_WIDTH)))
             .collect();
+        let mut history = PreflightHistory::default();
+        // A bounded segment knows its exact program-log length. Reservation is
+        // best-effort so allocation failure remains on the normal push path.
+        if let Some(program_capacity) = instret_left
+            .and_then(|instret| usize::try_from(instret).ok())
+            .and_then(|instret| instret.checked_add(1))
+        {
+            let _ = history.program.try_reserve_exact(program_capacity);
+        }
         Self {
-            history: PreflightHistory::default(),
+            history,
             timestamp: 1,
-            last_access,
-            pending_writes: Vec::new(),
+            block_byte_shifts,
+            seen_blocks,
+            pending_writes: Vec::with_capacity(2),
             read_canonical_field_block: read_canonical_field_block::<F>,
             instret_left: instret_left.unwrap_or(u64::MAX),
         }
-    }
-
-    pub fn timestamp(&self) -> u32 {
-        self.timestamp
     }
 
     pub fn finish(mut self, pc: u32) -> PreflightHistory {
@@ -78,23 +98,12 @@ impl PreflightCtx {
     }
 
     #[inline(always)]
-    fn block_bytes(memory: &GuestMemory, address_space: u32) -> usize {
-        BLOCK_FE_WIDTH * memory.memory.config[address_space as usize].layout.size()
-    }
-
-    #[inline(always)]
-    fn block_range(
-        memory: &GuestMemory,
-        address_space: u32,
-        byte_ptr: u32,
-        byte_len: u32,
-    ) -> std::ops::RangeInclusive<u32> {
-        let block_bytes = Self::block_bytes(memory, address_space) as u32;
-        let first = byte_ptr / block_bytes;
+    fn block_range(block_byte_shift: u32, byte_ptr: u32, byte_len: u32) -> RangeInclusive<u32> {
+        let first = byte_ptr >> block_byte_shift;
         let last_byte = byte_ptr
             .checked_add(byte_len - 1)
             .expect("preflight memory access range overflow");
-        let last = last_byte / block_bytes;
+        let last = last_byte >> block_byte_shift;
         first..=last
     }
 
@@ -109,10 +118,13 @@ impl PreflightCtx {
     ) -> [u16; BLOCK_FE_WIDTH] {
         let pointer = block_index * BLOCK_FE_WIDTH as u32;
         match memory.memory.config[address_space as usize].layout {
+            MemoryCellType::U8 => unsafe {
+                encode_u8_block(memory.read::<u8, BLOCK_FE_WIDTH>(address_space, pointer))
+            },
             MemoryCellType::U16 => unsafe {
                 memory.read::<u16, BLOCK_FE_WIDTH>(address_space, pointer)
             },
-            MemoryCellType::F { size: 4 } => {
+            MemoryCellType::FIELD32 => {
                 let values = unsafe { read_canonical_field_block(memory, address_space, pointer) };
                 let reference = if initial {
                     let index = log.field_initial_values.len();
@@ -128,18 +140,17 @@ impl PreflightCtx {
                     u32::try_from(reference).expect("field preflight log exceeds u32::MAX blocks");
                 [index as u16, (index >> 16) as u16, 0, 0]
             }
-            _ => panic!("preflight memory log requires u16 or 32-bit field cells"),
+            _ => panic!("preflight memory log requires u8, u16, or 32-bit field cells"),
         }
     }
 
     #[inline(always)]
-    fn next_access(&mut self, address_space: u32, block_index: u32) -> (u32, u32) {
+    fn next_access(&mut self, address_space: u32, block_index: u32) -> (u32, bool) {
         let timestamp = self.timestamp;
         self.timestamp += 1;
-        let last_access = &mut self.last_access[address_space as usize];
-        let previous = last_access.get(block_index as usize);
-        last_access.set(block_index as usize, timestamp);
-        (timestamp, previous)
+        let seen = &mut self.seen_blocks[address_space as usize];
+        let was_seen = seen.replace(block_index as usize, true);
+        (timestamp, was_seen)
     }
 
     #[inline(always)]
@@ -147,7 +158,8 @@ impl PreflightCtx {
         if byte_len == 0 {
             return;
         }
-        for block_index in Self::block_range(memory, address_space, byte_ptr, byte_len) {
+        let block_byte_shift = self.block_byte_shifts[address_space as usize];
+        for block_index in Self::block_range(block_byte_shift, byte_ptr, byte_len) {
             let (timestamp, _) = self.next_access(address_space, block_index);
             let value = Self::block_value(
                 memory,
@@ -178,10 +190,11 @@ impl PreflightCtx {
             return;
         }
         debug_assert!(self.pending_writes.is_empty());
-        for block_index in Self::block_range(memory, address_space, byte_ptr, byte_len) {
-            let (timestamp, previous) = self.next_access(address_space, block_index);
+        let block_byte_shift = self.block_byte_shifts[address_space as usize];
+        for block_index in Self::block_range(block_byte_shift, byte_ptr, byte_len) {
+            let (timestamp, was_seen) = self.next_access(address_space, block_index);
             let pointer = block_index * BLOCK_FE_WIDTH as u32;
-            let initial_value = (previous == 0).then(|| {
+            let initial_value = (!was_seen).then(|| {
                 Self::block_value(
                     memory,
                     address_space,
@@ -283,8 +296,6 @@ impl ExecutionCtxTrait for PreflightCtx {
 
         #[cfg(all(feature = "metrics", any(debug_assertions, feature = "perf-metrics")))]
         exec_state.vm_state.metrics.update_backtrace(pc);
-        #[cfg(feature = "perf-metrics")]
-        exec_state.vm_state.metrics.update_current_fn(pc);
     }
 
     #[inline(always)]
@@ -292,41 +303,25 @@ impl ExecutionCtxTrait for PreflightCtx {
         self.timestamp += slots;
     }
 
+    // State and PC are used only in builds that collect guest backtraces.
     #[inline(always)]
     fn on_system_phantom(
         _exec_state: &mut crate::arch::VmExecState<GuestMemory, Self>,
         _pc: u32,
         phantom: SysPhantom,
     ) {
-        match phantom {
-            SysPhantom::DebugPanic => {
-                #[cfg(all(feature = "metrics", any(debug_assertions, feature = "perf-metrics")))]
-                {
-                    let metrics = &mut _exec_state.vm_state.metrics;
-                    metrics.update_backtrace(_pc);
-                    if let Some(mut backtrace) = metrics.prev_backtrace.take() {
-                        backtrace.resolve();
-                        eprintln!("openvm program failure; backtrace:\n{backtrace:?}");
-                    } else {
-                        eprintln!("openvm program failure; no backtrace");
-                    }
-                }
-            }
-            #[cfg(feature = "perf-metrics")]
-            SysPhantom::CtStart => {
+        if phantom == SysPhantom::DebugPanic {
+            #[cfg(all(feature = "metrics", any(debug_assertions, feature = "perf-metrics")))]
+            {
                 let metrics = &mut _exec_state.vm_state.metrics;
-                if let Some(info) = metrics.debug_infos.get(_pc) {
-                    metrics.cycle_tracker.start(info.dsl_instruction.clone());
+                metrics.update_backtrace(_pc);
+                if let Some(mut backtrace) = metrics.prev_backtrace.take() {
+                    backtrace.resolve();
+                    eprintln!("openvm program failure; backtrace:\n{backtrace:?}");
+                } else {
+                    eprintln!("openvm program failure; no backtrace");
                 }
             }
-            #[cfg(feature = "perf-metrics")]
-            SysPhantom::CtEnd => {
-                let metrics = &mut _exec_state.vm_state.metrics;
-                if let Some(info) = metrics.debug_infos.get(_pc) {
-                    metrics.cycle_tracker.end(info.dsl_instruction.clone());
-                }
-            }
-            _ => {}
         }
     }
 
@@ -341,50 +336,19 @@ impl ExecutionCtxTrait for PreflightCtx {
     }
 }
 
-#[cfg(all(test, feature = "perf-metrics"))]
-mod tests {
-    use openvm_instructions::{
-        instruction::{DebugInfo, Instruction},
-        program::Program,
-        LocalOpcode, SysPhantom, SystemOpcode,
-    };
-    use openvm_stark_sdk::p3_baby_bear::BabyBear;
-
-    use super::PreflightCtx;
-    use crate::arch::{create_memory_image, ExecutionCtxTrait, SystemConfig, VmExecState, VmState};
-
-    #[test]
-    fn cycle_tracker_phantoms_update_preflight_metrics() {
-        let instruction =
-            Instruction::<BabyBear>::from_usize(SystemOpcode::PHANTOM.global_opcode(), [0; 5]);
-        let debug_info = DebugInfo::new("CT-test".to_string(), None);
-        let program =
-            Program::from_instructions_and_debug_infos(&[instruction], &[Some(debug_info)]);
-        let config = SystemConfig::default();
-        let memory = create_memory_image(&config.memory_config, &Default::default());
-        let mut state = VmState::new_with_defaults(0, memory, Vec::new(), 0);
-        state.metrics.debug_infos = program.debug_infos();
-        let ctx = PreflightCtx::new::<BabyBear>(&state.memory, None);
-        let mut state = VmExecState::new(state, ctx);
-
-        PreflightCtx::on_system_phantom(&mut state, 0, SysPhantom::CtStart);
-        assert_eq!(
-            state.metrics.cycle_tracker.top().map(String::as_str),
-            Some("test")
-        );
-        PreflightCtx::on_system_phantom(&mut state, 0, SysPhantom::CtEnd);
-        assert_eq!(state.metrics.cycle_tracker.top(), None);
-    }
-}
-
 #[cfg(test)]
-mod canonical_field_tests {
-    use openvm_instructions::DEFERRAL_AS;
+mod tests {
+    use std::mem::size_of;
+
+    use openvm_instructions::{riscv::MEMORY_AS, DEFERRAL_AS};
     use openvm_stark_backend::p3_field::{PrimeCharacteristicRing, PrimeField32};
     use openvm_stark_sdk::p3_baby_bear::BabyBear;
 
-    use super::*;
-    use crate::{arch::MemoryConfig, system::memory::AddressMap};
+    use super::PreflightCtx;
+    use crate::{
+        arch::{MemoryConfig, BLOCK_FE_WIDTH},
+        system::memory::online::{AddressMap, GuestMemory},
+    };
 
     #[test]
     fn field_history_uses_canonical_words() {
@@ -412,5 +376,55 @@ mod canonical_field_tests {
             history.memory.field_values[0].values,
             values.map(|value| value.as_canonical_u32())
         );
+    }
+
+    #[test]
+    fn repeated_writes_seed_a_block_once() {
+        let mut memory = GuestMemory::new(AddressMap::from_mem_config(&MemoryConfig::default()));
+        let mut ctx = PreflightCtx::new::<BabyBear>(&memory, None);
+
+        ctx.begin_write(&memory, MEMORY_AS, 0, size_of::<u16>() as u32);
+        unsafe {
+            memory.write(MEMORY_AS, 0, [1u16]);
+        }
+        ctx.finish_write(&memory);
+
+        ctx.begin_write(&memory, MEMORY_AS, 0, size_of::<u16>() as u32);
+        unsafe {
+            memory.write(MEMORY_AS, 0, [2u16]);
+        }
+        ctx.finish_write(&memory);
+
+        let history = ctx.finish(0);
+        assert_eq!(history.memory.accesses.len(), 2);
+        assert_eq!(history.memory.initial_writes.len(), 1);
+        assert_eq!(
+            history.memory.initial_writes[0].initial_value,
+            [0; BLOCK_FE_WIDTH]
+        );
+    }
+
+    #[test]
+    fn read_then_write_uses_the_read_as_predecessor() {
+        let mut memory = GuestMemory::new(AddressMap::from_mem_config(&MemoryConfig::default()));
+        unsafe {
+            memory.write(MEMORY_AS, 0, [7u16]);
+        }
+        let mut ctx = PreflightCtx::new::<BabyBear>(&memory, None);
+
+        ctx.log_read(&memory, MEMORY_AS, 0, size_of::<u16>() as u32);
+        ctx.begin_write(&memory, MEMORY_AS, 0, size_of::<u16>() as u32);
+        unsafe {
+            memory.write(MEMORY_AS, 0, [9u16]);
+        }
+        ctx.finish_write(&memory);
+
+        let history = ctx.finish(0);
+        assert_eq!(history.memory.accesses.len(), 2);
+        assert!(!history.memory.accesses[0].is_write());
+        assert!(history.memory.accesses[1].is_write());
+        assert_eq!(history.memory.accesses[0].value, [7, 0, 0, 0]);
+        assert_eq!(history.memory.accesses[1].value, [9, 0, 0, 0]);
+        assert!(history.memory.initial_writes.is_empty());
     }
 }

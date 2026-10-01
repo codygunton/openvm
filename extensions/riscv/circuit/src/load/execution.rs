@@ -18,15 +18,15 @@ use openvm_circuit_primitives::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
-use openvm_riscv_transpiler::Rv64LoadStoreOpcode::{self, LOADBU, LOADD, LOADHU, LOADWU};
+use openvm_riscv_transpiler::LoadStoreOpcode::{self, LOADBU, LOADD, LOADHU, LOADWU};
 use openvm_stark_backend::p3_field::PrimeField32;
 
 use super::common::{load_width_for_opcode, LoadExecutor};
 use crate::adapters::{
-    checked_rv64_memory_address, rv64_bytes_to_u32, sign_extend_imm16, BYTE_ACCESS_WIDTH,
+    bytes_to_u32, checked_memory_address, sign_extend_imm16, BYTE_ACCESS_WIDTH,
     DOUBLEWORD_ACCESS_WIDTH, HALFWORD_ACCESS_WIDTH, WORD_ACCESS_WIDTH,
 };
 
@@ -38,13 +38,13 @@ struct LoadPreCompute {
     b: u8,
 }
 
-impl<const LOAD_WIDTH: usize, const NUM_BLOCKS: usize> LoadExecutor<LOAD_WIDTH, NUM_BLOCKS> {
-    fn pre_compute_impl<F: PrimeField32>(
+impl<const LOAD_WIDTH: usize> LoadExecutor<LOAD_WIDTH> {
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut LoadPreCompute,
-    ) -> Result<(Rv64LoadStoreOpcode, bool), StaticProgramError> {
+    ) -> Result<(LoadStoreOpcode, bool), StaticProgramError> {
         let Instruction {
             opcode,
             a,
@@ -58,26 +58,25 @@ impl<const LOAD_WIDTH: usize, const NUM_BLOCKS: usize> LoadExecutor<LOAD_WIDTH, 
         } = inst;
         let enabled = !f.is_zero();
 
-        let e_u32 = e.as_canonical_u32();
-        if d.as_canonical_u32() != RV64_REGISTER_AS || e_u32 != RV64_MEMORY_AS {
+        let e_u32 = e.as_u32();
+        if d.as_u32() != REGISTER_AS || e_u32 != MEMORY_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
 
-        let local_opcode = Rv64LoadStoreOpcode::from_usize(
-            opcode.local_opcode_idx(Rv64LoadStoreOpcode::CLASS_OFFSET),
-        );
+        let local_opcode =
+            LoadStoreOpcode::from_usize(opcode.local_opcode_idx(LoadStoreOpcode::CLASS_OFFSET));
         match local_opcode {
             LOADD | LOADWU | LOADHU | LOADBU
                 if load_width_for_opcode(local_opcode) == LOAD_WIDTH => {}
             _ => return Err(StaticProgramError::InvalidInstruction(pc)),
         }
 
-        let imm = c.as_canonical_u32();
-        let imm_sign = g.as_canonical_u32();
+        let imm = c.as_u32();
+        let imm_sign = g.as_u32();
         *data = LoadPreCompute {
             imm_extended: sign_extend_imm16(imm, imm_sign),
-            a: a.as_canonical_u32() as u8,
-            b: b.as_canonical_u32() as u8,
+            a: a.as_u32() as u8,
+            b: b.as_u32() as u8,
         };
         Ok((local_opcode, enabled))
     }
@@ -99,16 +98,12 @@ macro_rules! dispatch {
     };
 }
 
-impl<F, const LOAD_WIDTH: usize, const NUM_BLOCKS: usize> InterpreterExecutor<F>
-    for LoadExecutor<LOAD_WIDTH, NUM_BLOCKS>
+impl<F, const LOAD_WIDTH: usize> InterpreterExecutor<F> for LoadExecutor<LOAD_WIDTH>
 where
     F: PrimeField32,
 {
     fn get_opcode_name(&self, opcode: usize) -> String {
-        format!(
-            "{:?}",
-            Rv64LoadStoreOpcode::from_usize(opcode - self.offset)
-        )
+        format!("{:?}", LoadStoreOpcode::from_usize(opcode - self.offset))
     }
 
     #[inline(always)]
@@ -121,7 +116,7 @@ where
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let pre_compute: &mut LoadPreCompute = data.borrow_mut();
@@ -133,7 +128,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -145,8 +140,7 @@ where
     }
 }
 
-impl<F, const LOAD_WIDTH: usize, const NUM_BLOCKS: usize> InterpreterMeteredExecutor<F>
-    for LoadExecutor<LOAD_WIDTH, NUM_BLOCKS>
+impl<F, const LOAD_WIDTH: usize> InterpreterMeteredExecutor<F> for LoadExecutor<LOAD_WIDTH>
 where
     F: PrimeField32,
 {
@@ -159,7 +153,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -176,7 +170,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -195,10 +189,10 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, OP: LoadOp, const ENABLED: bo
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) -> Result<(), ExecutionError> {
     let pc = exec_state.pc();
-    let rs1_bytes: [u8; RV64_REGISTER_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.b as u32);
-    let rs1_val = rv64_bytes_to_u32(rs1_bytes);
-    let ptr_val = checked_rv64_memory_address(pc, rs1_val, pre_compute.imm_extended, OP::WIDTH)?;
+    let rs1_bytes: [u8; REGISTER_NUM_LIMBS] =
+        exec_state.vm_read_bytes(REGISTER_AS, pre_compute.b as u32);
+    let rs1_val = bytes_to_u32(rs1_bytes);
+    let ptr_val = checked_memory_address(pc, rs1_val, pre_compute.imm_extended, OP::WIDTH)?;
     let write_data = OP::read(exec_state, ptr_val);
     if OP::WIDTH != BYTE_ACCESS_WIDTH
         && ptr_val as usize % DOUBLEWORD_ACCESS_WIDTH + OP::WIDTH <= DOUBLEWORD_ACCESS_WIDTH
@@ -207,7 +201,7 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, OP: LoadOp, const ENABLED: bo
     }
 
     if ENABLED {
-        exec_state.vm_write(RV64_REGISTER_AS, pre_compute.a as u32, &write_data);
+        exec_state.vm_write_bytes(REGISTER_AS, pre_compute.a as u32, &write_data);
     } else {
         exec_state.ctx.advance_timestamp(1);
     }
@@ -248,7 +242,7 @@ trait LoadOp {
     fn read<CTX: ExecutionCtxTrait>(
         exec_state: &mut VmExecState<GuestMemory, CTX>,
         ptr: u32,
-    ) -> [u8; RV64_REGISTER_NUM_LIMBS];
+    ) -> [u8; REGISTER_NUM_LIMBS];
 }
 
 struct LoadDOp;
@@ -263,8 +257,8 @@ impl LoadOp for LoadDOp {
     fn read<CTX: ExecutionCtxTrait>(
         exec_state: &mut VmExecState<GuestMemory, CTX>,
         ptr: u32,
-    ) -> [u8; RV64_REGISTER_NUM_LIMBS] {
-        exec_state.vm_read_bytes(RV64_MEMORY_AS, ptr)
+    ) -> [u8; REGISTER_NUM_LIMBS] {
+        exec_state.vm_read_bytes(MEMORY_AS, ptr)
     }
 }
 
@@ -275,8 +269,8 @@ impl LoadOp for LoadWUOp {
     fn read<CTX: ExecutionCtxTrait>(
         exec_state: &mut VmExecState<GuestMemory, CTX>,
         ptr: u32,
-    ) -> [u8; RV64_REGISTER_NUM_LIMBS] {
-        let [b0, b1, b2, b3] = exec_state.vm_read_bytes(RV64_MEMORY_AS, ptr);
+    ) -> [u8; REGISTER_NUM_LIMBS] {
+        let [b0, b1, b2, b3] = exec_state.vm_read_bytes(MEMORY_AS, ptr);
         [b0, b1, b2, b3, 0, 0, 0, 0]
     }
 }
@@ -288,8 +282,8 @@ impl LoadOp for LoadHUOp {
     fn read<CTX: ExecutionCtxTrait>(
         exec_state: &mut VmExecState<GuestMemory, CTX>,
         ptr: u32,
-    ) -> [u8; RV64_REGISTER_NUM_LIMBS] {
-        let [b0, b1] = exec_state.vm_read_bytes(RV64_MEMORY_AS, ptr);
+    ) -> [u8; REGISTER_NUM_LIMBS] {
+        let [b0, b1] = exec_state.vm_read_bytes(MEMORY_AS, ptr);
         [b0, b1, 0, 0, 0, 0, 0, 0]
     }
 }
@@ -301,8 +295,8 @@ impl LoadOp for LoadBUOp {
     fn read<CTX: ExecutionCtxTrait>(
         exec_state: &mut VmExecState<GuestMemory, CTX>,
         ptr: u32,
-    ) -> [u8; RV64_REGISTER_NUM_LIMBS] {
-        let [byte] = exec_state.vm_read_bytes(RV64_MEMORY_AS, ptr);
+    ) -> [u8; REGISTER_NUM_LIMBS] {
+        let [byte] = exec_state.vm_read_bytes(MEMORY_AS, ptr);
         [byte, 0, 0, 0, 0, 0, 0, 0]
     }
 }

@@ -45,9 +45,6 @@ jobs:
         env:
           RUSTUP_PERMIT_COPY_RENAME: "1"
       - uses: ./.github/actions/sccache
-      # TODO: remove once https://github.com/runs-on/runner-images-for-aws/issues/55 is fixed
-      - name: Setup GPU driver
-        run: bash ./scripts/gpu_driver_setup.sh
       - uses: ./.github/actions/rust-cache-cuda
       - uses: taiki-e/install-action@nextest
       - name: Install architecture specific tools
@@ -58,7 +55,6 @@ jobs:
       - name: Install solc
         # The SDK EVM/Halo2 verification tests shell out to solc when generating verifiers.
         run: (hash svm 2>/dev/null || cargo install --locked --version 0.2.23 svm-rs) && svm install 0.8.19 && solc --version
-
       - name: Verify GPU setup
         run: |
           nvidia-smi

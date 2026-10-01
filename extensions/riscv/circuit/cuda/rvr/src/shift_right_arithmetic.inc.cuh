@@ -1,7 +1,7 @@
 #include "arch/rvr/replay.cuh"
 
 
-__global__ void rv64_shift_right_arithmetic_replay_tracegen(
+__global__ void shift_right_arithmetic_replay_tracegen(
     Fp *trace,
     size_t height,
     DeviceBufferConstView<RvrReplayInstruction> instructions,
@@ -50,8 +50,8 @@ __global__ void rv64_shift_right_arithmetic_replay_tracegen(
     uint32_t rs2_ptr = instruction.words[3];
     if (instruction.words[0] != opcode ||
         instruction.words[4] != register_address_space ||
-        instruction.words[5] != register_address_space || rd_ptr == 0 || (rd_ptr & 1) != 0 ||
-        (rs1_ptr & 1) != 0 || (rs2_ptr & 1) != 0) {
+        instruction.words[5] != register_address_space || rd_ptr == 0 || !replay_canonical_register_pointer(rd_ptr) ||
+        !replay_canonical_register_pointer(rs1_ptr) || !replay_canonical_register_pointer(rs2_ptr)) {
         preflight_set_error(error, 154);
         return;
     }
@@ -80,11 +80,9 @@ __global__ void rv64_shift_right_arithmetic_replay_tracegen(
     uint16_t b[BLOCK_FE_WIDTH];
     uint16_t c[BLOCK_FE_WIDTH];
     uint16_t logged_result[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(rs1.value, b) || !replay_u16_block(rs2.value, c) ||
-        !replay_u16_block(write.value, logged_result)) {
-        preflight_set_error(error, 157);
-        return;
-    }
+    replay_u16_block(rs1.value, b);
+    replay_u16_block(rs2.value, c);
+    replay_u16_block(write.value, logged_result);
     uint16_t expected_result[BLOCK_FE_WIDTH];
     size_t limb_shift = 0;
     size_t bit_shift = 0;
@@ -116,7 +114,7 @@ __global__ void rv64_shift_right_arithmetic_replay_tracegen(
     }
 
     auto checker = VariableRangeChecker(range_checker, range_checker_num_bins);
-    auto adapter = Rv64BaseAluRegU16Adapter(checker, timestamp_max_bits);
+    auto adapter = BaseAluRegU16Adapter(checker, timestamp_max_bits);
     adapter.fill_trace_row(
         row,
         from.pc,
@@ -129,7 +127,7 @@ __global__ void rv64_shift_right_arithmetic_replay_tracegen(
         write_previous.timestamp,
         write_previous.value
     );
-    auto core = Rv64ShiftRightArithmeticCore(checker);
+    auto core = ShiftRightArithmeticCore<BLOCK_FE_WIDTH, U16_BITS>(checker);
     core.fill_trace_row(
         row.slice_from(COL_INDEX(ShiftRightArithmeticCols, core)), b, c
     );
@@ -137,7 +135,7 @@ __global__ void rv64_shift_right_arithmetic_replay_tracegen(
 
 
 
-extern "C" int _rv64_shift_right_arithmetic_replay_tracegen(
+extern "C" int _shift_right_arithmetic_replay_tracegen(
     Fp *trace,
     size_t height,
     size_t width,
@@ -163,8 +161,8 @@ extern "C" int _rv64_shift_right_arithmetic_replay_tracegen(
     assert(step_start <= steps.len());
     assert(num_steps <= steps.len() - step_start);
     assert(height >= num_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
-    rv64_shift_right_arithmetic_replay_tracegen<<<grid, block, 0, stream>>>(
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
+    shift_right_arithmetic_replay_tracegen<<<grid, block, 0, stream>>>(
         trace,
         height,
         instructions,

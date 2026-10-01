@@ -4,7 +4,7 @@ use air::{MemoryDummyAir, MemoryDummyChip};
 use rand::Rng;
 
 use crate::{
-    arch::{MemoryCellType, VmField, BLOCK_FE_WIDTH, NUM_RV64_REGISTERS, U16_CELL_SIZE},
+    arch::{MemoryCellType, VmField, BLOCK_FE_WIDTH, NUM_REGISTERS, U16_CELL_SIZE},
     system::memory::{
         offline_checker::pack_u8_block_value, online::TracingMemory, MemoryController,
     },
@@ -57,14 +57,19 @@ impl<F: VmField> MemoryTester<F> {
         let t = memory.timestamp();
         let cell_layout = memory.data().memory.config[addr_space].layout;
         let (t_prev, data) = match cell_layout {
-            MemoryCellType::F { .. } => unsafe {
-                memory.read::<F, BLOCK_FE_WIDTH>(addr_space as u32, ptr as u32)
-            },
+            MemoryCellType::U8 => {
+                let (t_prev, data) =
+                    unsafe { memory.read::<u8, BLOCK_FE_WIDTH>(addr_space as u32, ptr as u32) };
+                (t_prev, data.map(F::from_u8))
+            }
             MemoryCellType::U16 => {
                 let (t_prev, data) =
                     unsafe { memory.read::<u16, BLOCK_FE_WIDTH>(addr_space as u32, ptr as u32) };
                 (t_prev, data.map(F::from_u16))
             }
+            MemoryCellType::F { .. } => unsafe {
+                memory.read::<F, BLOCK_FE_WIDTH>(addr_space as u32, ptr as u32)
+            },
             other => panic!("MemoryTester::read unsupported cell type {other:?}"),
         };
         self.chip
@@ -81,9 +86,23 @@ impl<F: VmField> MemoryTester<F> {
         let t = memory.timestamp();
         let cell_layout = memory.data().memory.config[addr_space].layout;
         let (t_prev, data_prev) = match cell_layout {
-            MemoryCellType::F { .. } => unsafe {
-                memory.write::<F, BLOCK_FE_WIDTH>(addr_space as u32, ptr as u32, data)
-            },
+            MemoryCellType::U8 => {
+                let (t_prev, data_prev) = unsafe {
+                    memory.write::<u8, BLOCK_FE_WIDTH>(
+                        addr_space as u32,
+                        ptr as u32,
+                        data.map(|x| {
+                            let v = x.as_canonical_u32();
+                            assert!(
+                                v <= u8::MAX as u32,
+                                "MemoryTester::write got F value {v} outside u8 range",
+                            );
+                            v as u8
+                        }),
+                    )
+                };
+                (t_prev, data_prev.map(F::from_u8))
+            }
             MemoryCellType::U16 => {
                 let (t_prev, data_prev) = unsafe {
                     memory.write::<u16, BLOCK_FE_WIDTH>(
@@ -101,6 +120,9 @@ impl<F: VmField> MemoryTester<F> {
                 };
                 (t_prev, data_prev.map(F::from_u16))
             }
+            MemoryCellType::F { .. } => unsafe {
+                memory.write::<F, BLOCK_FE_WIDTH>(addr_space as u32, ptr as u32, data)
+            },
             other => panic!("MemoryTester::write unsupported cell type {other:?}"),
         };
         self.chip
@@ -166,7 +188,7 @@ pub fn gen_pointer<R>(rng: &mut R, len: usize) -> usize
 where
     R: Rng + ?Sized,
 {
-    const MAX_MEMORY: usize = 1 << 29;
+    const MAX_MEMORY: usize = 1 << 31;
     rng.random_range(0..MAX_MEMORY - len) / len * len
 }
 
@@ -174,7 +196,7 @@ pub fn gen_register_pointer<R>(rng: &mut R, len: usize) -> usize
 where
     R: Rng + ?Sized,
 {
-    let num_aligned_regions = NUM_RV64_REGISTERS * size_of::<u64>() / len;
+    let num_aligned_regions = NUM_REGISTERS * size_of::<u64>() / len;
     rng.random_range(0..num_aligned_regions) * len
 }
 
@@ -182,7 +204,7 @@ pub fn gen_distinct_register_pointers<R, const N: usize>(rng: &mut R, len: usize
 where
     R: Rng + ?Sized,
 {
-    let num_aligned_regions = NUM_RV64_REGISTERS * size_of::<u64>() / len;
+    let num_aligned_regions = NUM_REGISTERS * size_of::<u64>() / len;
     assert!(N <= num_aligned_regions);
 
     let mut pointers = [0; N];
@@ -202,7 +224,7 @@ pub fn gen_nonzero_register_pointer<R>(rng: &mut R, len: usize) -> usize
 where
     R: Rng + ?Sized,
 {
-    let num_aligned_regions = NUM_RV64_REGISTERS * size_of::<u64>() / len;
+    let num_aligned_regions = NUM_REGISTERS * size_of::<u64>() / len;
     let first_nonzero_region = size_of::<u64>().div_ceil(len);
     rng.random_range(first_nonzero_region..num_aligned_regions) * len
 }

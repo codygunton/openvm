@@ -3,11 +3,9 @@ use std::mem::size_of;
 use openvm_instructions::{
     exe::SparseMemoryImage,
     metering::{PAGE_MASK_LEAF_BITS, SEGMENT_CHECK_INSNS},
-    riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
-    DEFERRAL_AS, VM_DIGEST_WIDTH,
+    riscv::{MEMORY_AS, NUM_REGISTERS, REGISTER_AS, REGISTER_NUM_LIMBS},
+    DEFERRAL_AS, PUBLIC_VALUES_AS, VM_DIGEST_WIDTH,
 };
-#[cfg(test)]
-use openvm_instructions::{riscv::RV64_MEMORY_AS, PUBLIC_VALUES_AS};
 
 pub use super::memory_tracker::PageTouch;
 use super::memory_tracker::{
@@ -25,9 +23,10 @@ const MAX_MEM_PAGE_OPS_PER_INSN: usize = 1 << 16;
 // range accesses; this avoids preallocating the worst-case per-instruction page
 // count for the common scalar-access path.
 const INITIAL_CHECKPOINT_PAGE_ACCESSES_PER_INSN: usize = 16;
-// Shift amounts from address-space pointer units to memory Merkle leaves.
-const BYTE_PTRS_PER_LEAF_BITS: u32 = (U16_CELL_SIZE * VM_DIGEST_WIDTH).ilog2();
-const DEFERRAL_PTRS_PER_LEAF_BITS: u32 = VM_DIGEST_WIDTH.ilog2();
+// Public-values and deferral callbacks use cell pointers.
+const CELLS_PER_LEAF_BITS: u32 = VM_DIGEST_WIDTH.ilog2();
+// Register and main-memory accounting uses byte pointers over U16 cells.
+const MEMORY_LEAF_BYTE_BITS: u32 = (U16_CELL_SIZE * VM_DIGEST_WIDTH).ilog2();
 const FIELD_ELEMENT_BYTES: u32 = size_of::<u32>() as u32;
 
 /// Tracks which parts of memory contribute rows to the current segment.
@@ -92,9 +91,9 @@ impl MemoryCtx {
     #[inline(always)]
     pub(crate) fn add_register_merkle_heights(&mut self) {
         self.update_boundary_merkle_heights(
-            RV64_REGISTER_AS,
+            REGISTER_AS,
             0,
-            (RV64_NUM_REGISTERS * RV64_REGISTER_NUM_LIMBS) as u32,
+            (NUM_REGISTERS * REGISTER_NUM_LIMBS) as u32,
         );
     }
 
@@ -116,14 +115,17 @@ impl MemoryCtx {
 
     #[inline(always)]
     fn leaf_id_range(&self, address_space: u32, ptr: u32, size: u32) -> (u32, u32) {
-        let end_ptr = ptr + size - 1;
-        let leaf_bits = if address_space == DEFERRAL_AS {
-            DEFERRAL_PTRS_PER_LEAF_BITS
-        } else {
-            BYTE_PTRS_PER_LEAF_BITS
+        // The inclusive end pointer may be up to 2^32 - 1 for u16-celled byte ranges, so compute
+        // it in u64 to avoid overflowing u32. (`size >= 1`.)
+        let end_ptr = u64::from(ptr) + u64::from(size) - 1;
+        let leaf_bits = match address_space {
+            PUBLIC_VALUES_AS | DEFERRAL_AS => CELLS_PER_LEAF_BITS,
+            REGISTER_AS | MEMORY_AS => MEMORY_LEAF_BYTE_BITS,
+            _ => panic!("unsupported metered address space {address_space}"),
         };
         let leaf_label = ptr >> leaf_bits;
-        let end_leaf_label = end_ptr >> leaf_bits;
+        // `end_leaf_label < 2^address_height` since `end_ptr` fits the 32-bit byte-pointer domain.
+        let end_leaf_label = (end_ptr >> leaf_bits) as u32;
         let num_leaves = end_leaf_label - leaf_label + 1;
         debug_assert!(
             leaf_label < (1 << self.memory_dimensions.address_height),
@@ -155,8 +157,8 @@ impl MemoryCtx {
     }
 
     /// Records the memory-tree pages touched by `[ptr, ptr + size)`.
-    /// For metered callbacks, DEFERRAL_AS ranges are AS-native F-cell ranges and
-    /// u16-celled address space ranges are byte ranges.
+    /// Public-value and deferral ranges use cell pointers; register and main-memory ranges use
+    /// byte pointers.
     #[inline(always)]
     pub(crate) fn update_boundary_merkle_heights(
         &mut self,
@@ -406,6 +408,19 @@ mod tests {
     use super::*;
     use crate::{arch::MEMORY_BLOCK_BYTES, utils::test_system_config};
 
+    /// A u16-celled byte range ending at the top of the 2^32 address space (inclusive end
+    /// `= 2^32 - 1`) must not overflow when computing the inclusive end pointer. Here `ptr + size`
+    /// alone overflows `u32`, so the accounting must widen to `u64` (regression for the 2^32
+    /// memory-address change).
+    #[test]
+    fn test_update_boundary_merkle_heights_at_top_of_address_space() {
+        // The default config exposes the full 2^32-byte RV64 memory capacity.
+        let system_config = SystemConfig::default();
+        let mut ctx = MemoryCtx::new(&system_config);
+        // Byte range [u32::MAX - 7, u32::MAX] (8 bytes ending at 2^32 - 1).
+        ctx.update_boundary_merkle_heights(MEMORY_AS, u32::MAX - 7, 8);
+    }
+
     #[test]
     fn test_range_insertion_matches_explicit_leaves() {
         let system_config = test_system_config();
@@ -431,7 +446,7 @@ mod tests {
         let block_size = MEMORY_BLOCK_BYTES as u32;
 
         for width in [1, 2, 4, 8] {
-            for ptr in 0..2 * (1 << BYTE_PTRS_PER_LEAF_BITS) {
+            for ptr in 0..2 * (1 << MEMORY_LEAF_BYTE_BITS) {
                 let block_ptr = ptr / block_size * block_size;
                 let block_span = if ptr - block_ptr + width > block_size {
                     2 * block_size
@@ -440,8 +455,8 @@ mod tests {
                 };
 
                 assert_eq!(
-                    ctx.leaf_id_range(RV64_MEMORY_AS, ptr, width),
-                    ctx.leaf_id_range(RV64_MEMORY_AS, block_ptr, block_span),
+                    ctx.leaf_id_range(MEMORY_AS, ptr, width),
+                    ctx.leaf_id_range(MEMORY_AS, block_ptr, block_span),
                     "ptr={ptr}, width={width}"
                 );
             }
@@ -466,13 +481,34 @@ mod tests {
     fn test_address_spaces_map_to_distinct_pages() {
         let system_config = test_system_config();
         let ctx = MemoryCtx::new(&system_config);
-        let memory_page = ctx.leaf_id_range(RV64_MEMORY_AS, 0, 1).0 >> PAGE_MASK_LEAF_BITS;
+        let memory_page = ctx.leaf_id_range(MEMORY_AS, 0, 1).0 >> PAGE_MASK_LEAF_BITS;
         let public_values_page = ctx.leaf_id_range(PUBLIC_VALUES_AS, 0, 1).0 >> PAGE_MASK_LEAF_BITS;
         let deferral_page = ctx.leaf_id_range(DEFERRAL_AS, 0, 1).0 >> PAGE_MASK_LEAF_BITS;
 
         assert_ne!(memory_page, public_values_page);
         assert_ne!(memory_page, deferral_page);
         assert_ne!(public_values_page, deferral_page);
+    }
+
+    #[test]
+    #[should_panic(expected = "unsupported metered address space 5")]
+    fn custom_address_space_is_not_metered_as_main_memory() {
+        let system_config = test_system_config();
+        let mut ctx = MemoryCtx::new(&system_config);
+
+        ctx.update_boundary_merkle_heights(DEFERRAL_AS + 1, 0, 1);
+    }
+
+    #[test]
+    fn public_values_use_u8_merkle_leaves() {
+        let system_config = test_system_config();
+        let mut ctx = MemoryCtx::new(&system_config);
+
+        ctx.update_boundary_merkle_heights(PUBLIC_VALUES_AS, 0, (2 * VM_DIGEST_WIDTH) as u32);
+
+        let mut trace_heights = vec![0; 6];
+        ctx.apply_height_updates(&mut trace_heights);
+        assert_eq!(trace_heights[BOUNDARY_AIR_ID], 2);
     }
 
     #[test]
@@ -500,7 +536,7 @@ mod tests {
         let mut ctx = MemoryCtx::new(&system_config);
         let mut trace_heights = vec![0; 6];
 
-        ctx.update_boundary_merkle_heights(RV64_MEMORY_AS, 0, 1);
+        ctx.update_boundary_merkle_heights(MEMORY_AS, 0, 1);
         ctx.apply_height_updates(&mut trace_heights);
         ctx.update_checkpoint();
 
@@ -510,7 +546,7 @@ mod tests {
         let poseidon_before = trace_heights[poseidon2_idx];
         let next_page_ptr = ((1 << PAGE_MASK_LEAF_BITS) * U16_CELL_SIZE * VM_DIGEST_WIDTH) as u32;
 
-        ctx.update_boundary_merkle_heights(RV64_MEMORY_AS, next_page_ptr, 1);
+        ctx.update_boundary_merkle_heights(MEMORY_AS, next_page_ptr, 1);
         ctx.apply_height_updates(&mut trace_heights);
 
         assert_eq!(trace_heights[BOUNDARY_AIR_ID] - boundary_before, 1);
@@ -560,6 +596,28 @@ mod tests {
         ctx.apply_height_updates(&mut trace_heights);
 
         let poseidon2_idx = trace_heights.len() - 2;
+        assert_eq!(trace_heights[poseidon2_idx], 2 * height + 4);
+    }
+
+    #[test]
+    fn initial_public_value_bytes_seed_distinct_u8_leaves() {
+        let system_config = test_system_config();
+        let mut ctx = MemoryCtx::new(&system_config);
+        let height = ctx.memory_dimensions.overall_height() as u32;
+        let second_leaf_ptr = VM_DIGEST_WIDTH as u32;
+        ctx.seed_initial_memory(&SparseMemoryImage::from([
+            ((PUBLIC_VALUES_AS, 0), 1),
+            ((PUBLIC_VALUES_AS, second_leaf_ptr), 1),
+        ]));
+
+        ctx.update_boundary_merkle_heights(PUBLIC_VALUES_AS, 0, 1);
+        ctx.update_boundary_merkle_heights(PUBLIC_VALUES_AS, second_leaf_ptr, 1);
+
+        let mut trace_heights = vec![0; 6];
+        ctx.apply_height_updates(&mut trace_heights);
+
+        let poseidon2_idx = trace_heights.len() - 2;
+        assert_eq!(trace_heights[BOUNDARY_AIR_ID], 2);
         assert_eq!(trace_heights[poseidon2_idx], 2 * height + 4);
     }
 

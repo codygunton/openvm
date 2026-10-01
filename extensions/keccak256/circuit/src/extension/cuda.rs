@@ -3,14 +3,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[cfg(feature = "rvr")]
-use openvm_circuit::arch::rvr::cuda::{PostflightAccessRegistry, PostflightAccessSpan};
 use openvm_circuit::{
     arch::{
         cuda::postflight::{
             GpuPostflightError, GpuPostflightPlan, GpuPostflightProgram, GpuPostflightTranscript,
         },
-        prepare_gpu_postflight, to_byte_ptr_bits, GenerationError, Postflight, PostflightTracegen,
+        prepare_gpu_postflight, to_byte_ptr_bits, GenerationError, PostflightTracegen,
         PreflightOutput, VirtualMachine, VmBuilder,
     },
     system::cuda::{
@@ -23,20 +21,19 @@ use openvm_circuit::{
 use openvm_cuda_backend::{BabyBearPoseidon2GpuEngine as GpuBabyBearPoseidon2Engine, GpuBackend};
 use openvm_instructions::{program::Program, LocalOpcode};
 use openvm_keccak256_transpiler::{KeccakfOpcode, XorinOpcode};
+#[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
+use openvm_riscv_circuit::preflight::PreflightReplayProgram;
+#[cfg(feature = "rvr")]
+use openvm_riscv_circuit::preflight::{
+    PostflightAccessRegistry, PostflightAccessSchedule, PostflightAccessSpan,
+};
 use openvm_riscv_circuit::{Rv64ImGpuProverExt, Rv64ImPreflightGpuTracegen};
 use openvm_stark_backend::prover::{AirProvingContext, ProvingContext};
-use openvm_stark_sdk::{
-    config::baby_bear_poseidon2::BabyBearPoseidon2Config, p3_baby_bear::BabyBear,
-};
+use openvm_stark_sdk::config::baby_bear_poseidon2::BabyBearPoseidon2Config;
 #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
 use {
-    openvm_circuit::arch::{
-        rvr::{cuda::CheckpointReplayProgram, PreflightExecution},
-        MemoryConfig,
-    },
+    openvm_circuit::arch::{rvr::PreflightExecution, MemoryConfig},
     openvm_cuda_common::stream::GpuDeviceCtx,
-    openvm_instructions::program::Program,
-    openvm_stark_backend::p3_field::PrimeField32,
 };
 
 use super::*;
@@ -78,47 +75,51 @@ impl<'a> Keccak256PreflightGpuTracegen<'a> {
     ) -> Result<(), GpuPostflightError> {
         registry.register(
             KeccakfOpcode::KECCAKF.global_opcode().as_usize() as u32,
-            &[1],
-            (1 << 2) | (1 << 3) | (1 << 6) | (1 << 7),
-            4,
-            5,
-            &[PostflightAccessSpan::write_fixed_from_residuals(
-                openvm_instructions::riscv::RV64_MEMORY_AS,
-                0,
-                25,
-            )],
+            PostflightAccessSchedule {
+                register_operands: &[1],
+                zero_operand_mask: (1 << 2) | (1 << 3) | (1 << 6) | (1 << 7),
+                register_as_operand: 4,
+                memory_as_operand: 5,
+                spans: &[PostflightAccessSpan::write_fixed_from_replay_values(
+                    openvm_instructions::riscv::MEMORY_AS,
+                    0,
+                    25,
+                )],
+            },
         )?;
         let count_shift = 3;
         let max_words = 17;
         registry.register(
             XorinOpcode::XORIN.global_opcode().as_usize() as u32,
-            &[1, 2, 3],
-            (1 << 6) | (1 << 7),
-            4,
-            5,
-            &[
-                PostflightAccessSpan::read_count_from_register(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
-                    0,
-                    2,
-                    count_shift,
-                    max_words,
-                ),
-                PostflightAccessSpan::read_count_from_register(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
-                    1,
-                    2,
-                    count_shift,
-                    max_words,
-                ),
-                PostflightAccessSpan::write_count_from_register_from_residuals(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
-                    0,
-                    2,
-                    count_shift,
-                    max_words,
-                ),
-            ],
+            PostflightAccessSchedule {
+                register_operands: &[1, 2, 3],
+                zero_operand_mask: (1 << 6) | (1 << 7),
+                register_as_operand: 4,
+                memory_as_operand: 5,
+                spans: &[
+                    PostflightAccessSpan::read_count_from_register(
+                        openvm_instructions::riscv::MEMORY_AS,
+                        0,
+                        2,
+                        count_shift,
+                        max_words,
+                    ),
+                    PostflightAccessSpan::read_count_from_register(
+                        openvm_instructions::riscv::MEMORY_AS,
+                        1,
+                        2,
+                        count_shift,
+                        max_words,
+                    ),
+                    PostflightAccessSpan::write_register_count_from_replay_values(
+                        openvm_instructions::riscv::MEMORY_AS,
+                        0,
+                        2,
+                        count_shift,
+                        max_words,
+                    ),
+                ],
+            },
         )?;
         Ok(())
     }
@@ -127,16 +128,14 @@ impl<'a> Keccak256PreflightGpuTracegen<'a> {
     /// schedules installed once. Callers do not need to construct or merge the
     /// experimental registry themselves.
     #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
-    pub fn upload_postflight_program<F: PrimeField32>(
-        program: &Program<F>,
+    pub fn upload_postflight_program(
+        program: &Program,
         memory_config: &MemoryConfig,
         device_ctx: &GpuDeviceCtx,
-    ) -> Result<CheckpointReplayProgram, GpuPostflightError> {
+    ) -> Result<PreflightReplayProgram, GpuPostflightError> {
         let mut registry = PostflightAccessRegistry::default();
         Self::register_postflight_access_schedules(&mut registry)?;
-        registry
-            .validate_no_native_collisions(Rv64ImPreflightGpuTracegen::postflight_opcode_bases())?;
-        CheckpointReplayProgram::upload_with_postflight_access_registry(
+        PreflightReplayProgram::upload_with_postflight_access_registry(
             program,
             memory_config,
             &registry,
@@ -147,15 +146,14 @@ impl<'a> Keccak256PreflightGpuTracegen<'a> {
     #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
     pub fn postflight<VB>(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, VB>,
-        program: &CheckpointReplayProgram,
+        program: &PreflightReplayProgram,
         execution: &PreflightExecution,
         num_insns: u32,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError>
     where
         VB: VmBuilder<GpuBabyBearPoseidon2Engine, SystemChipInventory = SystemChipInventoryGPU>,
     {
-        let opcodes = Rv64ImPreflightGpuTracegen::postflight_opcode_bases();
-        vm.postflight(program, execution, num_insns, opcodes)
+        Rv64ImPreflightGpuTracegen::postflight(vm, program, execution, num_insns)
     }
 
     pub fn new(
@@ -258,14 +256,14 @@ impl<'a> Keccak256PreflightGpuTracegen<'a> {
             self.transcript,
             self.replay_plan,
             (self, rv64),
-            |(tracegen, rv64), insertion_idx, chip| {
+            |(tracegen, rv64), chip| {
                 if let Some(ctx) = tracegen
                     .generate_for_chip(chip)
                     .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?
                 {
                     Ok(ctx)
                 } else {
-                    rv64.generate_for_chip(insertion_idx, chip)
+                    rv64.generate_for_chip(chip)
                         .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
                 }
             },
@@ -338,16 +336,16 @@ impl PostflightTracegen<GpuBabyBearPoseidon2Engine> for Keccak256Rv64GpuBuilder 
 
     fn prepare_postflight(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
-        program: &Program<BabyBear>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
         prepare_gpu_postflight(vm, program)
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
+        _host_program: &Program,
         program: &Self::Prepared,
         output: &PreflightOutput,
-        _postflight: &Postflight<'_, BabyBear>,
     ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
         let (transcript, replay_plan) = vm
             .postflight_history(program, output)

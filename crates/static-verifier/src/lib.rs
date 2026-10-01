@@ -14,12 +14,14 @@
 //! values + symbolic DAG cached-commit pin) belong in `openvm-sdk` integration tests; this crate
 //! keeps a lighter FibFixture + KZG roundtrip via
 //! [`StaticVerifierCircuit::populate_verify_stark_constraints`].
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 #[cfg(feature = "cell-profiling")]
 mod context_tree;
 pub mod profiling;
 
+pub mod backend;
+pub mod chip_traits;
 mod circuit;
 #[cfg(feature = "evm-prove")]
 pub mod codec;
@@ -29,6 +31,9 @@ pub mod hash;
 pub mod keygen;
 pub mod prover;
 pub mod stages;
+#[cfg(test)]
+mod test_fixtures;
+pub mod tracegen;
 pub mod transcript;
 mod utils;
 #[cfg(feature = "evm-prove")]

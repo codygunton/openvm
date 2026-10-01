@@ -1,10 +1,12 @@
+#[cfg(feature = "rvr")]
+use std::{fs, io};
 use std::{slice::from_ref, sync::Arc};
 
 use eyre::Result;
 use openvm::platform::memory::MEM_SIZE;
+use openvm_circuit::arch::instructions::exe::VmExe;
 #[cfg(feature = "rvr")]
 use openvm_circuit::arch::ExecutionOutcome;
-use openvm_circuit::arch::{instructions::exe::VmExe, U16_CELL_SIZE};
 #[cfg(feature = "cuda")]
 use openvm_circuit::arch::{verify_segments, VirtualMachineError};
 use openvm_continuations::prover::DeferralCircuitProver;
@@ -38,7 +40,7 @@ use crate::{
         DEFAULT_APP_L_SKIP,
     },
     prover::{DeferralAggProver, DeferralHookCommits, DeferralProof, MultiDeferralCircuitProver},
-    DeferralInput, Sdk, StdIn, F,
+    DeferralInput, Sdk, StdIn,
 };
 
 cfg_if::cfg_if! {
@@ -59,6 +61,16 @@ cfg_if::cfg_if! {
 
 /// Default deferral idx for the verify-stark deferral circuit.
 const DEFAULT_VERIFY_STARK_DEF_IDX: usize = 0;
+
+#[cfg(feature = "rvr")]
+fn generated_source(compiled: &crate::CompiledExePure<'_>) -> Result<String> {
+    let sources = tempfile::tempdir()?;
+    compiled.save_generated_sources(sources.path())?;
+    Ok(fs::read_dir(sources.path())?
+        .map(|entry| fs::read_to_string(entry?.path()))
+        .collect::<io::Result<Vec<_>>>()?
+        .concat())
+}
 
 /// Returns app, aggregation, and root params, allowing tests to override them via env vars.
 fn get_params() -> (SystemParams, AggregationSystemParams, SystemParams) {
@@ -108,7 +120,7 @@ fn get_params_from_env(env_var: &str, default: SystemParams) -> SystemParams {
 fn generate_fib_vm_stark_proof(fib_sdk: &Sdk) -> Result<(VmStarkProof, VerificationBaseline)> {
     let fib_elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let fib_exe = fib_sdk.convert_to_exe(fib_elf)?;
     let n = 100u64;
@@ -329,21 +341,13 @@ fn make_verify_stark_inputs_for_indices(
 fn collapse_user_public_values(expanded: &[u8]) -> Vec<u8> {
     const F_NUM_BYTES: usize = core::mem::size_of::<u32>();
     assert!(expanded.len().is_multiple_of(F_NUM_BYTES));
-    let mut user_public_values = Vec::with_capacity(expanded.len() / F_NUM_BYTES * U16_CELL_SIZE);
-    for bytes in expanded.chunks_exact(F_NUM_BYTES) {
-        assert_eq!(&bytes[U16_CELL_SIZE..], &[0; F_NUM_BYTES - U16_CELL_SIZE]);
-        user_public_values.extend_from_slice(&bytes[..U16_CELL_SIZE]);
-    }
-    user_public_values
-}
-
-#[test]
-fn collapse_user_public_values_preserves_u16_cells() {
-    let expanded = [0x34, 0x12, 0, 0, 0xcd, 0xab, 0, 0];
-    assert_eq!(
-        collapse_user_public_values(&expanded),
-        [0x34, 0x12, 0xcd, 0xab]
-    );
+    expanded
+        .chunks_exact(F_NUM_BYTES)
+        .map(|bytes| {
+            assert_eq!(&bytes[1..], &[0; F_NUM_BYTES - 1]);
+            bytes[0]
+        })
+        .collect()
 }
 
 /// Proves `exe` with the given inputs and verifies the resulting proof. The exact prover path
@@ -353,7 +357,7 @@ fn collapse_user_public_values_preserves_u16_cells() {
 ///   * `evm-verify`: EVM proof via `sdk.prove_evm`, verified against the halo2 verifier
 fn prove_and_verify_e2e(
     sdk: &Sdk,
-    exe: Arc<VmExe<F>>,
+    exe: Arc<VmExe>,
     stdin: StdIn,
     def_inputs: &[DeferralInput],
 ) -> Result<()> {
@@ -386,7 +390,7 @@ fn test_sdk_fibonacci() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let app_exe = sdk.convert_to_exe(elf)?;
 
@@ -404,7 +408,7 @@ fn test_preflight_app_prover_reuse() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
     let mut prover = sdk.app_prover(exe)?;
@@ -440,7 +444,7 @@ fn test_preflight_stark_prover() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
     let mut prover = sdk.prover(exe)?;
@@ -462,7 +466,7 @@ fn test_verify_stark_deferral() -> Result<()> {
 
     let vs_elf = Elf::decode(
         include_bytes!("../programs/examples/verify-stark.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let vs_exe = vs_sdk.convert_to_exe(vs_elf)?;
 
@@ -496,7 +500,7 @@ fn test_verify_many_deferrals() -> Result<()> {
 
     let vs_elf = Elf::decode(
         include_bytes!("../programs/examples/verify-many.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let vs_exe = vs_sdk.convert_to_exe(vs_elf)?;
 
@@ -512,7 +516,7 @@ fn test_verify_stark_path_sdk_can_verify_own_proofs() -> Result<()> {
 
     let vs_elf = Elf::decode(
         include_bytes!("../programs/examples/verify-stark.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let vs_exe = sdk.convert_to_exe(vs_elf)?;
 
@@ -537,7 +541,7 @@ fn test_deferrals_enabled_without_usage() -> Result<()> {
 
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let app_exe = sdk.convert_to_exe(elf)?;
 
@@ -550,11 +554,40 @@ fn test_deferrals_enabled_without_usage() -> Result<()> {
 
 #[cfg(feature = "rvr")]
 #[test]
+fn test_sdk_cfg_block_starts_affect_compilation() -> Result<()> {
+    let (sdk, _, _) = make_fib_sdk();
+    let elf = Elf::decode(
+        include_bytes!("../programs/examples/fibonacci.elf"),
+        MEM_SIZE as u64,
+    )?;
+    let exe = sdk.convert_to_exe(elf)?;
+    let baseline = sdk.compile(exe.clone())?;
+    let baseline_source = generated_source(&baseline)?;
+    let hinted_pc = exe
+        .program
+        .instructions_and_debug_infos
+        .iter()
+        .enumerate()
+        .filter(|(_, slot)| slot.is_some())
+        .map(|(index, _)| exe.program.pc_base + u32::try_from(index).unwrap() * 4)
+        .find(|pc| !baseline_source.contains(&format!("block_0x{pc:08x}")))
+        .expect("fibonacci program has a non-leader instruction");
+
+    let mut hinted_exe = exe.as_ref().clone();
+    hinted_exe.cfg_block_starts.insert(hinted_pc);
+    let hinted = sdk.compile(hinted_exe)?;
+
+    assert!(generated_source(&hinted)?.contains(&format!("block_0x{hinted_pc:08x}")));
+    Ok(())
+}
+
+#[cfg(feature = "rvr")]
+#[test]
 fn test_sdk_compiled_pure_save_load_roundtrip() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
 
@@ -581,7 +614,7 @@ fn test_sdk_compiled_instret_tracking_save_load_roundtrip() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
 
@@ -619,7 +652,7 @@ fn test_sdk_compiled_metered_save_load_roundtrip() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
 
@@ -660,7 +693,7 @@ fn test_sdk_compiled_metered_cost_save_load_roundtrip() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
 
@@ -695,7 +728,7 @@ fn test_sdk_compiled_metered_execute() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
 
@@ -709,11 +742,41 @@ fn test_sdk_compiled_metered_execute() -> Result<()> {
 }
 
 #[test]
+fn test_sdk_compiled_preflight_executes_metered_segment() -> Result<()> {
+    let (sdk, _, _) = make_fib_sdk();
+    let elf = Elf::decode(
+        include_bytes!("../programs/examples/fibonacci.elf"),
+        MEM_SIZE as u64,
+    )?;
+    let exe = sdk.convert_to_exe(elf)?;
+
+    let mut stdin = StdIn::default();
+    stdin.write(&100u64);
+
+    let metered = sdk.compile_metered(exe.clone())?;
+    let (_, segments) = sdk.execute_metered(&metered, stdin.clone())?;
+    let preflight = sdk.compile_preflight(exe)?;
+    let state = preflight.create_initial_vm_state(stdin);
+    let initial_pc = state.pc();
+    let mut empty_segment = segments[0].clone();
+    empty_segment.num_insns = 0;
+    empty_segment.num_preflight_replay_values = 0;
+    let empty = sdk.execute_preflight(&preflight, state, &empty_segment)?;
+    assert!(!empty.is_terminated());
+    assert_eq!(empty.state().pc(), initial_pc);
+
+    let output = sdk.execute_preflight(&preflight, empty.into_state(), &segments[0])?;
+
+    assert_eq!(output.is_terminated(), segments.len() == 1);
+    Ok(())
+}
+
+#[test]
 fn test_sdk_compiled_metered_cost_execute() -> Result<()> {
     let (sdk, _, _) = make_fib_sdk();
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = sdk.convert_to_exe(elf)?;
 
@@ -751,12 +814,12 @@ fn test_deferral_aware_sdk_with_odd_children() -> Result<()> {
 
     let elf = Elf::decode(
         include_bytes!("../programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let app_exe = aware_sdk.convert_to_exe(elf)?;
 
     let mut stdin = StdIn::default();
-    stdin.write(&(1u64 << 17));
+    stdin.write(&512u64);
 
     let compiled = aware_sdk.compile_metered(app_exe.clone())?;
     let (_, segments) = aware_sdk.execute_metered(&compiled, stdin.clone())?;
@@ -776,7 +839,7 @@ fn test_verify_stark_with_deferral_child() -> Result<()> {
 
     let vs_elf = Elf::decode(
         include_bytes!("../programs/examples/verify-stark.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let vs_exe = vs_sdk.convert_to_exe(vs_elf)?;
 
@@ -832,7 +895,7 @@ fn test_prove_mixed_vm_def_depth_mismatch() -> Result<()> {
 
     let vs_elf = Elf::decode(
         include_bytes!("../programs/examples/verify-stark.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let vs_exe = vs_sdk.convert_to_exe(vs_elf)?;
 
@@ -918,6 +981,32 @@ fn test_deferral_aware_and_active_have_equivalent_vks() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "certified-verifier")]
+#[test]
+fn test_certified_verifier_rejects_canonical_riscv64() -> Result<()> {
+    setup_tracing();
+    let params = crate::config::default_system_params();
+    let sdk = Sdk::riscv64(params, AggregationSystemParams::default());
+    let (proof, baseline) = generate_fib_vm_stark_proof(&sdk)?;
+    Sdk::verify_proof((*sdk.agg_vk()).clone(), baseline.clone(), &proof)?;
+    Sdk::verify_proof_with_certified_verifier(&baseline, &proof)
+        .expect_err("the RV32 certified verifier must fail closed for RV64 proofs");
+    Ok(())
+}
+
+#[cfg(feature = "certified-verifier")]
+#[test]
+fn test_certified_verifier_rejects_noncanonical_riscv64_config() -> Result<()> {
+    setup_tracing();
+    let params = crate::config::default_system_params();
+    let sdk = Sdk::standard(params, AggregationSystemParams::default());
+    let (proof, baseline) = generate_fib_vm_stark_proof(&sdk)?;
+    Sdk::verify_proof((*sdk.agg_vk()).clone(), baseline.clone(), &proof)?;
+    Sdk::verify_proof_with_certified_verifier(&baseline, &proof)
+        .expect_err("the RV32 certified verifier must reject noncanonical RV64 proofs");
+    Ok(())
+}
+
 /// Cell-count profiling test for the static verifier circuit using a production root proof.
 ///
 /// Root verifier params match `pipeline_cell_count_profiling` in static-verifier crate.
@@ -942,8 +1031,7 @@ fn sdk_static_verifier_cell_profiling() -> Result<()> {
         proof::Proof,
     };
     use openvm_static_verifier::{
-        compute_dag_onion_commit,
-        field::baby_bear::{BabyBearChip, BabyBearExtChip},
+        backend::Halo2Backend, chip_traits::GateInst, compute_dag_onion_commit,
         log_heights_per_air_from_proof, StaticVerifierCircuit,
     };
 
@@ -985,7 +1073,7 @@ fn sdk_static_verifier_cell_profiling() -> Result<()> {
 
             let elf = Elf::decode(
                 include_bytes!("../programs/examples/fibonacci.elf"),
-                MEM_SIZE as u32,
+                MEM_SIZE as u64,
             )?;
             let sdk = Sdk::riscv64(app_params, agg_params);
             let app_exe = sdk.convert_to_exe(elf)?;
@@ -1072,12 +1160,12 @@ fn sdk_static_verifier_cell_profiling() -> Result<()> {
         .use_lookup_bits(21)
         .use_instance_columns(0);
     let range = builder.range_chip();
-    let ext_chip = BabyBearExtChip::new(BabyBearChip::new(std::sync::Arc::new(range)));
     let ctx = builder.main(0);
+    let mut backend = Halo2Backend::new(std::sync::Arc::new(range), ctx);
 
-    let initial_cells = ctx.advice.len();
-    circuit.populate_verify_stark_constraints(ctx, &ext_chip, &root_proof);
-    let final_cells = ctx.advice.len();
+    let initial_cells = backend.cell_count();
+    circuit.populate_verify_stark_constraints(&mut backend, &root_proof);
+    let final_cells = backend.cell_count();
     eprintln!(
         "Static verifier cell count: {} (delta: {})",
         final_cells,

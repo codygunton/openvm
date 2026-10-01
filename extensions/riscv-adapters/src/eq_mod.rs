@@ -15,13 +15,10 @@ use openvm_circuit_primitives::{
     var_range::VariableRangeCheckerBus, ColumnsAir, StructReflection, StructReflectionHelper,
 };
 use openvm_circuit_primitives_derive::AlignedBorrow;
-use openvm_instructions::{
-    program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
-};
+use openvm_instructions::riscv::{MEMORY_AS, REGISTER_AS};
 use openvm_riscv_circuit::adapters::{
-    byte_ptr_to_u16_ptr, expand_to_rv64_block, ptr_bound_from_high_u16_expr, u16_limbs_to_ptr,
-    RV64_PTR_U16_LIMBS, RV64_REGISTER_NUM_LIMBS, U16_BITS,
+    eval_byte_ptr_limbs_to_block_index, expand_to_block, reg_byte_ptr_to_cell_ptr_limbs,
+    PTR_U16_LIMBS, REGISTER_NUM_LIMBS,
 };
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
@@ -38,11 +35,11 @@ use openvm_stark_backend::{
 /// The materialized pointer values are stored as two u16 cells.
 #[repr(C)]
 #[derive(AlignedBorrow, StructReflection, Debug)]
-pub struct Rv64IsEqualModAdapterCols<T, const NUM_READS: usize, const BLOCKS_PER_READ: usize> {
+pub struct IsEqualModAdapterCols<T, const NUM_READS: usize, const BLOCKS_PER_READ: usize> {
     pub from_state: ExecutionState<T>,
 
     pub rs_ptr: [T; NUM_READS],
-    pub rs_val: [[T; RV64_PTR_U16_LIMBS]; NUM_READS],
+    pub rs_val: [[T; PTR_U16_LIMBS]; NUM_READS],
     pub rs_read_aux: [MemoryReadAuxCols<T>; NUM_READS],
     pub heap_read_aux: [[MemoryReadAuxCols<T>; BLOCKS_PER_READ]; NUM_READS],
 
@@ -52,8 +49,8 @@ pub struct Rv64IsEqualModAdapterCols<T, const NUM_READS: usize, const BLOCKS_PER
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, derive_new::new, ColumnsAir)]
-#[columns_via(Rv64IsEqualModAdapterCols<u8, NUM_READS, BLOCKS_PER_READ>)]
-pub struct Rv64IsEqualModAdapterAir<
+#[columns_via(IsEqualModAdapterCols<u8, NUM_READS, BLOCKS_PER_READ>)]
+pub struct IsEqualModAdapterAir<
     const NUM_READS: usize,
     const BLOCKS_PER_READ: usize,
     const TOTAL_READ_SIZE: usize,
@@ -69,10 +66,10 @@ impl<
         const NUM_READS: usize,
         const BLOCKS_PER_READ: usize,
         const TOTAL_READ_SIZE: usize,
-    > BaseAir<F> for Rv64IsEqualModAdapterAir<NUM_READS, BLOCKS_PER_READ, TOTAL_READ_SIZE>
+    > BaseAir<F> for IsEqualModAdapterAir<NUM_READS, BLOCKS_PER_READ, TOTAL_READ_SIZE>
 {
     fn width(&self) -> usize {
-        Rv64IsEqualModAdapterCols::<F, NUM_READS, BLOCKS_PER_READ>::width()
+        IsEqualModAdapterCols::<F, NUM_READS, BLOCKS_PER_READ>::width()
     }
 }
 
@@ -81,7 +78,7 @@ impl<
         const NUM_READS: usize,
         const BLOCKS_PER_READ: usize,
         const TOTAL_READ_SIZE: usize,
-    > VmAdapterAir<AB> for Rv64IsEqualModAdapterAir<NUM_READS, BLOCKS_PER_READ, TOTAL_READ_SIZE>
+    > VmAdapterAir<AB> for IsEqualModAdapterAir<NUM_READS, BLOCKS_PER_READ, TOTAL_READ_SIZE>
 {
     type Interface = BasicAdapterInterface<
         AB::Expr,
@@ -89,7 +86,7 @@ impl<
         NUM_READS,
         1,
         TOTAL_READ_SIZE,
-        RV64_REGISTER_NUM_LIMBS,
+        REGISTER_NUM_LIMBS,
     >;
 
     fn eval(
@@ -104,7 +101,7 @@ impl<
                 "TOTAL_READ_SIZE must equal BLOCKS_PER_READ * MEMORY_BLOCK_BYTES"
             );
         }
-        let cols: &Rv64IsEqualModAdapterCols<_, NUM_READS, BLOCKS_PER_READ> = local.borrow();
+        let cols: &IsEqualModAdapterCols<_, NUM_READS, BLOCKS_PER_READ> = local.borrow();
         let timestamp = cols.from_state.timestamp;
         let mut timestamp_delta: usize = 0;
         let mut timestamp_pp = || {
@@ -113,49 +110,50 @@ impl<
         };
 
         // Address spaces
-        let d = AB::F::from_u32(RV64_REGISTER_AS);
-        let e = AB::F::from_u32(RV64_MEMORY_AS);
+        let d = AB::F::from_u32(REGISTER_AS);
+        let e = AB::F::from_u32(MEMORY_AS);
 
-        // Read register values for rs.
+        // Read register values for rs (register pointers are small).
         for (ptr, val, aux) in izip!(cols.rs_ptr, cols.rs_val, &cols.rs_read_aux) {
             self.memory_bridge
                 .read(
-                    MemoryAddress::new(d, byte_ptr_to_u16_ptr::<AB>(ptr)),
-                    expand_to_rv64_block(&val),
+                    MemoryAddress::new(d, reg_byte_ptr_to_cell_ptr_limbs::<AB>(ptr)),
+                    expand_to_block(&val),
                     timestamp_pp(),
                     aux,
                 )
                 .eval(builder, ctx.instruction.is_valid.clone());
         }
 
-        // Compose the two u16 cells into low 32-bit heap pointers.
-        let rs_val_f: [AB::Expr; NUM_READS] = cols.rs_val.map(|limbs| u16_limbs_to_ptr(&limbs));
+        let byte_ptr_max_bits = self.pointer_max_bits;
 
-        // Each materialized pointer is stored as two u16 cells. Bound the high
-        // cell against the guest byte-pointer limit.
-        for val in cols.rs_val.iter() {
-            self.range_bus
-                .range_check(
-                    ptr_bound_from_high_u16_expr(val[1], self.pointer_max_bits),
-                    U16_BITS,
-                )
-                .eval(builder, ctx.instruction.is_valid.clone());
-        }
+        // Convert each base *byte* pointer to the bus address of its first heap block,
+        // enforcing eight-byte alignment.
+        let rs_base: [MemoryAddress<AB::F, AB::Expr>; NUM_READS] = from_fn(|i| {
+            MemoryAddress::new(
+                e,
+                eval_byte_ptr_limbs_to_block_index::<AB>(
+                    builder,
+                    self.range_bus,
+                    cols.rs_val[i].map(Into::into),
+                    byte_ptr_max_bits,
+                    ctx.instruction.is_valid.clone(),
+                ),
+            )
+        });
 
-        // Reads from heap
+        // Reads from heap: block `j` is `j` blocks after the base address.
         let read_block_data: [[[_; MEMORY_BLOCK_BYTES]; BLOCKS_PER_READ]; NUM_READS] =
             ctx.reads.map(|r: [AB::Expr; TOTAL_READ_SIZE]| {
                 let mut r_it = r.into_iter();
                 from_fn(|_| from_fn(|_| r_it.next().unwrap()))
             });
-        let block_ptr_offset: [_; BLOCKS_PER_READ] =
-            from_fn(|i| AB::F::from_usize(i * MEMORY_BLOCK_BYTES));
 
-        for (ptr, block_data, block_aux) in izip!(rs_val_f, read_block_data, &cols.heap_read_aux) {
-            for (offset, data, aux) in izip!(block_ptr_offset, block_data, block_aux) {
+        for (base, block_data, block_aux) in izip!(rs_base, read_block_data, &cols.heap_read_aux) {
+            for (j, (data, aux)) in izip!(block_data, block_aux).enumerate() {
                 self.memory_bridge
                     .read(
-                        MemoryAddress::new(e, byte_ptr_to_u16_ptr::<AB>(ptr.clone() + offset)),
+                        base.offset_blocks(j),
                         pack_u8_block::<AB>(&data),
                         timestamp_pp(),
                         aux,
@@ -164,10 +162,10 @@ impl<
             }
         }
 
-        // Write to rd register
+        // Write to rd register (register pointer is small).
         self.memory_bridge
             .write(
-                MemoryAddress::new(d, byte_ptr_to_u16_ptr::<AB>(cols.rd_ptr)),
+                MemoryAddress::new(d, reg_byte_ptr_to_cell_ptr_limbs::<AB>(cols.rd_ptr)),
                 pack_u8_block::<AB>(&ctx.writes[0].clone()),
                 timestamp_pp(),
                 &cols.writes_aux,
@@ -175,7 +173,7 @@ impl<
             .eval(builder, ctx.instruction.is_valid.clone());
 
         self.execution_bridge
-            .execute_and_increment_or_set_pc(
+            .execute_and_increment_or_set_pc_idx(
                 ctx.instruction.opcode,
                 [
                     cols.rd_ptr.into(),
@@ -192,13 +190,13 @@ impl<
                 ],
                 cols.from_state,
                 AB::F::from_usize(timestamp_delta),
-                (DEFAULT_PC_STEP, ctx.to_pc),
+                (1, ctx.to_pc_idx),
             )
             .eval(builder, ctx.instruction.is_valid.clone());
     }
 
-    fn get_from_pc(&self, local: &[AB::Var]) -> AB::Var {
-        let cols: &Rv64IsEqualModAdapterCols<_, NUM_READS, BLOCKS_PER_READ> = local.borrow();
+    fn get_from_pc_idx(&self, local: &[AB::Var]) -> AB::Var {
+        let cols: &IsEqualModAdapterCols<_, NUM_READS, BLOCKS_PER_READ> = local.borrow();
         cols.from_state.pc
     }
 }

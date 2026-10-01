@@ -198,8 +198,8 @@ fn main() {
     divan::main();
 }
 
-fn create_default_transpiler() -> Transpiler<BabyBear> {
-    Transpiler::<BabyBear>::default()
+fn create_default_transpiler() -> Transpiler {
+    Transpiler::default()
         .with_extension(Rv64ITranspilerExtension)
         .with_extension(Rv64IoTranspilerExtension)
         .with_extension(Rv64MTranspilerExtension)
@@ -212,7 +212,7 @@ fn create_default_transpiler() -> Transpiler<BabyBear> {
         .with_extension(PairingTranspilerExtension)
 }
 
-fn load_program_executable(program: &str) -> Result<VmExe<BabyBear>> {
+fn load_program_executable(program: &str) -> Result<VmExe> {
     let transpiler = create_default_transpiler();
     let program_dir = get_programs_dir().join(program);
     let elf_path = openvm_benchmarks_utils::get_elf_path(&program_dir);
@@ -249,7 +249,14 @@ fn executor() -> &'static VmExecutor<BabyBear, ExecuteConfig> {
     })
 }
 
-fn build_metered_ctx_for(exe: &VmExe<BabyBear>) -> (MeteredCtx, Vec<usize>) {
+struct MeteredSetup {
+    ctx: MeteredCtx,
+    executor_idx_to_air_idx: Vec<usize>,
+    #[cfg(feature = "rvr")]
+    num_airs: usize,
+}
+
+fn build_metered_ctx_for(exe: &VmExe) -> MeteredSetup {
     let config = ExecuteConfig::default();
     let engine = Engine::new(SystemParams::new_for_testing(21));
     let pk = vm_proving_key();
@@ -258,7 +265,12 @@ fn build_metered_ctx_for(exe: &VmExe<BabyBear>) -> (MeteredCtx, Vec<usize>) {
         .expect("Failed to create VM for metered setup");
     let executor_idx_to_air_idx = vm.executor_idx_to_air_idx();
     let ctx = vm.build_metered_ctx(exe);
-    (ctx, executor_idx_to_air_idx)
+    MeteredSetup {
+        ctx,
+        executor_idx_to_air_idx,
+        #[cfg(feature = "rvr")]
+        num_airs: vm.num_airs(),
+    }
 }
 
 struct PureExecution;
@@ -270,7 +282,7 @@ trait BenchExecutor {
 
     fn execution_mode() -> &'static str;
     fn cache() -> &'static Cache<Self::Instance>;
-    fn build_instance(exe: &VmExe<BabyBear>) -> Self::Instance;
+    fn build_instance(exe: &VmExe) -> Self::Instance;
     fn run_execution(instance: &Self::Instance, input: Vec<Vec<u8>>) -> Result<(), ExecutionError>;
 
     fn get_cached_instance(program: &str) -> Arc<Self::Instance> {
@@ -328,7 +340,7 @@ impl BenchExecutor for PureExecution {
         &CACHE
     }
 
-    fn build_instance(exe: &VmExe<BabyBear>) -> Self::Instance {
+    fn build_instance(exe: &VmExe) -> Self::Instance {
         Self::unwrap_instance(executor().instance(exe))
     }
 
@@ -355,11 +367,18 @@ impl BenchExecutor for MeteredExecution {
         &CACHE
     }
 
-    fn build_instance(exe: &VmExe<BabyBear>) -> Self::Instance {
-        let (ctx, executor_idx_to_air_idx) = build_metered_ctx_for(exe);
+    fn build_instance(exe: &VmExe) -> Self::Instance {
+        let setup = build_metered_ctx_for(exe);
+        #[cfg(feature = "rvr")]
+        let instance = Self::unwrap_instance(executor().metered_instance(
+            exe,
+            &setup.executor_idx_to_air_idx,
+            setup.num_airs,
+        ));
+        #[cfg(not(feature = "rvr"))]
         let instance =
-            Self::unwrap_instance(executor().metered_instance(exe, &executor_idx_to_air_idx));
-        (instance, ctx)
+            Self::unwrap_instance(executor().metered_instance(exe, &setup.executor_idx_to_air_idx));
+        (instance, setup.ctx)
     }
 
     fn run_execution(instance: &Self::Instance, input: Vec<Vec<u8>>) -> Result<(), ExecutionError> {
@@ -386,7 +405,7 @@ impl BenchExecutor for MeteredCostExecution {
         &CACHE
     }
 
-    fn build_instance(exe: &VmExe<BabyBear>) -> Self::Instance {
+    fn build_instance(exe: &VmExe) -> Self::Instance {
         let (_ctx, executor_idx_to_air_idx) = metered_cost_setup();
         #[cfg(feature = "rvr")]
         let result = executor().metered_cost_instance(exe, executor_idx_to_air_idx, &_ctx.widths);

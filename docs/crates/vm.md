@@ -26,7 +26,7 @@ pub trait InterpreterExecutor<F> {
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -57,7 +57,7 @@ pub trait InterpreterMeteredExecutor<F> {
         &self,
         air_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -125,13 +125,21 @@ execution bus. The memory bus is used to access memory, the program bus is used 
 and the execution bus is used to constrain the execution flow. These buses are derivable from the `SystemPort` struct,
 which is provided by `AirInventory`/`SystemAirInventory`.
 
+The program and execution buses use the program counter index `pc_idx = pc / DEFAULT_PC_STEP`. A sequential AIR
+transition advances `pc_idx` by one.
+
+Memory-bus addresses contain an address space and a block index. Each block contains
+`BLOCK_FE_WIDTH` cells. In the RV64 register and memory address spaces, this is four u16 cells, or
+eight guest bytes. The default RV64 configuration supports 32-bit guest addresses; adapters reject
+accesses outside the configured pointer bound.
+
 The buses have very low-level APIs and are not intended to be used directly. "Bridges" are provided to provide a cleaner interface for
 sending interactions over the buses and enforcing additional constraints for soundness. The two system bridges are
 `MemoryBridge` and `ExecutionBridge`, which should respectively be used to constrain memory accesses and execution flow.
 
 ### Phantom Sub-Instructions
 
-Phantom sub-instructions are instructions that affect the runtime and trace matrix values but have no AIR constraints besides advancing the PC by `DEFAULT_PC_STEP`. They should not mutate memory, but they can mutate the input & hint streams.
+Phantom sub-instructions are instructions that affect the runtime and trace matrix values but have no AIR constraints besides advancing `pc_idx` by one. They should not mutate memory, but they can mutate the input & hint streams.
 
 You can specify phantom sub-instruction executors by implementing the trait:
 
@@ -251,13 +259,14 @@ For execution with multiple segments (continuations), the trace generation proce
    pub struct Segment {
        pub instret_start: u64,
        pub num_insns: u64,
+       pub num_preflight_replay_values: u32,
        pub trace_heights: Vec<u32>,
    }
    ```
 
 2. **Segment Trace Generation**: For each segment:
    - Recover the starting VM state at the beginning of the segment via pure execution from the program start (only necessary in a distributed setup)
-   - Run preflight execution for the segment using `execute_preflight()` with the predetermined trace heights
+   - Run preflight execution from the segment's starting state using the exact metered `Segment` bound
    - Derive postflight chronology and opcode indexes from the generic execution history
    - Generate the system and extension traces by replaying the indexed history
    - Pass final state as initial state to next segment (only necessary in a local setup when proving is done on a single machine)
@@ -342,8 +351,8 @@ pub trait VmAdapterAir<AB: AirBuilder>: BaseAir<AB::F> {
         interface: AdapterAirContext<AB::Expr, Self::Interface>,
     );
 
-    /// Return the `from_pc` expression.
-    fn get_from_pc(&self, local: &[AB::Var]) -> AB::Var;
+    /// Return the `from_pc_idx` expression.
+    fn get_from_pc_idx(&self, local: &[AB::Var]) -> AB::Var;
 }
 
 pub trait VmCoreAir<AB, I>: BaseAirWithPublicValues<AB::F>
@@ -351,12 +360,12 @@ where
     AB: AirBuilder,
     I: VmAdapterInterface<AB::Expr>,
 {
-    /// Returns `(to_pc, interface)`.
+    /// Returns `(to_pc_idx, interface)`.
     fn eval(
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        from_pc: AB::Var,
+        from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I>;
 
     /// The offset the opcodes by this chip start from.
@@ -378,8 +387,8 @@ where
 }
 
 pub struct AdapterAirContext<T, I: VmAdapterInterface<T>> {
-    /// Leave as `None` to allow the adapter to decide the `to_pc` automatically.
-    pub to_pc: Option<T>,
+    /// Leave as `None` to allow the adapter to decide the `to_pc_idx` automatically.
+    pub to_pc_idx: Option<T>,
     pub reads: I::Reads,
     pub writes: I::Writes,
     pub instruction: I::ProcessedInstruction,

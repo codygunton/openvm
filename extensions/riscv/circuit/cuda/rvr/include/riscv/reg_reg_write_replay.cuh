@@ -3,7 +3,7 @@
 #include "riscv/adapters/mul.cuh"
 #include "arch/rvr/replay.cuh"
 
-struct Rv64RegRegWriteReplay {
+struct RegRegWriteReplay {
     uint32_t from_pc;
     uint32_t from_timestamp;
     uint32_t rd_ptr;
@@ -36,7 +36,7 @@ static __device__ bool replay_reg_reg_write(
     DeviceBufferConstView<PreflightMemoryEvent> memory,
     DeviceBufferConstView<PreflightInitialWrite> seeds,
     DeviceBufferConstView<uint32_t> predecessors,
-    Rv64RegRegWriteReplay &out,
+    RegRegWriteReplay &out,
     uint32_t *error,
     uint32_t error_base
 ) {
@@ -49,8 +49,9 @@ static __device__ bool replay_reg_reg_write(
     if (instruction.words[0] != expected_opcode ||
         instruction.words[4] != register_address_space || instruction.words[5] != 0 ||
         instruction.words[6] != 0 || instruction.words[7] != 0 || rd_ptr == 0 ||
-        rd_ptr >= 32 * 8 || rs1_ptr >= 32 * 8 || rs2_ptr >= 32 * 8 || (rd_ptr & 7) != 0 ||
-        (rs1_ptr & 7) != 0 || (rs2_ptr & 7) != 0) {
+        !replay_canonical_register_pointer(rd_ptr) ||
+        !replay_canonical_register_pointer(rs1_ptr) ||
+        !replay_canonical_register_pointer(rs2_ptr)) {
         preflight_set_error(error, error_base);
         return false;
     }
@@ -79,11 +80,9 @@ static __device__ bool replay_reg_reg_write(
     uint16_t rs1_u16[BLOCK_FE_WIDTH];
     uint16_t rs2_u16[BLOCK_FE_WIDTH];
     uint16_t result_u16[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(rs1.value, rs1_u16) || !replay_u16_block(rs2.value, rs2_u16) ||
-        !replay_u16_block(write.value, result_u16)) {
-        preflight_set_error(error, error_base + 3);
-        return false;
-    }
+    replay_u16_block(rs1.value, rs1_u16);
+    replay_u16_block(rs2.value, rs2_u16);
+    replay_u16_block(write.value, result_u16);
 
     ReplayPreviousValue rs1_previous;
     ReplayPreviousValue rs2_previous;
@@ -116,10 +115,10 @@ static __device__ bool replay_reg_reg_write(
     return true;
 }
 
-static __device__ __forceinline__ Rv64MultAdapterRecord replay_mult_adapter_record(
-    Rv64RegRegWriteReplay const &replay
+static __device__ __forceinline__ MultAdapterRecord replay_mult_adapter_record(
+    RegRegWriteReplay const &replay
 ) {
-    Rv64MultAdapterRecord record{};
+    MultAdapterRecord record{};
     record.from_pc = replay.from_pc;
     record.from_timestamp = replay.from_timestamp;
     record.rd_ptr = replay.rd_ptr;

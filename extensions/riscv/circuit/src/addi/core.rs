@@ -75,7 +75,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         assert!(NUM_LIMBS > 0 && (12..=U16_BITS).contains(&LIMB_BITS));
 
@@ -121,7 +121,7 @@ where
             VmCoreAir::<AB, I>::expr_to_global_expr(self, AB::Expr::from_usize(self.local_opcode));
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: [cols.rs1.map(Into::into)].into(),
             writes: [cols.rd.map(Into::into)].into(),
             instruction: ImmInstruction {
@@ -139,17 +139,12 @@ where
 }
 
 #[derive(Clone, Copy, derive_new::new)]
-pub struct AddIExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct AddICoreExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
     pub offset: usize,
-    pub local_opcode: usize,
 }
 
 #[derive(derive_new::new)]
-pub struct AddIFiller<
-    const NUM_LIMBS: usize,
-    const LIMB_BITS: usize,
-    const RANGE_CHECK_TOP_LIMB: bool,
-> {
+pub struct AddIFiller {
     pub range_checker_chip: SharedVariableRangeCheckerChip,
 }
 

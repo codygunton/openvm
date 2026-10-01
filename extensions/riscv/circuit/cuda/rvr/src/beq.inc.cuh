@@ -59,8 +59,8 @@ __global__ void beq_replay_tracegen(
     uint32_t encoded_imm = instruction.words[3];
     if (instruction.words[0] != expected_opcode ||
         instruction.words[4] != register_address_space ||
-        instruction.words[5] != register_address_space || (rs1_ptr & 1) != 0 ||
-        (rs2_ptr & 1) != 0) {
+        instruction.words[5] != register_address_space || !replay_canonical_register_pointer(rs1_ptr) ||
+        !replay_canonical_register_pointer(rs2_ptr)) {
         preflight_set_error(error, 24);
         return;
     }
@@ -87,19 +87,26 @@ __global__ void beq_replay_tracegen(
 
     uint16_t rs1[BLOCK_FE_WIDTH];
     uint16_t rs2[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(first_read.value, rs1) || !replay_u16_block(second_read.value, rs2)) {
-        preflight_set_error(error, 27);
-        return;
-    }
+    replay_u16_block(first_read.value, rs1);
+    replay_u16_block(second_read.value, rs2);
     bool equal = true;
 #pragma unroll
     for (size_t i = 0; i < BLOCK_FE_WIDTH; i++) {
         equal &= rs1[i] == rs2[i];
     }
     bool should_branch = is_beq ? equal : !equal;
-    Fp expected_next_pc_field(from.pc);
-    expected_next_pc_field += Fp(should_branch ? encoded_imm : 4);
-    uint32_t expected_next_pc = expected_next_pc_field.asUInt32();
+    uint32_t expected_next_pc;
+    if (should_branch) {
+        // Taken targets must stay inside the implemented PC address space on an aligned
+        // slot (mirrors the CPU trace filler).
+        if (!replay_branch_target_in_bounds(from.pc, encoded_imm)) {
+            preflight_set_error(error, 28);
+            return;
+        }
+        expected_next_pc = replay_taken_branch_pc(from.pc, encoded_imm);
+    } else {
+        expected_next_pc = from.pc + ::program::DEFAULT_PC_STEP;
+    }
     if (to.pc != expected_next_pc) {
         preflight_set_error(error, 28);
         return;
@@ -127,7 +134,7 @@ __global__ void beq_replay_tracegen(
         return;
     }
 
-    Rv64BranchAdapter adapter(
+    BranchAdapter adapter(
         VariableRangeChecker(range_checker, range_checker_num_bins), timestamp_max_bits
     );
     adapter.fill_trace_row(
@@ -139,7 +146,7 @@ __global__ void beq_replay_tracegen(
         first_previous.timestamp,
         second_previous.timestamp
     );
-    Rv64BranchEqualCoreRecord core_record{};
+    BranchEqualCoreRecord<BLOCK_FE_WIDTH> core_record{};
 #pragma unroll
     for (size_t i = 0; i < BLOCK_FE_WIDTH; i++) {
         core_record.a[i] = rs1[i];
@@ -147,7 +154,7 @@ __global__ void beq_replay_tracegen(
     }
     core_record.imm = encoded_imm;
     core_record.local_opcode = local_opcode;
-    Rv64BranchEqualCore core;
+    BranchEqualCore<BLOCK_FE_WIDTH> core;
     core.fill_trace_row(row.slice_from(COL_INDEX(BranchEqualCols, core)), core_record);
 }
 
@@ -185,7 +192,7 @@ extern "C" int _beq_replay_tracegen(
     assert(num_bne_steps <= d_steps.len() - bne_step_start);
     assert(num_beq_steps <= SIZE_MAX - num_bne_steps);
     assert(height >= num_beq_steps + num_bne_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     beq_replay_tracegen<<<grid, block, 0, stream>>>(
         d_trace,
         height,

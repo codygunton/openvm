@@ -8,14 +8,14 @@ use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_IMM_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{IMM_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::{BaseAluImmOpcode, BaseAluWImmOpcode};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::core::AddIExecutor;
-use crate::adapters::{imm_to_rv64_u64, is_canonical_i12, U16_BITS};
+use super::core::AddICoreExecutor;
+use crate::adapters::{imm_to_u64, is_canonical_i12, U16_BITS};
 
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
@@ -25,32 +25,29 @@ pub(super) struct AddIPreCompute {
     rs1_ptr: u8,
 }
 
-impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> AddIExecutor<NUM_LIMBS, LIMB_BITS> {
+impl<const NUM_LIMBS: usize, const LIMB_BITS: usize> AddICoreExecutor<NUM_LIMBS, LIMB_BITS> {
     #[inline(always)]
-    pub(super) fn pre_compute_impl<F: PrimeField32>(
+    pub(super) fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut AddIPreCompute,
     ) -> Result<(), StaticProgramError> {
         let Instruction { a, b, c, d, e, .. } = inst;
-        let c = c.as_canonical_u32();
-        if d.as_canonical_u32() != RV64_REGISTER_AS
-            || e.as_canonical_u32() != RV64_IMM_AS
-            || !is_canonical_i12(c)
-        {
+        let c = c.as_u32();
+        if d.as_u32() != REGISTER_AS || e.as_u32() != IMM_AS || !is_canonical_i12(c) {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         *data = AddIPreCompute {
-            imm: imm_to_rv64_u64(c),
-            rd_ptr: a.as_canonical_u32() as u8,
-            rs1_ptr: b.as_canonical_u32() as u8,
+            imm: imm_to_u64(c),
+            rd_ptr: a.as_u32() as u8,
+            rs1_ptr: b.as_u32() as u8,
         };
         Ok(())
     }
 }
 
-impl<F, const NUM_LIMBS: usize> InterpreterExecutor<F> for AddIExecutor<NUM_LIMBS, U16_BITS>
+impl<F, const NUM_LIMBS: usize> InterpreterExecutor<F> for AddICoreExecutor<NUM_LIMBS, U16_BITS>
 where
     F: PrimeField32,
 {
@@ -71,7 +68,7 @@ where
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -86,7 +83,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -98,7 +95,8 @@ where
     }
 }
 
-impl<F, const NUM_LIMBS: usize> InterpreterMeteredExecutor<F> for AddIExecutor<NUM_LIMBS, U16_BITS>
+impl<F, const NUM_LIMBS: usize> InterpreterMeteredExecutor<F>
+    for AddICoreExecutor<NUM_LIMBS, U16_BITS>
 where
     F: PrimeField32,
 {
@@ -112,7 +110,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -129,7 +127,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -148,16 +146,15 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, const NUM_LIMBS: usize>(
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) {
     let rs1 = u64::from_le_bytes(
-        exec_state
-            .vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.rs1_ptr as u32),
+        exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.rs1_ptr as u32),
     );
     let rd = if NUM_LIMBS * U16_BITS == 32 {
         (rs1 as u32).wrapping_add(pre_compute.imm as u32) as i32 as i64 as u64
     } else {
         rs1.wrapping_add(pre_compute.imm)
     };
-    exec_state.vm_write_bytes::<RV64_REGISTER_NUM_LIMBS>(
-        RV64_REGISTER_AS,
+    exec_state.vm_write_bytes::<REGISTER_NUM_LIMBS>(
+        REGISTER_AS,
         pre_compute.rd_ptr as u32,
         &rd.to_le_bytes(),
     );
@@ -192,32 +189,28 @@ unsafe fn execute_e2_impl<CTX: MeteredExecutionCtxTrait, const NUM_LIMBS: usize>
 
 #[cfg(test)]
 mod tests {
-    use openvm_instructions::{riscv::RV64_REGISTER_NUM_LIMBS, LocalOpcode};
+    use openvm_instructions::{riscv::REGISTER_NUM_LIMBS, LocalOpcode};
     use openvm_riscv_transpiler::BaseAluImmOpcode;
-    use openvm_stark_sdk::p3_baby_bear::BabyBear;
 
     use super::*;
-    use crate::Rv64AddIExecutor;
+    use crate::AddIExecutor;
 
-    fn addi_instruction(c: usize) -> Instruction<BabyBear> {
+    fn addi_instruction(c: usize) -> Instruction {
         Instruction::from_usize(
             BaseAluImmOpcode::ADDI.global_opcode(),
             [
-                RV64_REGISTER_NUM_LIMBS,
-                2 * RV64_REGISTER_NUM_LIMBS,
+                REGISTER_NUM_LIMBS,
+                2 * REGISTER_NUM_LIMBS,
                 c,
-                RV64_REGISTER_AS as usize,
-                RV64_IMM_AS as usize,
+                REGISTER_AS as usize,
+                IMM_AS as usize,
             ],
         )
     }
 
     #[test]
     fn validates_canonical_i12_encoding() {
-        let executor = Rv64AddIExecutor::new(
-            BaseAluImmOpcode::CLASS_OFFSET,
-            BaseAluImmOpcode::ADDI as usize,
-        );
+        let executor = AddIExecutor::new(BaseAluImmOpcode::CLASS_OFFSET);
         let mut data = AddIPreCompute {
             imm: 0,
             rd_ptr: 0,

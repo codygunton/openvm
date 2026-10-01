@@ -1,13 +1,13 @@
 use super::PAGE_SIZE;
 
-/// Tracks which fixed-size pages of an address space's linear memory may contain non-zero data,
-/// for the GPU host-to-device transfer. Pages that are *not* marked are guaranteed zero and are
-/// skipped by the transport (which zero-fills the device buffer first).
+/// Tracks which fixed-size pages of an address space's linear memory may contain non-zero data.
+/// Pages that are *not* marked are guaranteed zero and are skipped by sparse CPU snapshots,
+/// initial Merkle construction, and the GPU host-to-device transfer.
 /// Pages are [`PAGE_SIZE`] bytes, matching the mmap page size.
 ///
 /// A freshly constructed set is empty: callers must [`mark_byte_range`](Self::mark_byte_range)
-/// every page they write before the memory is transferred. Unmarked pages are transferred as
-/// zero. `bits` is a little-endian bitset over pages: bit `i` set means page `i` may be non-zero.
+/// every page they write before the memory is consumed. Unmarked pages are treated as zero.
+/// `bits` is a little-endian bitset over pages: bit `i` set means page `i` may be non-zero.
 #[derive(Debug, Clone)]
 pub struct TouchedPages {
     bits: Box<[u64]>,
@@ -57,6 +57,15 @@ impl TouchedPages {
         self.bits[first_word + 1..last_word].fill(!0u64);
         // Partial last word: bits [0, last%64].
         self.bits[last_word] |= (!0u64) >> (63 - (last % 64));
+    }
+
+    /// Mark every page present in `other`.
+    #[cfg(any(feature = "rvr", test))]
+    pub(crate) fn union_with(&mut self, other: &Self) {
+        assert_eq!(self.num_pages, other.num_pages, "page counts must match");
+        for (bits, other_bits) in self.bits.iter_mut().zip(&other.bits) {
+            *bits |= *other_bits;
+        }
     }
 
     /// Yields the half-open **byte** ranges `[start, end)` of maximal runs of consecutive marked
@@ -138,6 +147,21 @@ mod tests {
         assert_eq!(
             touched.touched_byte_ranges(num_bytes),
             vec![(3 * PAGE_SIZE, num_bytes)]
+        );
+    }
+
+    #[test]
+    fn union_with_combines_touched_pages() {
+        let mut left = TouchedPages::new(10 * PAGE_SIZE);
+        left.mark_byte_range(PAGE_SIZE, 1);
+        let mut right = TouchedPages::new(10 * PAGE_SIZE);
+        right.mark_byte_range(7 * PAGE_SIZE, 1);
+
+        left.union_with(&right);
+
+        assert_eq!(
+            left.touched_byte_ranges(10 * PAGE_SIZE),
+            vec![(PAGE_SIZE, 2 * PAGE_SIZE), (7 * PAGE_SIZE, 8 * PAGE_SIZE)]
         );
     }
 }

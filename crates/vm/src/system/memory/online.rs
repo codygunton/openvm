@@ -15,8 +15,8 @@ use tracing::instrument;
 use super::has_nonzero_byte;
 use crate::{
     arch::{
-        AddressSpaceHostConfig, AddressSpaceHostLayout, MemoryCellType, MemoryConfig,
-        PreflightMemoryLog, BLOCK_FE_WIDTH,
+        preflight::encode_u8_block, AddressSpaceHostConfig, AddressSpaceHostLayout, MemoryCellType,
+        MemoryConfig, PreflightMemoryLog, BLOCK_FE_WIDTH,
     },
     system::{TouchedBlock, TouchedMemory},
 };
@@ -60,6 +60,11 @@ pub type Address = (u32, u32);
 pub trait LinearMemory {
     /// Create instance of `Self` with `size` bytes.
     fn new(size: usize) -> Self;
+    /// Clone into a zero-initialized mapping, copying only the supplied byte ranges.
+    ///
+    /// Callers must guarantee that bytes outside `ranges` are zero. This permits very large
+    /// logical address spaces to stay virtually reserved without faulting every page into RAM.
+    fn sparse_clone(&self, ranges: &[(usize, usize)]) -> Self;
     /// Allocated size of the memory in bytes.
     fn size(&self) -> usize;
     /// Returns the entire memory as a raw byte slice.
@@ -154,17 +159,41 @@ pub struct AddressMap<M: LinearMemory = MemoryBackend> {
     pub mem: Vec<M>,
     /// Host configuration for each address space.
     pub config: Vec<AddressSpaceHostConfig>,
-    /// Per-address-space record of which pages may contain non-zero data, used to skip all-zero
-    /// pages during the GPU host-to-device transfer. See [`TouchedPages`].
+    /// Per-address-space record of which pages may contain non-zero data, used by sparse
+    /// snapshots, CPU Merkle initialization, and the GPU host-to-device transfer. See
+    /// [`TouchedPages`].
     ///
     /// Invariant: any path that writes non-zero data into memory that may later be transferred via
     /// `set_initial_memory` must mark the written pages (`set_from_sparse`,
     /// `extend_touched_pages_from_touched`) or rebuild the metadata with
-    /// [`AddressMap::recompute_touched_pages`]. Unmarked pages are transferred as zero. The
-    /// untracked write paths (`get_memory_mut`, `GuestMemory::write`/`write_bytes`) do not mark,
-    /// so callers must recompute before transferring a memory image produced through those
-    /// paths.
+    /// [`AddressMap::recompute_touched_pages`]. Unmarked pages are treated as zero. Raw mutable
+    /// access through `get_memory_mut` does not mark pages, so callers must recompute after using
+    /// that escape hatch.
     pub touched_pages: Vec<TouchedPages>,
+}
+
+impl<M: LinearMemory> AddressMap<M> {
+    /// Clone only pages that may contain non-zero bytes into fresh zero-backed mappings.
+    ///
+    /// This is intended for immutable segment-start snapshots after all untracked writers have
+    /// updated or rebuilt `touched_pages`. Ordinary [`Clone`] remains an exact dense clone for
+    /// callers that cannot provide that invariant.
+    pub fn sparse_clone(&self) -> Self {
+        let mem = self
+            .mem
+            .iter()
+            .zip(&self.touched_pages)
+            .map(|(mem, touched)| {
+                let ranges = touched.touched_byte_ranges(mem.size());
+                mem.sparse_clone(&ranges)
+            })
+            .collect();
+        Self {
+            mem,
+            config: self.config.clone(),
+            touched_pages: self.touched_pages.clone(),
+        }
+    }
 }
 
 impl Default for AddressMap {
@@ -427,12 +456,17 @@ impl GuestMemory {
         T: Copy + Debug,
     {
         self.debug_assert_cell_type::<T>(addr_space);
+        let byte_start = (ptr as usize) * size_of::<T>();
         // SAFETY:
         // - alignment for `[T; BLOCK_SIZE]` is automatic since we multiply by `size_of::<T>()`
         self.memory
             .get_memory_mut()
             .get_unchecked_mut(addr_space as usize)
-            .write((ptr as usize) * size_of::<T>(), values);
+            .write(byte_start, values);
+        self.memory
+            .touched_pages
+            .get_unchecked_mut(addr_space as usize)
+            .mark_byte_range(byte_start, size_of::<T>() * BLOCK_SIZE);
     }
 
     /// Swaps `BLOCK_SIZE` AS-native cells starting at `ptr`.
@@ -449,12 +483,17 @@ impl GuestMemory {
         T: Copy + Debug,
     {
         self.debug_assert_cell_type::<T>(addr_space);
+        let byte_start = (ptr as usize) * size_of::<T>();
         // SAFETY:
         // - alignment for `[T; BLOCK_SIZE]` is automatic since we multiply by `size_of::<T>()`
         self.memory
             .get_memory_mut()
             .get_unchecked_mut(addr_space as usize)
-            .swap((ptr as usize) * size_of::<T>(), values);
+            .swap(byte_start, values);
+        self.memory
+            .touched_pages
+            .get_unchecked_mut(addr_space as usize)
+            .mark_byte_range(byte_start, size_of::<T>() * BLOCK_SIZE);
     }
 
     #[inline(always)]
@@ -534,6 +573,10 @@ impl GuestMemory {
             .get_memory_mut()
             .get_unchecked_mut(addr_space as usize)
             .write(byte_ptr as usize, values);
+        self.memory
+            .touched_pages
+            .get_unchecked_mut(addr_space as usize)
+            .mark_byte_range(byte_ptr as usize, N);
     }
 }
 
@@ -672,6 +715,10 @@ impl TracingMemory {
     ) {
         let layout = self.data.memory.config[address_space as usize].layout;
         let event_value = match layout {
+            MemoryCellType::U8 => {
+                debug_assert_eq!(value.len(), BLOCK_FE_WIDTH);
+                encode_u8_block(value.try_into().unwrap())
+            }
             MemoryCellType::U16 => {
                 debug_assert_eq!(value.len(), BLOCK_FE_WIDTH * size_of::<u16>());
                 from_fn(|lane| {
@@ -679,7 +726,7 @@ impl TracingMemory {
                     u16::from_le_bytes([value[offset], value[offset + 1]])
                 })
             }
-            MemoryCellType::F { size: 4 } => {
+            MemoryCellType::FIELD32 => {
                 debug_assert_eq!(value.len(), BLOCK_FE_WIDTH * size_of::<u32>());
                 let field = PreflightFieldBlock {
                     values: from_fn(|lane| {
@@ -693,7 +740,7 @@ impl TracingMemory {
                 self.log.field_values.push(field);
                 reference
             }
-            _ => panic!("preflight memory log requires u16 or 32-bit field cells"),
+            _ => panic!("preflight memory log requires u8, u16, or 32-bit field cells"),
         };
 
         self.log.accesses.push(PreflightMemoryEvent {
@@ -707,6 +754,10 @@ impl TracingMemory {
             return;
         };
         let initial_value = match layout {
+            MemoryCellType::U8 => {
+                debug_assert_eq!(initial_value.len(), BLOCK_FE_WIDTH);
+                encode_u8_block(initial_value.try_into().unwrap())
+            }
             MemoryCellType::U16 => {
                 debug_assert_eq!(initial_value.len(), BLOCK_FE_WIDTH * size_of::<u16>());
                 from_fn(|lane| {
@@ -714,7 +765,7 @@ impl TracingMemory {
                     u16::from_le_bytes([initial_value[offset], initial_value[offset + 1]])
                 })
             }
-            MemoryCellType::F { size: 4 } => {
+            MemoryCellType::FIELD32 => {
                 debug_assert_eq!(initial_value.len(), BLOCK_FE_WIDTH * size_of::<u32>());
                 let field = PreflightFieldBlock {
                     values: from_fn(|lane| {
@@ -956,7 +1007,13 @@ impl TracingMemory {
 
 #[cfg(test)]
 mod tests {
-    use openvm_instructions::{riscv::RV64_REGISTER_AS, VM_DIGEST_WIDTH};
+    #[cfg(all(
+        target_os = "linux",
+        target_pointer_width = "64",
+        not(feature = "basic-memory")
+    ))]
+    use openvm_instructions::riscv::MEMORY_AS;
+    use openvm_instructions::{riscv::REGISTER_AS, PUBLIC_VALUES_AS, VM_DIGEST_WIDTH};
     use openvm_stark_backend::p3_field::PrimeCharacteristicRing;
     use openvm_stark_sdk::p3_baby_bear::BabyBear;
 
@@ -969,6 +1026,84 @@ mod tests {
     type F = BabyBear;
 
     #[test]
+    fn sparse_clone_preserves_marked_pages_and_snapshot_independence() {
+        let config = vec![
+            AddressSpaceHostConfig::new(0, MemoryCellType::Null),
+            AddressSpaceHostConfig::new(4 * PAGE_SIZE, MemoryCellType::U8),
+        ];
+        let mut memory: AddressMap = AddressMap::new(config);
+        let mut sparse = SparseMemoryImage::new();
+        sparse.insert((1, 7), 11);
+        sparse.insert((1, (3 * PAGE_SIZE + 9) as u32), 22);
+        memory.set_from_sparse(&sparse);
+
+        let snapshot = memory.sparse_clone();
+        assert_eq!(snapshot.mem[1].as_slice()[7], 11);
+        assert_eq!(snapshot.mem[1].as_slice()[3 * PAGE_SIZE + 9], 22);
+        assert_eq!(snapshot.mem[1].as_slice()[2 * PAGE_SIZE], 0);
+
+        memory.mem[1].as_mut_slice()[7] = 99;
+        assert_eq!(snapshot.mem[1].as_slice()[7], 11);
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        target_pointer_width = "64",
+        not(feature = "basic-memory")
+    ))]
+    #[test]
+    fn sparse_clone_keeps_default_memory_backing_sparse_at_high_addresses() {
+        fn resident_pages(memory: &impl LinearMemory) -> usize {
+            let bytes = memory.size();
+            let mut residency = vec![0u8; bytes.div_ceil(PAGE_SIZE)];
+            let result = unsafe {
+                libc::mincore(
+                    memory.as_slice().as_ptr().cast_mut().cast(),
+                    bytes,
+                    residency.as_mut_ptr(),
+                )
+            };
+            assert_eq!(
+                result,
+                0,
+                "mincore failed: {}",
+                std::io::Error::last_os_error()
+            );
+            residency.into_iter().filter(|byte| byte & 1 != 0).count()
+        }
+
+        let mem_config = MemoryConfig::default();
+        let mut memory: AddressMap = AddressMap::from_mem_config(&mem_config);
+        // Highest addressable byte of the memory AS, derived from the configured size rather
+        // than hardcoded: the point is that touching the very top of the range must not
+        // materialize everything below it, whatever that range happens to be.
+        let high_addr = u32::try_from(memory.mem[MEMORY_AS as usize].size() - 1)
+            .expect("memory AS byte size must fit a u32 address");
+        let mut sparse = SparseMemoryImage::new();
+        sparse.insert((MEMORY_AS, 0), 11);
+        sparse.insert((MEMORY_AS, high_addr), 22);
+        memory.set_from_sparse(&sparse);
+
+        let snapshot = memory.sparse_clone();
+        let memory_backing = &snapshot.mem[MEMORY_AS as usize];
+        assert_eq!(memory_backing.as_slice()[0], 11);
+        assert_eq!(memory_backing.as_slice()[high_addr as usize], 22);
+        let partition = crate::system::memory::merkle::memory_to_vec_partition::<
+            BabyBear,
+            VM_DIGEST_WIDTH,
+        >(&snapshot, &mem_config.memory_dimensions());
+        assert_eq!(
+            partition.len(),
+            2,
+            "only two nonzero Merkle leaves should be built"
+        );
+        assert!(
+            resident_pages(memory_backing) < 1024,
+            "a sparse two-page snapshot should not materialize the full mapping"
+        );
+    }
+
+    #[test]
     fn timed_accesses_append_minimal_u16_history() {
         let mut memory = TracingMemory::new(&MemoryConfig::default());
         let first_block = [1u16, 2, 3, 4];
@@ -978,15 +1113,15 @@ mod tests {
         // Seed through the underlying image: initialization and peeks are not
         // timed memory-bus accesses.
         unsafe {
-            memory.data.write(RV64_REGISTER_AS, 0, first_block);
+            memory.data.write(REGISTER_AS, 0, first_block);
             memory
                 .data
-                .write(RV64_REGISTER_AS, BLOCK_FE_WIDTH as u32, second_initial);
-            let _: [u16; BLOCK_FE_WIDTH] = memory.data.read(RV64_REGISTER_AS, 0);
+                .write(REGISTER_AS, BLOCK_FE_WIDTH as u32, second_initial);
+            let _: [u16; BLOCK_FE_WIDTH] = memory.data.read(REGISTER_AS, 0);
 
-            let _ = memory.read::<u16, BLOCK_FE_WIDTH>(RV64_REGISTER_AS, 0);
+            let _ = memory.read::<u16, BLOCK_FE_WIDTH>(REGISTER_AS, 0);
             let _ = memory.write::<u16, BLOCK_FE_WIDTH>(
-                RV64_REGISTER_AS,
+                REGISTER_AS,
                 BLOCK_FE_WIDTH as u32,
                 second_write,
             );
@@ -998,13 +1133,13 @@ mod tests {
             vec![
                 PreflightMemoryEvent {
                     timestamp: 1,
-                    address_space_and_kind: RV64_REGISTER_AS,
+                    address_space_and_kind: REGISTER_AS,
                     pointer: 0,
                     value: first_block,
                 },
                 PreflightMemoryEvent {
                     timestamp: 2,
-                    address_space_and_kind: RV64_REGISTER_AS | PREFLIGHT_WRITE_BIT,
+                    address_space_and_kind: REGISTER_AS | PREFLIGHT_WRITE_BIT,
                     pointer: BLOCK_FE_WIDTH as u32,
                     value: second_write,
                 },
@@ -1013,10 +1148,30 @@ mod tests {
         assert_eq!(
             log.initial_writes,
             vec![PreflightInitialWrite {
-                address_space: RV64_REGISTER_AS,
+                address_space: REGISTER_AS,
                 pointer: BLOCK_FE_WIDTH as u32,
                 initial_value: second_initial,
             }]
+        );
+        assert!(log.field_values.is_empty());
+        assert!(log.field_initial_values.is_empty());
+    }
+
+    #[test]
+    fn u8_accesses_use_packed_inline_history() {
+        let mut memory = TracingMemory::new(&MemoryConfig::default());
+        let initial = [1u8, 2, 3, 4];
+        let written = [5u8, 6, 7, 8];
+        unsafe {
+            memory.data.write(PUBLIC_VALUES_AS, 0, initial);
+            let _ = memory.write::<u8, BLOCK_FE_WIDTH>(PUBLIC_VALUES_AS, 0, written);
+        }
+
+        let log = memory.take_log();
+        assert_eq!(log.accesses[0].value, encode_u8_block(written));
+        assert_eq!(
+            log.initial_writes[0].initial_value,
+            encode_u8_block(initial)
         );
         assert!(log.field_values.is_empty());
         assert!(log.field_initial_values.is_empty());
@@ -1133,11 +1288,11 @@ mod tests {
                 },
                 AddressSpaceHostConfig {
                     num_cells: VM_DIGEST_WIDTH << height,
-                    layout: MemoryCellType::F { size: 4 },
+                    layout: MemoryCellType::FIELD32,
                 },
                 AddressSpaceHostConfig {
                     num_cells: VM_DIGEST_WIDTH << height,
-                    layout: MemoryCellType::F { size: 4 },
+                    layout: MemoryCellType::FIELD32,
                 },
             ],
             ptr_bits_from_address_height(height),

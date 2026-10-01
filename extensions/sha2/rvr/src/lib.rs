@@ -4,17 +4,18 @@
 //! `Sha2Extension` for lifting and executing them via double FFI.
 
 use openvm_instructions::{
-    riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES},
+    instruction::Instruction,
+    riscv::{MEMORY_AS, NUM_REGISTERS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode,
 };
 use openvm_sha2_air::{Sha256Config, Sha2BlockHasherSubairConfig, Sha512Config};
-use openvm_sha2_transpiler::Rv64Sha2Opcode;
+use openvm_sha2_transpiler::Sha2Opcode;
 use rvr_openvm_ir::{
     CfgEffect, ExtEmitCtx, ExtInstr, FixedTraceRows, InstrAt, LiftedInstr, Variable,
 };
 use rvr_openvm_lift::{
     decode_variable, fixed_trace_rows_for_chip, max_main_memory_pages_for_contiguous_range,
-    opcode_air_idx, AirIndex, ExtensionError, RvrExtension, RvrExtensionCtx, RvrInstruction,
+    opcode_air_idx, AirIndex, ExtensionError, RvrExtension, RvrExtensionCtx,
 };
 
 // SHA-512 has three independent ranges; its largest range is the 128-byte block.
@@ -22,7 +23,7 @@ const SHA2_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION: usize =
     3 * max_main_memory_pages_for_contiguous_range(128);
 
 fn decode_reg(value: u32) -> Variable {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
 }
 
 const fn rows_to_u32(rows: usize) -> u32 {
@@ -150,12 +151,12 @@ pub struct Sha2Extension {
 
 impl Sha2Extension {
     pub fn new(ctx: Option<&RvrExtensionCtx>) -> Result<Self, ExtensionError> {
-        let sha256_main_chip_idx = opcode_air_idx(ctx, Rv64Sha2Opcode::SHA256)?;
+        let sha256_main_chip_idx = opcode_air_idx(ctx, Sha2Opcode::SHA256)?;
         // The SHA-256 block hasher is registered adjacent to the main chip and
         // assigned the next AIR index (main_air_idx + 1) due to reverse registration order.
         let sha256_block_hasher_chip_idx = sha256_main_chip_idx.map(AirIndex::next);
 
-        let sha512_main_chip_idx = opcode_air_idx(ctx, Rv64Sha2Opcode::SHA512)?;
+        let sha512_main_chip_idx = opcode_air_idx(ctx, Sha2Opcode::SHA512)?;
         let sha512_block_hasher_chip_idx = sha512_main_chip_idx.map(AirIndex::next);
 
         Ok(Self {
@@ -166,13 +167,22 @@ impl Sha2Extension {
 }
 
 impl RvrExtension for Sha2Extension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         let opcode = insn.opcode.as_usize();
+        let is_sha256 = match opcode {
+            opcode if opcode == Sha2Opcode::SHA256.global_opcode_usize() => true,
+            opcode if opcode == Sha2Opcode::SHA512.global_opcode_usize() => false,
+            _ => return None,
+        };
 
-        if opcode == Rv64Sha2Opcode::SHA256.global_opcode_usize() {
-            let dst_ptr_reg = decode_reg(insn.a);
-            let state_ptr_reg = decode_reg(insn.b);
-            let input_ptr_reg = decode_reg(insn.c);
+        if insn.d.as_u32() != REGISTER_AS || insn.e.as_u32() != MEMORY_AS {
+            return None;
+        }
+
+        if is_sha256 {
+            let dst_ptr_reg = decode_reg(insn.a.as_u32());
+            let state_ptr_reg = decode_reg(insn.b.as_u32());
+            let input_ptr_reg = decode_reg(insn.c.as_u32());
             return Some(LiftedInstr::Body(InstrAt {
                 pc,
                 instr: Box::new(Sha256Instr {
@@ -185,23 +195,19 @@ impl RvrExtension for Sha2Extension {
             }));
         }
 
-        if opcode == Rv64Sha2Opcode::SHA512.global_opcode_usize() {
-            let dst_ptr_reg = decode_reg(insn.a);
-            let state_ptr_reg = decode_reg(insn.b);
-            let input_ptr_reg = decode_reg(insn.c);
-            return Some(LiftedInstr::Body(InstrAt {
-                pc,
-                instr: Box::new(Sha512Instr {
-                    dst_ptr_reg,
-                    state_ptr_reg,
-                    input_ptr_reg,
-                    block_hasher_chip_idx: self.sha512_block_hasher_chip_idx,
-                }),
-                source_loc: None,
-            }));
-        }
-
-        None
+        let dst_ptr_reg = decode_reg(insn.a.as_u32());
+        let state_ptr_reg = decode_reg(insn.b.as_u32());
+        let input_ptr_reg = decode_reg(insn.c.as_u32());
+        Some(LiftedInstr::Body(InstrAt {
+            pc,
+            instr: Box::new(Sha512Instr {
+                dst_ptr_reg,
+                state_ptr_reg,
+                input_ptr_reg,
+                block_hasher_chip_idx: self.sha512_block_hasher_chip_idx,
+            }),
+            source_loc: None,
+        }))
     }
 
     fn c_headers(&self) -> Vec<(&'static str, &'static str)> {
@@ -273,12 +279,12 @@ mod tests {
             unreachable!()
         }
 
-        fn reserve_preflight_writes(&mut self, _writes: &str, _slots: &str) {
+        fn reserve_preflight_timestamp_slots(&mut self, _slots: &str) {
             unreachable!()
         }
 
         fn append_replay_value(&mut self, value: &str) {
-            self.operations.push(format!("residual({value});"));
+            self.operations.push(format!("replay_value({value});"));
         }
 
         fn emit_call(&mut self, name: &str, args: &[&str]) {
@@ -334,7 +340,7 @@ mod tests {
         instr: &dyn ExtInstr,
         ffi_name: &str,
         remaining_slots: u32,
-        residuals: usize,
+        expected_replay_values: usize,
     ) {
         assert!(instr.supports_preflight());
         let mut ctx = TestEmitCtx::default();
@@ -363,16 +369,36 @@ mod tests {
         let replay_values = ctx
             .operations
             .iter()
-            .filter(|operation| operation.starts_with("residual(peek_mem_u64("))
+            .filter(|operation| operation.starts_with("replay_value(peek_mem_u64("))
             .collect::<Vec<_>>();
-        assert_eq!(replay_values.len(), residuals);
+        assert_eq!(replay_values.len(), expected_replay_values);
         for (index, operation) in replay_values.into_iter().enumerate() {
             assert!(operation.contains(&format!("+ {}ull", index * size_of::<u64>())));
         }
     }
 
     #[test]
-    fn sha256_checkpoint_emits_exact_schedule_and_residuals() {
+    fn rejects_wrong_address_spaces() {
+        let extension = Sha2Extension::new(None).unwrap();
+        for opcode in [Sha2Opcode::SHA256, Sha2Opcode::SHA512] {
+            let valid = Instruction::from_usize(
+                opcode.global_opcode(),
+                [8, 16, 24, REGISTER_AS as usize, MEMORY_AS as usize],
+            );
+            assert!(extension.try_lift(&valid, 0x100).is_some());
+
+            for (d, e) in [(MEMORY_AS, MEMORY_AS), (REGISTER_AS, REGISTER_AS)] {
+                let invalid = Instruction::from_usize(
+                    opcode.global_opcode(),
+                    [8, 16, 24, d as usize, e as usize],
+                );
+                assert!(extension.try_lift(&invalid, 0x100).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn sha256_checkpoint_emits_exact_schedule_and_replay_values() {
         assert_checkpoint_shape(
             &Sha256Instr {
                 dst_ptr_reg: Variable::new(1),
@@ -387,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn sha512_checkpoint_emits_exact_schedule_and_residuals() {
+    fn sha512_checkpoint_emits_exact_schedule_and_replay_values() {
         assert_checkpoint_shape(
             &Sha512Instr {
                 dst_ptr_reg: Variable::new(1),

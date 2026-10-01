@@ -51,8 +51,8 @@ __global__ void shift_right_arithmetic_imm_replay_tracegen(
     uint32_t shamt = instruction.words[3];
     if (instruction.words[0] != opcode ||
         instruction.words[4] != register_address_space ||
-        instruction.words[5] != immediate_address_space || rd_ptr == 0 || (rd_ptr & 1) != 0 ||
-        (rs1_ptr & 1) != 0 || shamt >= BLOCK_FE_WIDTH * U16_BITS) {
+        instruction.words[5] != immediate_address_space || rd_ptr == 0 || !replay_canonical_register_pointer(rd_ptr) ||
+        !replay_canonical_register_pointer(rs1_ptr) || shamt >= BLOCK_FE_WIDTH * U16_BITS) {
         preflight_set_error(error, 64);
         return;
     }
@@ -76,11 +76,8 @@ __global__ void shift_right_arithmetic_imm_replay_tracegen(
 
     uint16_t source[BLOCK_FE_WIDTH];
     uint16_t logged_result[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(read.value, source) ||
-        !replay_u16_block(write.value, logged_result)) {
-        preflight_set_error(error, 67);
-        return;
-    }
+    replay_u16_block(read.value, source);
+    replay_u16_block(write.value, logged_result);
     uint16_t shamt_limbs[BLOCK_FE_WIDTH] = {0};
     shamt_limbs[0] = static_cast<uint16_t>(shamt);
     uint16_t expected_result[BLOCK_FE_WIDTH];
@@ -110,7 +107,7 @@ __global__ void shift_right_arithmetic_imm_replay_tracegen(
     }
 
     auto checker = VariableRangeChecker(range_checker, range_checker_num_bins);
-    auto adapter = Rv64BaseAluImmU16Adapter(checker, timestamp_max_bits);
+    auto adapter = BaseAluImmU16Adapter(checker, timestamp_max_bits);
     adapter.fill_trace_row(
         row,
         from.pc,
@@ -121,7 +118,7 @@ __global__ void shift_right_arithmetic_imm_replay_tracegen(
         write_previous.timestamp,
         write_previous.value
     );
-    auto core = Rv64ShiftRightArithmeticImmCore(checker);
+    auto core = ShiftRightArithmeticImmCore<BLOCK_FE_WIDTH, U16_BITS>(checker);
     core.fill_trace_row(
         row.slice_from(COL_INDEX(ShiftRightArithmeticImmCols, core)),
         source,
@@ -158,7 +155,7 @@ extern "C" int _shift_right_arithmetic_imm_replay_tracegen(
     assert(step_start <= steps.len());
     assert(num_steps <= steps.len() - step_start);
     assert(height >= num_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     shift_right_arithmetic_imm_replay_tracegen<<<grid, block, 0, stream>>>(
         trace,
         height,

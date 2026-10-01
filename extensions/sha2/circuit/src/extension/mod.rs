@@ -24,7 +24,7 @@ use openvm_riscv_circuit::{
     Rv64I, Rv64IExecutor, Rv64ImCpuProverExt, Rv64Io, Rv64IoExecutor, Rv64M, Rv64MExecutor,
 };
 use openvm_sha2_air::{Sha256Config, Sha512Config};
-use openvm_sha2_transpiler::Rv64Sha2Opcode;
+use openvm_sha2_transpiler::Sha2Opcode;
 #[cfg(feature = "rvr")]
 use openvm_stark_backend::p3_field::PrimeField32;
 use openvm_stark_backend::{prover::AirProvingContext, StarkEngine, StarkProtocolConfig, Val};
@@ -139,12 +139,12 @@ impl VmExecutionExtension for Sha2 {
         let byte_ptr_max_bits = to_byte_ptr_bits(inventory.pointer_max_bits());
 
         let sha256_executor =
-            Sha2VmExecutor::<Sha256Config>::new(Rv64Sha2Opcode::CLASS_OFFSET, byte_ptr_max_bits);
-        inventory.add_executor(sha256_executor, [Rv64Sha2Opcode::SHA256.global_opcode()])?;
+            Sha2VmExecutor::<Sha256Config>::new(Sha2Opcode::CLASS_OFFSET, byte_ptr_max_bits);
+        inventory.add_executor(sha256_executor, [Sha2Opcode::SHA256.global_opcode()])?;
 
         let sha512_executor =
-            Sha2VmExecutor::<Sha512Config>::new(Rv64Sha2Opcode::CLASS_OFFSET, byte_ptr_max_bits);
-        inventory.add_executor(sha512_executor, [Rv64Sha2Opcode::SHA512.global_opcode()])?;
+            Sha2VmExecutor::<Sha512Config>::new(Sha2Opcode::CLASS_OFFSET, byte_ptr_max_bits);
+        inventory.add_executor(sha512_executor, [Sha2Opcode::SHA512.global_opcode()])?;
 
         Ok(())
     }
@@ -157,7 +157,8 @@ impl<SC: StarkProtocolConfig> VmCircuitExtension<SC> for Sha2 {
             if let Some(air) = existing_air {
                 air.bus
             } else {
-                let bus = BitwiseOperationLookupBus::new(inventory.new_bus_idx());
+                let bus =
+                    BitwiseOperationLookupBus::new(inventory.new_bus_idx_named("BitwiseLookup"));
                 let air = BitwiseOperationLookupAir::<8>::new(bus);
                 inventory.add_air(air);
                 air.bus
@@ -168,9 +169,9 @@ impl<SC: StarkProtocolConfig> VmCircuitExtension<SC> for Sha2 {
         let range_bus = inventory.range_checker().bus;
 
         // this bus will be used for communication between the block hasher chip and the main chip
-        let sha2_bus_index = inventory.new_bus_idx();
+        let sha2_bus_index = inventory.new_bus_idx_named("Sha2Block");
         // the sha2 subair needs its own bus for self-interactions
-        let subair_bus_index = inventory.new_bus_idx();
+        let subair_bus_index = inventory.new_bus_idx_named("Sha2SubAir");
 
         // SHA-256
         let sha256_block_hasher_air = Sha2BlockHasherVmAir::<Sha256Config>::new(
@@ -186,7 +187,7 @@ impl<SC: StarkProtocolConfig> VmCircuitExtension<SC> for Sha2 {
             range_bus,
             to_byte_ptr_bits(inventory.pointer_max_bits()),
             sha2_bus_index,
-            Rv64Sha2Opcode::CLASS_OFFSET,
+            Sha2Opcode::CLASS_OFFSET,
         );
         inventory.add_air(sha256_main_air);
 
@@ -204,7 +205,7 @@ impl<SC: StarkProtocolConfig> VmCircuitExtension<SC> for Sha2 {
             range_bus,
             to_byte_ptr_bits(inventory.pointer_max_bits()),
             sha2_bus_index,
-            Rv64Sha2Opcode::CLASS_OFFSET,
+            Sha2Opcode::CLASS_OFFSET,
         );
         inventory.add_air(sha512_main_air);
 
@@ -241,8 +242,8 @@ where
             } else {
                 let air: &BitwiseOperationLookupAir<8> = inventory.next_air()?;
                 let chip = Arc::new(BitwiseOperationLookupChip::new(air.bus));
-                inventory.add_postflight_periphery_chip(chip.clone(), |chip, _| {
-                    Ok(chip.generate_proving_ctx(()))
+                inventory.add_periphery_chip_with_tracegen(chip.clone(), |chip, _| {
+                    Ok(chip.generate_proving_ctx())
                 });
                 chip
             }
@@ -256,7 +257,7 @@ where
             byte_ptr_max_bits,
             mem_helper.clone(),
         );
-        inventory.add_postflight_periphery_chip_with_height(
+        inventory.add_periphery_chip_with_height_and_tracegen(
             sha256_block_hasher_chip,
             None,
             |chip, postflight| {
@@ -272,7 +273,7 @@ where
             byte_ptr_max_bits,
             mem_helper.clone(),
         );
-        inventory.add_postflight_executor_chip(sha256_main_chip, |chip, postflight| {
+        inventory.add_executor_chip_with_tracegen(sha256_main_chip, |chip, postflight| {
             Ok(AirProvingContext::simple_no_pis(
                 crate::generate_main_trace_from_postflight(chip, postflight)?,
             ))
@@ -286,7 +287,7 @@ where
             byte_ptr_max_bits,
             mem_helper.clone(),
         );
-        inventory.add_postflight_periphery_chip_with_height(
+        inventory.add_periphery_chip_with_height_and_tracegen(
             sha512_block_hasher_chip,
             None,
             |chip, postflight| {
@@ -302,7 +303,7 @@ where
             byte_ptr_max_bits,
             mem_helper.clone(),
         );
-        inventory.add_postflight_executor_chip(sha512_main_chip, |chip, postflight| {
+        inventory.add_executor_chip_with_tracegen(sha512_main_chip, |chip, postflight| {
             Ok(AirProvingContext::simple_no_pis(
                 crate::generate_main_trace_from_postflight(chip, postflight)?,
             ))

@@ -1,11 +1,11 @@
 //! GPU prover extension. Preflight replay uses native GPU trace generation for recognized
 //! fields and a CPU postflight projection for other field expressions.
 
-use std::{any::Any, collections::BTreeSet, sync::Arc};
+use std::{any::Any, array, collections::BTreeSet, sync::Arc};
 
-use openvm_algebra_transpiler::{Fp2Opcode, Rv64ModularArithmeticOpcode};
+use openvm_algebra_transpiler::{Fp2Opcode, ModularArithmeticOpcode};
 #[cfg(all(feature = "rvr", test))]
-use openvm_circuit::arch::rvr::{cuda::CheckpointReplayProgram, PreflightExecution};
+use openvm_circuit::arch::rvr::PreflightExecution;
 use openvm_circuit::{
     arch::{
         cuda::postflight::{
@@ -32,14 +32,15 @@ use openvm_cuda_backend::{
 use openvm_cuda_common::stream::GpuDeviceCtx;
 use openvm_instructions::{program::Program, LocalOpcode, VmOpcode};
 use openvm_mod_circuit_builder::ExprBuilderConfig;
+#[cfg(all(feature = "rvr", test))]
+use openvm_riscv_circuit::preflight::PreflightReplayProgram;
+#[cfg(feature = "rvr")]
+use openvm_riscv_circuit::preflight::{
+    PostflightAccessRegistry, PostflightAccessSchedule, PostflightAccessSpan,
+};
 use openvm_riscv_circuit::{adapters::U16_BITS, Rv64ImGpuProverExt, Rv64ImPreflightGpuTracegen};
 use openvm_stark_backend::prover::{AirProvingContext, ProvingContext};
 use strum::EnumCount;
-#[cfg(feature = "rvr")]
-use {
-    openvm_circuit::arch::rvr::cuda::{PostflightAccessRegistry, PostflightAccessSpan},
-    openvm_stark_backend::p3_field::PrimeField32,
-};
 
 use crate::{
     cuda::{
@@ -69,8 +70,8 @@ enum ModularReplay<const BLOCKS: usize> {
 }
 
 #[cfg(feature = "rvr")]
-fn validate_modular_is_eq_destinations<F: PrimeField32>(
-    program: &Program<F>,
+fn validate_modular_is_eq_destinations(
+    program: &Program,
     num_moduli: usize,
 ) -> Result<(), GpuPostflightError> {
     if let Some(slot) = super::modular_is_eq_x0_destination(program, num_moduli) {
@@ -103,14 +104,13 @@ impl<const BLOCKS: usize> HybridModularChip<F, BLOCKS> {
         device_ctx: GpuDeviceCtx,
         opcode_base: usize,
         range_checker: Arc<VariableRangeCheckerChipGPU>,
-    ) -> Self {
-        let field_expr_replay = FieldExprReplayChip::new(&cpu, opcode_base, range_checker)
-            .expect("valid modular field-expression replay configuration");
-        Self {
+    ) -> Result<Self, GpuPostflightError> {
+        let field_expr_replay = FieldExprReplayChip::new(&cpu, opcode_base, range_checker)?;
+        Ok(Self {
             cpu,
             device_ctx,
             replay: Some(ModularReplay::FieldExpr(field_expr_replay)),
-        }
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -124,7 +124,7 @@ impl<const BLOCKS: usize> HybridModularChip<F, BLOCKS> {
         range_checker: std::sync::Arc<
             openvm_circuit_primitives::var_range::VariableRangeCheckerChipGPU,
         >,
-    ) -> Self {
+    ) -> Result<Self, GpuPostflightError> {
         let direct_addsub = crate::cuda::modular_addsub::ModularAddSubReplayChipGpu::new(
             &cpu,
             modulus,
@@ -132,20 +132,20 @@ impl<const BLOCKS: usize> HybridModularChip<F, BLOCKS> {
             pointer_max_bits,
             timestamp_max_bits,
             range_checker.clone(),
-        )
-        .expect("valid modular add/sub replay configuration");
+        )?;
         let replay = match direct_addsub {
             Some(replay) => ModularReplay::AddSub(replay),
-            None => ModularReplay::FieldExpr(
-                FieldExprReplayChip::new(&cpu, opcode_base, range_checker)
-                    .expect("valid modular field-expression replay configuration"),
-            ),
+            None => ModularReplay::FieldExpr(FieldExprReplayChip::new(
+                &cpu,
+                opcode_base,
+                range_checker,
+            )?),
         };
-        Self {
+        Ok(Self {
             cpu,
             device_ctx,
             replay: Some(replay),
-        }
+        })
     }
 
     pub fn generate_proving_ctx_from_postflight(
@@ -190,7 +190,7 @@ impl<const BLOCKS: usize> HybridModularChip<F, BLOCKS> {
 
 /// Hybrid prover chip that can generate a CPU trace and transfer it to the GPU.
 pub struct HybridModularIsEqualChip<F, const NUM_LANES: usize, const TOTAL_LIMBS: usize> {
-    cpu: ModularIsEqualU16Chip<F, NUM_LANES, TOTAL_LIMBS>,
+    cpu: ModularIsEqualU16Chip<F, TOTAL_LIMBS>,
     device_ctx: GpuDeviceCtx,
     replay: Option<ModularIsEqualReplayChipGpu<NUM_LANES, TOTAL_LIMBS>>,
 }
@@ -198,10 +198,7 @@ pub struct HybridModularIsEqualChip<F, const NUM_LANES: usize, const TOTAL_LIMBS
 impl<const NUM_LANES: usize, const TOTAL_LIMBS: usize>
     HybridModularIsEqualChip<F, NUM_LANES, TOTAL_LIMBS>
 {
-    pub fn new(
-        cpu: ModularIsEqualU16Chip<F, NUM_LANES, TOTAL_LIMBS>,
-        device_ctx: GpuDeviceCtx,
-    ) -> Self {
+    pub fn new(cpu: ModularIsEqualU16Chip<F, TOTAL_LIMBS>, device_ctx: GpuDeviceCtx) -> Self {
         Self {
             cpu,
             device_ctx,
@@ -210,15 +207,15 @@ impl<const NUM_LANES: usize, const TOTAL_LIMBS: usize>
     }
 
     pub fn new_with_replay(
-        cpu: ModularIsEqualU16Chip<F, NUM_LANES, TOTAL_LIMBS>,
+        cpu: ModularIsEqualU16Chip<F, TOTAL_LIMBS>,
         device_ctx: GpuDeviceCtx,
         modulus_limbs: [u16; TOTAL_LIMBS],
         opcode_base: usize,
         pointer_max_bits: usize,
         timestamp_max_bits: usize,
         range_checker_gpu: Arc<VariableRangeCheckerChipGPU>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, GpuPostflightError> {
+        Ok(Self {
             cpu,
             device_ctx,
             replay: Some(ModularIsEqualReplayChipGpu::new(
@@ -227,8 +224,8 @@ impl<const NUM_LANES: usize, const TOTAL_LIMBS: usize>
                 pointer_max_bits,
                 timestamp_max_bits,
                 range_checker_gpu,
-            )),
-        }
+            )?),
+        })
     }
 
     pub fn generate_proving_ctx_from_postflight(
@@ -279,7 +276,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
             // determine the number of bytes needed to represent a prime field element
             let bytes = modulus.bits().div_ceil(8) as usize;
             let start_offset =
-                Rv64ModularArithmeticOpcode::CLASS_OFFSET + i * Rv64ModularArithmeticOpcode::COUNT;
+                ModularArithmeticOpcode::CLASS_OFFSET + i * ModularArithmeticOpcode::COUNT;
 
             let modulus_limbs = big_uint_to_limbs(modulus, U16_BITS);
 
@@ -305,8 +302,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     byte_ptr_max_bits,
                     timestamp_max_bits,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(addsub, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("modular add/sub replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(addsub, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -331,8 +331,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     device_ctx.clone(),
                     start_offset,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(muldiv, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("modular mul/div replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(muldiv, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -345,7 +348,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     ))
                 });
 
-                let modulus_limbs = std::array::from_fn(|i| {
+                let modulus_limbs = array::from_fn(|i| {
                     if i < modulus_limbs.len() {
                         modulus_limbs[i] as u16
                     } else {
@@ -354,11 +357,15 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                 });
                 inventory
                     .next_air::<ModularIsEqualU16Air<MODULAR_BLOCKS_32, NUM_LIMBS_32_U16>>()?;
-                let is_eq = ModularIsEqualU16Chip::<F, MODULAR_BLOCKS_32, NUM_LIMBS_32_U16>::new(
+                let is_eq = ModularIsEqualU16Chip::<F, NUM_LIMBS_32_U16>::new(
                     ModularIsEqualFiller::new(start_offset, modulus_limbs, range_checker.clone()),
                     mem_helper.clone(),
                 );
-                let is_eq = HybridModularIsEqualChip::new_with_replay(
+                let is_eq = HybridModularIsEqualChip::<
+                    F,
+                    MODULAR_BLOCKS_32,
+                    NUM_LIMBS_32_U16,
+                >::new_with_replay(
                     is_eq,
                     device_ctx.clone(),
                     modulus_limbs,
@@ -366,13 +373,20 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     byte_ptr_max_bits,
                     timestamp_max_bits,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(is_eq, move |chip, postflight| {
-                    let trace = generate_modular_is_equal_trace_from_postflight(
-                        &chip.cpu,
-                        postflight,
-                        start_offset,
-                        byte_ptr_max_bits,
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization(
+                        "ModularIsEqual replay",
+                        source,
+                    )
+                })?;
+                inventory.add_executor_chip_with_tracegen(is_eq, move |chip, postflight| {
+                    let trace = generate_modular_is_equal_trace_from_postflight::<
+                        _,
+                        MODULAR_BLOCKS_32,
+                        NUM_LIMBS_32_U16,
+                    >(
+                        &chip.cpu, postflight, start_offset, byte_ptr_max_bits
                     )?;
                     Ok(cpu_proving_ctx_to_gpu(
                         AirProvingContext::simple_no_pis(trace),
@@ -401,8 +415,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     byte_ptr_max_bits,
                     timestamp_max_bits,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(addsub, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("modular add/sub replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(addsub, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -427,8 +444,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     device_ctx.clone(),
                     start_offset,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(muldiv, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("modular mul/div replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(muldiv, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -441,7 +461,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     ))
                 });
 
-                let modulus_limbs = std::array::from_fn(|i| {
+                let modulus_limbs = array::from_fn(|i| {
                     if i < modulus_limbs.len() {
                         modulus_limbs[i] as u16
                     } else {
@@ -450,11 +470,15 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                 });
                 inventory
                     .next_air::<ModularIsEqualU16Air<MODULAR_BLOCKS_48, NUM_LIMBS_48_U16>>()?;
-                let is_eq = ModularIsEqualU16Chip::<F, MODULAR_BLOCKS_48, NUM_LIMBS_48_U16>::new(
+                let is_eq = ModularIsEqualU16Chip::<F, NUM_LIMBS_48_U16>::new(
                     ModularIsEqualFiller::new(start_offset, modulus_limbs, range_checker.clone()),
                     mem_helper.clone(),
                 );
-                let is_eq = HybridModularIsEqualChip::new_with_replay(
+                let is_eq = HybridModularIsEqualChip::<
+                    F,
+                    MODULAR_BLOCKS_48,
+                    NUM_LIMBS_48_U16,
+                >::new_with_replay(
                     is_eq,
                     device_ctx.clone(),
                     modulus_limbs,
@@ -462,13 +486,20 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, ModularExtension> for Algebra
                     byte_ptr_max_bits,
                     timestamp_max_bits,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(is_eq, move |chip, postflight| {
-                    let trace = generate_modular_is_equal_trace_from_postflight(
-                        &chip.cpu,
-                        postflight,
-                        start_offset,
-                        byte_ptr_max_bits,
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization(
+                        "ModularIsEqual replay",
+                        source,
+                    )
+                })?;
+                inventory.add_executor_chip_with_tracegen(is_eq, move |chip, postflight| {
+                    let trace = generate_modular_is_equal_trace_from_postflight::<
+                        _,
+                        MODULAR_BLOCKS_48,
+                        NUM_LIMBS_48_U16,
+                    >(
+                        &chip.cpu, postflight, start_offset, byte_ptr_max_bits
                     )?;
                     Ok(cpu_proving_ctx_to_gpu(
                         AirProvingContext::simple_no_pis(trace),
@@ -504,14 +535,13 @@ impl<const BLOCKS: usize> HybridFp2Chip<F, BLOCKS> {
         device_ctx: GpuDeviceCtx,
         opcode_base: usize,
         range_checker: Arc<VariableRangeCheckerChipGPU>,
-    ) -> Self {
-        let replay = FieldExprReplayChip::new(&cpu, opcode_base, range_checker)
-            .expect("valid Fp2 field-expression replay configuration");
-        Self {
+    ) -> Result<Self, GpuPostflightError> {
+        let replay = FieldExprReplayChip::new(&cpu, opcode_base, range_checker)?;
+        Ok(Self {
             cpu,
             device_ctx,
             replay: Some(replay),
-        }
+        })
     }
 
     pub fn generate_proving_ctx_from_postflight(
@@ -555,8 +585,8 @@ pub struct AlgebraPreflightGpuTracegen<'a> {
 impl<'a> AlgebraPreflightGpuTracegen<'a> {
     #[cfg(feature = "rvr")]
     #[doc(hidden)]
-    pub fn validate_postflight_program<F: PrimeField32>(
-        program: &Program<F>,
+    pub fn validate_postflight_program(
+        program: &Program,
         modular: &ModularExtension,
     ) -> Result<(), GpuPostflightError> {
         validate_modular_is_eq_destinations(program, modular.supported_moduli.len())
@@ -580,10 +610,10 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
                     "modulus {index} exceeds the supported 48-byte layout"
                 )));
             };
-            let opcode_base = Rv64ModularArithmeticOpcode::CLASS_OFFSET
+            let opcode_base = ModularArithmeticOpcode::CLASS_OFFSET
                 .checked_add(
                     index
-                        .checked_mul(Rv64ModularArithmeticOpcode::COUNT)
+                        .checked_mul(ModularArithmeticOpcode::COUNT)
                         .ok_or_else(|| {
                             GpuPostflightError::InvalidAccessSchedule(
                                 "Modular opcode range overflow".to_string(),
@@ -595,7 +625,7 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
                         "Modular opcode range overflow".to_string(),
                     )
                 })?;
-            let opcode = |local: Rv64ModularArithmeticOpcode| {
+            let opcode = |local: ModularArithmeticOpcode| {
                 let opcode = opcode_base.checked_add(local as usize).ok_or_else(|| {
                     GpuPostflightError::InvalidAccessSchedule(
                         "Modular opcode range overflow".to_string(),
@@ -605,12 +635,12 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
             };
             let read_spans = [
                 PostflightAccessSpan::read_fixed(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     0,
                     blocks as u32,
                 ),
                 PostflightAccessSpan::read_fixed(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     1,
                     blocks as u32,
                 ),
@@ -618,8 +648,8 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
             let write_spans = [
                 read_spans[0],
                 read_spans[1],
-                PostflightAccessSpan::write_fixed_from_residuals(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                PostflightAccessSpan::write_fixed_from_replay_values(
+                    openvm_instructions::riscv::MEMORY_AS,
                     2,
                     blocks as u32,
                 ),
@@ -628,55 +658,51 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
                 read_spans[0],
                 read_spans[1],
                 PostflightAccessSpan::write_fixed_zero(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     2,
                     blocks as u32,
                 ),
             ];
+            let write_schedule = PostflightAccessSchedule {
+                register_operands: &[2, 3, 1],
+                zero_operand_mask: (1 << 6) | (1 << 7),
+                register_as_operand: 4,
+                memory_as_operand: 5,
+                spans: &write_spans,
+            };
             for local in [
-                Rv64ModularArithmeticOpcode::ADD,
-                Rv64ModularArithmeticOpcode::SUB,
-                Rv64ModularArithmeticOpcode::MUL,
-                Rv64ModularArithmeticOpcode::DIV,
+                ModularArithmeticOpcode::ADD,
+                ModularArithmeticOpcode::SUB,
+                ModularArithmeticOpcode::MUL,
+                ModularArithmeticOpcode::DIV,
             ] {
-                registry.register(
-                    opcode(local)?,
-                    &[2, 3, 1],
-                    (1 << 6) | (1 << 7),
-                    4,
-                    5,
-                    &write_spans,
-                )?;
+                registry.register(opcode(local)?, write_schedule)?;
             }
+            let zero_write_schedule = PostflightAccessSchedule {
+                spans: &zero_write_spans,
+                ..write_schedule
+            };
             for local in [
-                Rv64ModularArithmeticOpcode::SETUP_ADDSUB,
-                Rv64ModularArithmeticOpcode::SETUP_MULDIV,
+                ModularArithmeticOpcode::SETUP_ADDSUB,
+                ModularArithmeticOpcode::SETUP_MULDIV,
             ] {
-                registry.register(
-                    opcode(local)?,
-                    &[2, 3, 1],
-                    (1 << 6) | (1 << 7),
-                    4,
-                    5,
-                    &zero_write_spans,
-                )?;
+                registry.register(opcode(local)?, zero_write_schedule)?;
             }
-            registry.register_with_residual_register_write(
-                opcode(Rv64ModularArithmeticOpcode::IS_EQ)?,
-                &[2, 3],
-                (1 << 6) | (1 << 7),
-                4,
-                5,
-                &read_spans,
+            let read_schedule = PostflightAccessSchedule {
+                register_operands: &[2, 3],
+                zero_operand_mask: (1 << 6) | (1 << 7),
+                register_as_operand: 4,
+                memory_as_operand: 5,
+                spans: &read_spans,
+            };
+            registry.register_with_replay_value_write(
+                opcode(ModularArithmeticOpcode::IS_EQ)?,
+                read_schedule,
                 1,
             )?;
             registry.register_with_zero_register_write(
-                opcode(Rv64ModularArithmeticOpcode::SETUP_ISEQ)?,
-                &[2, 3],
-                (1 << 6) | (1 << 7),
-                4,
-                5,
-                &read_spans,
+                opcode(ModularArithmeticOpcode::SETUP_ISEQ)?,
+                read_schedule,
                 1,
             )?;
         }
@@ -713,21 +739,28 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
                 };
                 let spans = [
                     PostflightAccessSpan::read_fixed(
-                        openvm_instructions::riscv::RV64_MEMORY_AS,
+                        openvm_instructions::riscv::MEMORY_AS,
                         0,
                         blocks as u32,
                     ),
                     PostflightAccessSpan::read_fixed(
-                        openvm_instructions::riscv::RV64_MEMORY_AS,
+                        openvm_instructions::riscv::MEMORY_AS,
                         1,
                         blocks as u32,
                     ),
-                    PostflightAccessSpan::write_fixed_from_residuals(
-                        openvm_instructions::riscv::RV64_MEMORY_AS,
+                    PostflightAccessSpan::write_fixed_from_replay_values(
+                        openvm_instructions::riscv::MEMORY_AS,
                         2,
                         blocks as u32,
                     ),
                 ];
+                let schedule = PostflightAccessSchedule {
+                    register_operands: &[2, 3, 1],
+                    zero_operand_mask: (1 << 6) | (1 << 7),
+                    register_as_operand: 4,
+                    memory_as_operand: 5,
+                    spans: &spans,
+                };
                 for local in [
                     Fp2Opcode::ADD,
                     Fp2Opcode::SUB,
@@ -736,14 +769,7 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
                     Fp2Opcode::DIV,
                     Fp2Opcode::SETUP_MULDIV,
                 ] {
-                    registry.register(
-                        opcode(local)?,
-                        &[2, 3, 1],
-                        (1 << 6) | (1 << 7),
-                        4,
-                        5,
-                        &spans,
-                    )?;
+                    registry.register(opcode(local)?, schedule)?;
                 }
             }
         }
@@ -754,19 +780,17 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
     /// immutable program metadata; execution still writes only checkpoints and
     /// irreducible postimages.
     #[cfg(all(test, feature = "rvr"))]
-    pub fn upload_postflight_program<T: PrimeField32>(
-        program: &Program<T>,
+    pub fn upload_postflight_program(
+        program: &Program,
         memory_config: &MemoryConfig,
         modular: &ModularExtension,
         fp2: Option<&Fp2Extension>,
         device_ctx: &GpuDeviceCtx,
-    ) -> Result<CheckpointReplayProgram, GpuPostflightError> {
+    ) -> Result<PreflightReplayProgram, GpuPostflightError> {
         Self::validate_postflight_program(program, modular)?;
         let mut registry = PostflightAccessRegistry::default();
         Self::register_postflight_access_schedules(&mut registry, modular, fp2)?;
-        registry
-            .validate_no_native_collisions(Rv64ImPreflightGpuTracegen::postflight_opcode_bases())?;
-        CheckpointReplayProgram::upload_with_postflight_access_registry(
+        PreflightReplayProgram::upload_with_postflight_access_registry(
             program,
             memory_config,
             &registry,
@@ -777,19 +801,14 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
     #[cfg(all(test, feature = "rvr"))]
     pub fn postflight<VB>(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, VB>,
-        program: &CheckpointReplayProgram,
+        program: &PreflightReplayProgram,
         execution: &PreflightExecution,
         num_insns: u32,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError>
     where
         VB: VmBuilder<GpuBabyBearPoseidon2Engine, SystemChipInventory = SystemChipInventoryGPU>,
     {
-        vm.postflight(
-            program,
-            execution,
-            num_insns,
-            Rv64ImPreflightGpuTracegen::postflight_opcode_bases(),
-        )
+        Rv64ImPreflightGpuTracegen::postflight(vm, program, execution, num_insns)
     }
 
     pub fn new(
@@ -803,20 +822,20 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
         let mut configured = BTreeSet::new();
         for index in 0..modular.supported_moduli.len() {
             let stride = index
-                .checked_mul(Rv64ModularArithmeticOpcode::COUNT)
+                .checked_mul(ModularArithmeticOpcode::COUNT)
                 .ok_or_else(|| {
                     GpuPostflightError::InvalidTranscript(
                         "Modular opcode range overflow".to_string(),
                     )
                 })?;
-            let base = Rv64ModularArithmeticOpcode::CLASS_OFFSET
+            let base = ModularArithmeticOpcode::CLASS_OFFSET
                 .checked_add(stride)
                 .ok_or_else(|| {
                     GpuPostflightError::InvalidTranscript(
                         "Modular opcode range overflow".to_string(),
                     )
                 })?;
-            for local in 0..Rv64ModularArithmeticOpcode::COUNT {
+            for local in 0..ModularArithmeticOpcode::COUNT {
                 let opcode = base.checked_add(local).ok_or_else(|| {
                     GpuPostflightError::InvalidTranscript("Modular opcode overflow".to_string())
                 })?;
@@ -977,14 +996,14 @@ impl<'a> AlgebraPreflightGpuTracegen<'a> {
             self.transcript,
             self.replay_plan,
             (self, rv64),
-            |(tracegen, rv64), insertion_idx, chip| {
+            |(tracegen, rv64), chip| {
                 if let Some(ctx) = tracegen
                     .generate_for_chip(chip)
                     .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?
                 {
                     Ok(ctx)
                 } else {
-                    rv64.generate_for_chip(insertion_idx, chip)
+                    rv64.generate_for_chip(chip)
                         .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
                 }
             },
@@ -1038,8 +1057,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Fp2Extension> for AlgebraHybr
                     device_ctx.clone(),
                     start_offset,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(addsub, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("Fp2 add/sub replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(addsub, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -1064,8 +1086,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Fp2Extension> for AlgebraHybr
                     device_ctx.clone(),
                     start_offset,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(muldiv, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("Fp2 mul/div replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(muldiv, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -1096,8 +1121,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Fp2Extension> for AlgebraHybr
                     device_ctx.clone(),
                     start_offset,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(addsub, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("Fp2 add/sub replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(addsub, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -1122,8 +1150,11 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Fp2Extension> for AlgebraHybr
                     device_ctx.clone(),
                     start_offset,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(muldiv, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization("Fp2 mul/div replay", source)
+                })?;
+                inventory.add_executor_chip_with_tracegen(muldiv, move |chip, postflight| {
                     let trace = generate_field_expression_trace_from_postflight(
                         &chip.cpu,
                         postflight,
@@ -1153,16 +1184,16 @@ impl PostflightTracegen<GpuBabyBearPoseidon2Engine> for Rv64ModularHybridBuilder
 
     fn prepare_postflight(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
-        program: &Program<F>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
         prepare_gpu_postflight(vm, program)
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
+        _host_program: &Program,
         program: &Self::Prepared,
         output: &PreflightOutput,
-        _postflight: &Postflight<'_, F>,
     ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
         let (transcript, replay_plan) = vm
             .postflight_history(program, output)
@@ -1219,16 +1250,16 @@ impl PostflightTracegen<GpuBabyBearPoseidon2Engine> for Rv64ModularWithFp2Hybrid
 
     fn prepare_postflight(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
-        program: &Program<F>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
         prepare_gpu_postflight(vm, program)
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
+        _host_program: &Program,
         program: &Self::Prepared,
         output: &PreflightOutput,
-        _postflight: &Postflight<'_, F>,
     ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
         let (transcript, replay_plan) = vm
             .postflight_history(program, output)

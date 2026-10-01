@@ -15,7 +15,8 @@ use openvm_circuit::arch::{
 };
 use openvm_deferral_transpiler::DeferralOpcode;
 use openvm_instructions::{
-    riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES},
+    instruction::Instruction,
+    riscv::{MEMORY_AS, NUM_REGISTERS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode, VM_DIGEST_WIDTH,
 };
 use openvm_stark_backend::p3_field::PrimeField32;
@@ -25,11 +26,15 @@ use rvr_openvm_ir::{
 use rvr_openvm_lift::{
     air_index_to_c, decode_variable, fixed_trace_rows_for_chip,
     max_main_memory_pages_for_contiguous_range, opcode_air_idx, AirIndex, ExtensionError,
-    RvrExtension, RvrExtensionCtx, RvrInstruction, RvrRuntimeExtension,
+    RvrExtension, RvrExtensionCtx, RvrRuntimeExtension,
 };
 
 fn decode_reg(value: u32) -> Variable {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
+}
+
+fn has_register_memory_domains(insn: &Instruction) -> bool {
+    insn.d.as_u32() == REGISTER_AS && insn.e.as_u32() == MEMORY_AS
 }
 
 /// Size in bytes of a serialized deferral commitment.
@@ -95,19 +100,18 @@ impl ExtInstr for DeferralCallInstr {
         let rd = ctx.read_var(self.rd_reg);
         let rs = ctx.read_var(self.rs_reg);
         let def_idx = format!("{}u", self.def_idx);
-        let checkpoint = ctx.is_checkpoint_preflight();
-        let count_residuals = ctx.counts_checkpoint_residuals();
-        if checkpoint {
+        let is_preflight = ctx.is_preflight();
+        if is_preflight {
             // The opaque call performs four input-key reads, five output-key
             // writes, and two reads plus two writes of two-block AS4 digests.
             // Register reads are emitted above, for 2 + 17 = 19 total slots.
-            ctx.reserve_preflight_writes(&format!("{DEFERRAL_OUTPUT_KEY_WORDS}u"), "17u");
+            ctx.reserve_preflight_timestamp_slots("17u");
             ctx.reserve_replay_values(&format!("{DEFERRAL_CALL_REPLAY_WORDS}u"));
             ctx.write_line(&format!(
                 "uint64_t deferral_replay[{DEFERRAL_CALL_REPLAY_WORDS}u];"
             ));
         }
-        let replay_out = if checkpoint {
+        let replay_out = if is_preflight {
             "deferral_replay"
         } else {
             "NULL"
@@ -116,13 +120,13 @@ impl ExtInstr for DeferralCallInstr {
             "rvr_ext_deferral_call",
             &["state", &rd, &rs, &def_idx, replay_out],
         );
-        if checkpoint {
+        if is_preflight {
             ctx.write_line(&format!(
                 "for (uint32_t deferral_replay_idx = 0u; deferral_replay_idx < {DEFERRAL_CALL_REPLAY_WORDS}u; ++deferral_replay_idx) {{"
             ));
             ctx.append_replay_value("deferral_replay[deferral_replay_idx]");
             ctx.write_line("}");
-        } else if count_residuals {
+        } else {
             ctx.count_fixed_replay_values(
                 DEFERRAL_CALL_REPLAY_WORDS
                     .try_into()
@@ -166,10 +170,9 @@ impl ExtInstr for DeferralOutputInstr {
     fn emit_c(&self, ctx: &mut dyn ExtEmitCtx) {
         let rd = ctx.read_var(self.rd_reg);
         let rs = ctx.read_var(self.rs_reg);
-        let checkpoint = ctx.is_checkpoint_preflight();
-        let count_residuals = ctx.counts_checkpoint_residuals();
+        let is_preflight = ctx.is_preflight();
         let output_words = "deferral_output_words";
-        if checkpoint {
+        if is_preflight {
             ctx.write_line(&format!(
                 "if (unlikely({rs} > OPENVM_MEM_SIZE - {DEFERRAL_OUTPUT_KEY_BYTES}u)) {{"
             ));
@@ -183,7 +186,7 @@ impl ExtInstr for DeferralOutputInstr {
             ctx.write_line("}");
             ctx.write_line("uint32_t deferral_output_len = (uint32_t)deferral_output_len_u64;");
             // Output rows are one guest word. Reject a partial row before
-            // reserving checkpoint slots or mutating guest memory.
+            // reserving timestamp slots or mutating guest memory.
             ctx.write_line(&format!(
                 "if (unlikely((deferral_output_len & {}u) != 0u)) {{",
                 DEFERRAL_OUTPUT_ROW_BYTES - 1
@@ -194,7 +197,7 @@ impl ExtInstr for DeferralOutputInstr {
                 "uint32_t {output_words} = deferral_output_len / {}u;",
                 size_of::<u64>()
             ));
-            ctx.reserve_preflight_writes(output_words, &format!("5u + {output_words}"));
+            ctx.reserve_preflight_timestamp_slots(&format!("5u + {output_words}"));
             ctx.reserve_replay_values(&format!("1u + {output_words}"));
         }
         let output = air_index_to_c(self.output_chip_idx);
@@ -207,7 +210,7 @@ impl ExtInstr for DeferralOutputInstr {
         );
         ctx.trace_chip_if_nonzero(output, "deferral_num_rows - 1u");
         ctx.trace_chip(poseidon2, "deferral_num_rows");
-        if checkpoint {
+        if is_preflight {
             ctx.write_line(&format!(
                 "for (uint32_t deferral_replay_idx = 0u; deferral_replay_idx <= {output_words}; ++deferral_replay_idx) {{"
             ));
@@ -215,7 +218,7 @@ impl ExtInstr for DeferralOutputInstr {
                 "deferral_replay_idx == 0u ? (uint64_t){output_words} : peek_mem_u64(state, {rd} + (uint64_t)(deferral_replay_idx - 1u) * 8ull)"
             ));
             ctx.write_line("}");
-        } else if count_residuals {
+        } else {
             // Each non-header Deferral row contains four guest u64 words.
             // Count only after the checked host call has succeeded.
             ctx.count_replay_values("1ull + 4ull * ((uint64_t)deferral_num_rows - 1ull)");
@@ -241,10 +244,14 @@ impl ExtInstr for DeferralOutputInstr {
 pub struct DeferralRvrExtension {
     output_chip_idx: Option<AirIndex>,
     poseidon2_chip_idx: Option<AirIndex>,
+    registered_deferral_count: usize,
 }
 
 impl DeferralRvrExtension {
-    pub fn new(ctx: Option<&RvrExtensionCtx>) -> Result<Self, ExtensionError> {
+    pub fn new(
+        ctx: Option<&RvrExtensionCtx>,
+        registered_deferral_count: usize,
+    ) -> Result<Self, ExtensionError> {
         let call_chip_idx = opcode_air_idx(ctx, DeferralOpcode::CALL)?;
         let output_chip_idx = opcode_air_idx(ctx, DeferralOpcode::OUTPUT)?;
         // The Poseidon2 hasher is registered adjacent to the CALL chip and
@@ -254,18 +261,25 @@ impl DeferralRvrExtension {
         Ok(Self {
             output_chip_idx,
             poseidon2_chip_idx,
+            registered_deferral_count,
         })
     }
 }
 
 impl RvrExtension for DeferralRvrExtension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         let opcode = insn.opcode.as_usize();
 
         if opcode == DeferralOpcode::CALL.global_opcode_usize() {
-            let rd_reg = decode_reg(insn.a);
-            let rs_reg = decode_reg(insn.b);
-            let def_idx = insn.c;
+            if !has_register_memory_domains(insn) {
+                return None;
+            }
+            let rd_reg = decode_reg(insn.a.as_u32());
+            let rs_reg = decode_reg(insn.b.as_u32());
+            let def_idx = insn.c.as_u32();
+            if def_idx as usize >= self.registered_deferral_count {
+                return None;
+            }
             return Some(LiftedInstr::Body(InstrAt {
                 pc,
                 instr: Box::new(DeferralCallInstr {
@@ -279,9 +293,12 @@ impl RvrExtension for DeferralRvrExtension {
         }
 
         if opcode == DeferralOpcode::OUTPUT.global_opcode_usize() {
-            let rd_reg = decode_reg(insn.a);
-            let rs_reg = decode_reg(insn.b);
-            let def_idx = insn.c;
+            if !has_register_memory_domains(insn) {
+                return None;
+            }
+            let rd_reg = decode_reg(insn.a.as_u32());
+            let rs_reg = decode_reg(insn.b.as_u32());
+            let def_idx = insn.c.as_u32();
             return Some(LiftedInstr::Body(InstrAt {
                 pc,
                 instr: Box::new(DeferralOutputInstr {
@@ -314,6 +331,10 @@ impl RvrExtension for DeferralRvrExtension {
 
     fn max_main_memory_pages_per_instruction(&self) -> usize {
         DEFERRAL_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION
+    }
+
+    fn uses_deferral_address_space(&self) -> bool {
+        true
     }
 }
 
@@ -435,7 +456,7 @@ unsafe fn prepare_deferral_accumulator_update<F: PrimeField32>(
     let end = output_acc_ptr.checked_add(VM_DIGEST_WIDTH)?;
     let byte_start = input_acc_ptr.checked_mul(size_of::<F>())?;
     let byte_len = (end - input_acc_ptr).checked_mul(size_of::<F>())?;
-    if !io.can_mark_checkpoint_deferral_write(byte_start, byte_len) {
+    if !io.can_mark_preflight_deferral_write(byte_start, byte_len) {
         return None;
     }
     let memory = unsafe { deferral_memory::<F>(io) }?;
@@ -485,7 +506,7 @@ unsafe fn apply_deferral_accumulator_update<F: PrimeField32>(
             VM_DIGEST_WIDTH,
         );
     }
-    io.mark_checkpoint_deferral_write(
+    io.mark_preflight_deferral_write(
         update.input_acc_ptr * size_of::<F>(),
         2 * VM_DIGEST_WIDTH * size_of::<F>(),
     );
@@ -694,16 +715,16 @@ mod tests {
 
     struct TestEmitCtx {
         operations: Vec<String>,
-        checkpoint: bool,
+        preflight: bool,
         trace_result: bool,
         next_tmp: usize,
     }
 
     impl TestEmitCtx {
-        fn checkpoint() -> Self {
+        fn preflight() -> Self {
             Self {
                 operations: Vec::new(),
-                checkpoint: true,
+                preflight: true,
                 trace_result: false,
                 next_tmp: 0,
             }
@@ -712,7 +733,7 @@ mod tests {
         fn legacy() -> Self {
             Self {
                 operations: Vec::new(),
-                checkpoint: false,
+                preflight: false,
                 trace_result: false,
                 next_tmp: 0,
             }
@@ -727,12 +748,8 @@ mod tests {
     }
 
     impl ExtEmitCtx for TestEmitCtx {
-        fn is_checkpoint_preflight(&self) -> bool {
-            self.checkpoint
-        }
-
-        fn counts_checkpoint_residuals(&self) -> bool {
-            self.checkpoint || self.trace_result
+        fn is_preflight(&self) -> bool {
+            self.preflight
         }
 
         fn read_var(&mut self, var: Variable) -> String {
@@ -773,8 +790,8 @@ mod tests {
             unreachable!()
         }
 
-        fn reserve_preflight_writes(&mut self, writes: &str, slots: &str) {
-            self.operations.push(format!("reserve({writes}, {slots})"));
+        fn reserve_preflight_timestamp_slots(&mut self, slots: &str) {
+            self.operations.push(format!("reserve({slots})"));
         }
 
         fn reserve_replay_values(&mut self, count: &str) {
@@ -782,11 +799,13 @@ mod tests {
         }
 
         fn count_replay_values(&mut self, count: &str) {
-            self.operations.push(format!("count_replay({count})"));
+            if self.trace_result {
+                self.operations.push(format!("count_replay({count})"));
+            }
         }
 
         fn append_replay_value(&mut self, value: &str) {
-            self.operations.push(format!("residual({value})"));
+            self.operations.push(format!("replay_value({value})"));
         }
 
         fn emit_call(&mut self, name: &str, args: &[&str]) {
@@ -853,6 +872,60 @@ mod tests {
         assert_eq!(DEFERRAL_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION, 4);
     }
 
+    #[test]
+    fn deferral_instruction_domains_match_the_interpreter() {
+        let extension = DeferralRvrExtension::new(None, 1).unwrap();
+        for opcode in [DeferralOpcode::CALL, DeferralOpcode::OUTPUT] {
+            let valid = Instruction::from_usize(
+                opcode.global_opcode(),
+                [8, 16, 0, REGISTER_AS as usize, MEMORY_AS as usize],
+            );
+            assert!(extension.try_lift(&valid, 0x1000).is_some());
+
+            let wrong_register = Instruction::from_usize(
+                opcode.global_opcode(),
+                [8, 16, 0, MEMORY_AS as usize, MEMORY_AS as usize],
+            );
+            assert!(extension.try_lift(&wrong_register, 0x1000).is_none());
+
+            let wrong_memory = Instruction::from_usize(
+                opcode.global_opcode(),
+                [8, 16, 0, REGISTER_AS as usize, REGISTER_AS as usize],
+            );
+            assert!(extension.try_lift(&wrong_memory, 0x1000).is_none());
+        }
+    }
+
+    #[test]
+    fn deferral_call_requires_a_registered_index() {
+        let extension = DeferralRvrExtension::new(None, 1).unwrap();
+        let instruction = |opcode, def_idx| {
+            Instruction::from_usize(
+                opcode,
+                [8, 16, def_idx, REGISTER_AS as usize, MEMORY_AS as usize],
+            )
+        };
+
+        assert!(extension
+            .try_lift(
+                &instruction(DeferralOpcode::CALL.global_opcode(), 0),
+                0x1000,
+            )
+            .is_some());
+        assert!(extension
+            .try_lift(
+                &instruction(DeferralOpcode::CALL.global_opcode(), 1),
+                0x1000,
+            )
+            .is_none());
+        assert!(extension
+            .try_lift(
+                &instruction(DeferralOpcode::OUTPUT.global_opcode(), 1),
+                0x1000,
+            )
+            .is_some());
+    }
+
     fn commit_from_values(values: [u32; VM_DIGEST_WIDTH]) -> [u8; DEFERRAL_COMMIT_NUM_BYTES] {
         let mut commit = [0u8; DEFERRAL_COMMIT_NUM_BYTES];
         for (chunk, value) in commit.chunks_exact_mut(size_of::<u32>()).zip(values) {
@@ -916,7 +989,7 @@ mod tests {
             public_values: &mut public_values,
             deferral_memory: deferral_memory.as_mut_ptr().cast(),
             deferral_memory_len_bytes: size_of_val(deferral_memory.as_slice()),
-            checkpoint_deferral_dirty_pages: Some(&mut dirty_pages),
+            preflight_deferral_dirty_pages: Some(&mut dirty_pages),
             deferrals: &mut deferrals,
         };
 
@@ -990,7 +1063,7 @@ mod tests {
             public_values: &mut public_values,
             deferral_memory: deferral_memory.as_mut_ptr().cast(),
             deferral_memory_len_bytes: size_of_val(deferral_memory.as_slice()),
-            checkpoint_deferral_dirty_pages: Some(&mut dirty_pages),
+            preflight_deferral_dirty_pages: Some(&mut dirty_pages),
             deferrals: &mut deferrals,
         };
 
@@ -1071,7 +1144,7 @@ mod tests {
             public_values: &mut public_values,
             deferral_memory: deferral_memory.as_mut_ptr().cast(),
             deferral_memory_len_bytes: size_of_val(&deferral_memory),
-            checkpoint_deferral_dirty_pages: None,
+            preflight_deferral_dirty_pages: None,
             deferrals: &mut deferrals,
         };
         let d_ctx = &deferral_ctx as *const DeferralCtx as *mut c_void;
@@ -1129,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn call_checkpoint_reserves_exact_schedule_and_emits_residuals_once() {
+    fn call_preflight_reserves_exact_schedule_and_emits_replay_values_once() {
         let instruction = DeferralCallInstr {
             rd_reg: Variable::new(1),
             rs_reg: Variable::new(2),
@@ -1138,14 +1211,14 @@ mod tests {
         };
         assert!(instruction.supports_preflight());
 
-        let mut checkpoint = TestEmitCtx::checkpoint();
-        instruction.emit_c(&mut checkpoint);
+        let mut preflight = TestEmitCtx::preflight();
+        instruction.emit_c(&mut preflight);
         assert_eq!(
-            checkpoint.operations,
+            preflight.operations,
             [
                 "read(r1)",
                 "read(r2)",
-                "reserve(5u, 17u)",
+                "reserve(17u)",
                 "reserve_replay(13u)",
                 "uint64_t deferral_replay[13u];",
                 "bool tmp0 = rvr_ext_deferral_call(state, r1, r2, 3u, deferral_replay)",
@@ -1153,12 +1226,12 @@ mod tests {
                 "trap",
                 "}",
                 "for (uint32_t deferral_replay_idx = 0u; deferral_replay_idx < 13u; ++deferral_replay_idx) {",
-                "residual(deferral_replay[deferral_replay_idx])",
+                "replay_value(deferral_replay[deferral_replay_idx])",
                 "}",
             ]
         );
         assert_eq!(
-            checkpoint
+            preflight
                 .operations
                 .iter()
                 .filter(|operation| operation.contains("rvr_ext_deferral_call("))
@@ -1182,7 +1255,7 @@ mod tests {
     }
 
     #[test]
-    fn output_checkpoint_reserves_dynamic_schedule_and_calls_closure_once() {
+    fn output_preflight_reserves_dynamic_schedule_and_calls_closure_once() {
         let instruction = DeferralOutputInstr {
             rd_reg: Variable::new(1),
             rs_reg: Variable::new(2),
@@ -1192,10 +1265,10 @@ mod tests {
         };
         assert!(instruction.supports_preflight());
 
-        let mut checkpoint = TestEmitCtx::checkpoint();
-        instruction.emit_c(&mut checkpoint);
+        let mut preflight = TestEmitCtx::preflight();
+        instruction.emit_c(&mut preflight);
         assert_eq!(
-            checkpoint.operations,
+            preflight.operations,
             [
                 "read(r1)",
                 "read(r2)",
@@ -1211,7 +1284,7 @@ mod tests {
                 "trap",
                 "}",
                 "uint32_t deferral_output_words = deferral_output_len / 8u;",
-                "reserve(deferral_output_words, 5u + deferral_output_words)",
+                "reserve(5u + deferral_output_words)",
                 "reserve_replay(1u + deferral_output_words)",
                 "uint32_t deferral_num_rows;",
                 "bool tmp0 = rvr_ext_deferral_output(state, r1, r2, 3u, &deferral_num_rows)",
@@ -1221,12 +1294,12 @@ mod tests {
                 "trace_nonzero(4294967295, deferral_num_rows - 1u)",
                 "trace(4294967295, deferral_num_rows)",
                 "for (uint32_t deferral_replay_idx = 0u; deferral_replay_idx <= deferral_output_words; ++deferral_replay_idx) {",
-                "residual(deferral_replay_idx == 0u ? (uint64_t)deferral_output_words : peek_mem_u64(state, r1 + (uint64_t)(deferral_replay_idx - 1u) * 8ull))",
+                "replay_value(deferral_replay_idx == 0u ? (uint64_t)deferral_output_words : peek_mem_u64(state, r1 + (uint64_t)(deferral_replay_idx - 1u) * 8ull))",
                 "}",
             ]
         );
         assert_eq!(
-            checkpoint
+            preflight
                 .operations
                 .iter()
                 .filter(|operation| operation.contains("rvr_ext_deferral_output("))
@@ -1273,11 +1346,11 @@ mod tests {
             .iter()
             .position(|operation| operation.contains("rvr_ext_deferral_output"))
             .unwrap();
-        let residual_count = metered
+        let replay_value_count = metered
             .operations
             .iter()
             .position(|operation| operation.starts_with("count_replay"))
             .unwrap();
-        assert!(checked_call < residual_count);
+        assert!(checked_call < replay_value_count);
     }
 }

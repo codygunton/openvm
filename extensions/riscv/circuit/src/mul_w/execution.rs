@@ -8,13 +8,13 @@ use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS, RV64_WORD_NUM_LIMBS},
+    riscv::{REGISTER_AS, REGISTER_NUM_LIMBS, WORD_NUM_LIMBS},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::{MulOpcode, MulWOpcode};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::MulWExecutor;
+use super::MulWCoreExecutor;
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
 struct MulWPreCompute {
@@ -23,31 +23,31 @@ struct MulWPreCompute {
     c: u8,
 }
 
-impl MulWExecutor {
-    fn pre_compute_impl<F: PrimeField32>(
+impl MulWCoreExecutor {
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut MulWPreCompute,
     ) -> Result<(), StaticProgramError> {
         assert_eq!(
             MulWOpcode::from_usize(inst.opcode.local_opcode_idx(self.offset)),
             MulWOpcode::MULW
         );
-        if inst.d.as_canonical_u32() != RV64_REGISTER_AS {
+        if inst.d.as_u32() != REGISTER_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
 
         *data = MulWPreCompute {
-            a: inst.a.as_canonical_u32() as u8,
-            b: inst.b.as_canonical_u32() as u8,
-            c: inst.c.as_canonical_u32() as u8,
+            a: inst.a.as_u32() as u8,
+            b: inst.b.as_u32() as u8,
+            c: inst.c.as_u32() as u8,
         };
         Ok(())
     }
 }
 
-impl<F> InterpreterExecutor<F> for MulWExecutor
+impl<F> InterpreterExecutor<F> for MulWCoreExecutor
 where
     F: PrimeField32,
 {
@@ -62,7 +62,7 @@ where
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -77,7 +77,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -89,7 +89,7 @@ where
     }
 }
 
-impl<F> InterpreterMeteredExecutor<F> for MulWExecutor
+impl<F> InterpreterMeteredExecutor<F> for MulWCoreExecutor
 where
     F: PrimeField32,
 {
@@ -102,7 +102,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -119,7 +119,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -137,19 +137,13 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait>(
     pre_compute: &MulWPreCompute,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) {
-    let rs1: [u8; RV64_WORD_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.b as u32);
-    let rs2: [u8; RV64_WORD_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.c as u32);
+    let rs1: [u8; WORD_NUM_LIMBS] = exec_state.vm_read_bytes(REGISTER_AS, pre_compute.b as u32);
+    let rs2: [u8; WORD_NUM_LIMBS] = exec_state.vm_read_bytes(REGISTER_AS, pre_compute.c as u32);
     let rs1 = u32::from_le_bytes(rs1);
     let rs2 = u32::from_le_bytes(rs2);
     let rd_word = rs1.wrapping_mul(rs2);
     let rd = (rd_word as i32 as i64 as u64).to_le_bytes();
-    exec_state.vm_write_bytes::<RV64_REGISTER_NUM_LIMBS>(
-        RV64_REGISTER_AS,
-        pre_compute.a as u32,
-        &rd,
-    );
+    exec_state.vm_write_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.a as u32, &rd);
 
     let pc = exec_state.pc();
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));

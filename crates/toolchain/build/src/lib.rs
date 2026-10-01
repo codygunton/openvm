@@ -32,7 +32,7 @@ pub const DEFAULT_RUSTC_TARGET: &str = "riscv64im-unknown-openvm-elf";
 /// Override with `OPENVM_RUST_TOOLCHAIN`.
 //
 // Keep in sync with the default `TAG` in `ci/install-openvm-toolchain.sh`.
-pub const DEFAULT_RUSTUP_TOOLCHAIN_NAME: &str = "openvm-1.94.1";
+pub const DEFAULT_RUSTUP_TOOLCHAIN_NAME: &str = "openvm-1.97.1";
 
 const BUILD_LOCKED_ENV: &str = "OPENVM_BUILD_LOCKED";
 const SKIP_BUILD_ENV: &str = "OPENVM_SKIP_BUILD";
@@ -326,6 +326,9 @@ pub(crate) fn encode_rust_flags(rustc_flags: &[&str]) -> String {
             // Replace atomic ops with nonatomic versions since the guest is single threaded.
             "-C",
             "passes=lower-atomic",
+            // Retain LLVM's post-optimization blocks and CFG successors in the final ELF.
+            "-C",
+            "llvm-args=--basic-block-address-map --pgo-analysis-map=br-prob",
             // Specify where to start loading the program in
             // memory.  The clang linker understands the same
             // command line arguments as the GNU linker does; see

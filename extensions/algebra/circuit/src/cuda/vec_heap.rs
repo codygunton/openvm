@@ -22,13 +22,12 @@ use openvm_cuda_backend::{
 };
 use openvm_cuda_common::{copy::MemCopyD2H, d_buffer::DeviceBuffer, stream::GpuDeviceCtx};
 use openvm_instructions::{
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
     VmOpcode,
 };
 use openvm_mod_circuit_builder::FieldExpressionFiller;
 use openvm_riscv_adapters::{
-    vec_heap_u16_blocks_to_bytes, Rv64VecHeapAdapterCols, Rv64VecHeapAdapterFiller,
-    VecHeapTraceInput,
+    vec_heap_u16_blocks_to_bytes, VecHeapAdapterCols, VecHeapAdapterFiller, VecHeapTraceInput,
 };
 use openvm_stark_backend::{
     p3_air::BaseAir, p3_field::PrimeCharacteristicRing, p3_matrix::dense::RowMajorMatrix,
@@ -47,12 +46,12 @@ pub(crate) fn checked_trace_shape(
     timestamp_max_bits: usize,
 ) -> Result<(usize, usize), GpuPostflightError> {
     let timestamp_bits = u32::try_from(timestamp_max_bits).map_err(|_| {
-        GpuPostflightError::InvalidTranscript(
+        GpuPostflightError::InvalidConfiguration(
             "timestamp width cannot be represented as a host trace height".to_string(),
         )
     })?;
     let timestamp_row_limit = 1usize.checked_shl(timestamp_bits).ok_or_else(|| {
-        GpuPostflightError::InvalidTranscript(
+        GpuPostflightError::InvalidConfiguration(
             "timestamp width cannot be represented as a host trace height".to_string(),
         )
     })?;
@@ -108,12 +107,6 @@ pub(crate) fn gather_vec_heap_trace_inputs_device<const NUM_READS: usize, const 
         return Err(GpuPostflightError::InvalidTranscript(format!(
             "unsupported VecHeap replay shape ({NUM_READS}, {BLOCKS})"
         )));
-    }
-    let expected_size = 24 + 12 * NUM_READS + 12 * NUM_READS * BLOCKS + 20 * BLOCKS;
-    if size_of::<VecHeapTraceInput<NUM_READS, BLOCKS>>() != expected_size {
-        return Err(GpuPostflightError::InvalidTranscript(
-            "VecHeap replay projection ABI size mismatch".to_string(),
-        ));
     }
     if local_opcodes
         .iter()
@@ -181,8 +174,8 @@ pub(crate) fn gather_vec_heap_trace_inputs_device<const NUM_READS: usize, const 
                 u32::try_from(opcode).map_err(|_| GpuPostflightError::OpcodeTooLarge(opcode))?,
                 u32::try_from(local_opcode)
                     .map_err(|_| GpuPostflightError::OpcodeTooLarge(local_opcode))?,
-                RV64_REGISTER_AS,
-                RV64_MEMORY_AS,
+                REGISTER_AS,
+                MEMORY_AS,
                 u32::try_from(pointer_max_bits).map_err(|_| {
                     GpuPostflightError::InvalidTranscript(
                         "VecHeap pointer width does not fit u32".to_string(),
@@ -195,7 +188,6 @@ pub(crate) fn gather_vec_heap_trace_inputs_device<const NUM_READS: usize, const 
         output_start += range.len();
     }
     debug_assert_eq!(output_start, num_rows);
-    transcript.synchronize()?;
     let error = transcript.error_code()?;
     if error != 0 {
         return Err(GpuPostflightError::InvalidTranscript(format!(
@@ -245,10 +237,7 @@ pub(crate) fn generate_field_expression_ctx_from_projection<
     const NUM_READS: usize,
     const BLOCKS: usize,
 >(
-    chip: &VmChipWrapper<
-        F,
-        FieldExpressionFiller<Rv64VecHeapAdapterFiller<NUM_READS, BLOCKS, BLOCKS>>,
-    >,
+    chip: &VmChipWrapper<F, FieldExpressionFiller<VecHeapAdapterFiller<NUM_READS, BLOCKS, BLOCKS>>>,
     projection: Vec<VecHeapTraceInput<NUM_READS, BLOCKS>>,
     timestamp_max_bits: usize,
     device_ctx: &GpuDeviceCtx,
@@ -258,7 +247,7 @@ pub(crate) fn generate_field_expression_ctx_from_projection<
             openvm_cuda_backend::base::DeviceMatrix::dummy(),
         ));
     }
-    let adapter_width = Rv64VecHeapAdapterCols::<F, NUM_READS, BLOCKS, BLOCKS>::width();
+    let adapter_width = VecHeapAdapterCols::<F, NUM_READS, BLOCKS, BLOCKS>::width();
     let width = adapter_width
         .checked_add(BaseAir::<F>::width(&chip.inner.expr))
         .ok_or_else(|| {

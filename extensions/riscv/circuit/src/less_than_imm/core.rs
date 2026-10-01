@@ -68,7 +68,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &LessThanImmCoreCols<_, NUM_LIMBS, LIMB_BITS> = local_core.borrow();
         let flags = [cols.opcode_slt_flag, cols.opcode_sltu_flag];
@@ -156,7 +156,7 @@ where
         let imm = cols.imm_low11 + cols.imm_sign * AB::Expr::from_u32(0xFFF800);
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: [cols.b.map(Into::into)].into(),
             writes: [a].into(),
             instruction: ImmInstruction {
@@ -174,12 +174,12 @@ where
 }
 
 #[derive(Clone, Copy, derive_new::new)]
-pub struct LessThanImmExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct LessThanImmCoreExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
     pub offset: usize,
 }
 
 #[derive(Clone, derive_new::new)]
-pub struct LessThanImmFiller<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct LessThanImmFiller {
     pub range_checker_chip: SharedVariableRangeCheckerChip,
 }
 

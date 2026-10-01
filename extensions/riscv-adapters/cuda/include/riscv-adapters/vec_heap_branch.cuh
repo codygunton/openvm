@@ -3,24 +3,27 @@
 #include "primitives/execution.h"
 #include "primitives/trace_access.h"
 #include "primitives/utils.cuh"
+#include "riscv-adapters/pointer_conv.cuh"
 #include "system/memory/controller.cuh"
 #include "system/memory/offline_checker.cuh"
 
 using namespace riscv;
 
 template <typename T, size_t NUM_READS, size_t BLOCKS_PER_READ>
-struct Rv64VecHeapBranchAdapterCols {
+struct VecHeapBranchAdapterCols {
     ExecutionState<T> from_state;
 
     T rs_ptr[NUM_READS];
-    T rs_val[NUM_READS][RV64_PTR_U16_LIMBS];
+    T rs_val[NUM_READS][PTR_U16_LIMBS];
+
+
     MemoryReadAuxCols<T> rs_read_aux[NUM_READS];
 
-    MemoryReadAuxCols<T> heap_read_aux[NUM_READS][BLOCKS_PER_READ];
+    MemoryReadAuxCols<T> reads_aux[NUM_READS][BLOCKS_PER_READ];
 };
 
 template <size_t NUM_READS, size_t BLOCKS_PER_READ>
-struct Rv64VecHeapBranchAdapterRecord {
+struct VecHeapBranchAdapterRecord {
     uint32_t from_pc;
     uint32_t from_timestamp;
 
@@ -28,16 +31,16 @@ struct Rv64VecHeapBranchAdapterRecord {
     uint32_t rs_vals[NUM_READS];
 
     MemoryReadAuxRecord rs_read_aux[NUM_READS];
-    MemoryReadAuxRecord heap_read_aux[NUM_READS][BLOCKS_PER_READ];
+    MemoryReadAuxRecord reads_aux[NUM_READS][BLOCKS_PER_READ];
 };
 
 template <size_t NUM_READS, size_t BLOCKS_PER_READ>
-struct Rv64VecHeapBranchAdapter {
+struct VecHeapBranchAdapter {
     size_t pointer_max_bits;
     VariableRangeChecker range_checker;
     MemoryAuxColsFactory mem_helper;
 
-    __device__ Rv64VecHeapBranchAdapter(
+    __device__ VecHeapBranchAdapter(
         size_t pointer_max_bits,
         VariableRangeChecker range_checker,
         uint32_t timestamp_max_bits
@@ -46,20 +49,19 @@ struct Rv64VecHeapBranchAdapter {
           mem_helper(range_checker, timestamp_max_bits) {}
 
     template <typename T>
-    using Cols = Rv64VecHeapBranchAdapterCols<T, NUM_READS, BLOCKS_PER_READ>;
+    using Cols = VecHeapBranchAdapterCols<T, NUM_READS, BLOCKS_PER_READ>;
 
     __device__ void fill_trace_row(
         RowSlice row,
-        Rv64VecHeapBranchAdapterRecord<NUM_READS, BLOCKS_PER_READ> record
+        VecHeapBranchAdapterRecord<NUM_READS, BLOCKS_PER_READ> record
     ) {
         static_assert(NUM_READS == 1 || NUM_READS == 2);
 
+        // Block-index range-check counts for each base pointer. Mirrors the host filler in
+        // vec_heap_branch.rs.
 #pragma unroll
         for (size_t i = 0; i < NUM_READS; i++) {
-            range_checker.add_count(
-                ptr_bound_from_high_u16(uint16_t(record.rs_vals[i] >> U16_BITS), pointer_max_bits),
-                U16_BITS
-            );
+            add_block_index_range_checks(range_checker, record.rs_vals[i], pointer_max_bits);
         }
 
         uint32_t timestamp = record.from_timestamp + NUM_READS + NUM_READS * BLOCKS_PER_READ;
@@ -68,8 +70,8 @@ struct Rv64VecHeapBranchAdapter {
             for (int j = BLOCKS_PER_READ - 1; j >= 0; j--) {
                 timestamp--;
                 mem_helper.fill(
-                    row.slice_from(COL_INDEX(Cols, heap_read_aux[i][j])),
-                    record.heap_read_aux[i][j].prev_timestamp,
+                    row.slice_from(COL_INDEX(Cols, reads_aux[i][j])),
+                    record.reads_aux[i][j].prev_timestamp,
                     timestamp
                 );
             }
@@ -85,7 +87,7 @@ struct Rv64VecHeapBranchAdapter {
         }
 
         for (int i = NUM_READS - 1; i >= 0; i--) {
-            Fp rs_val[RV64_PTR_U16_LIMBS];
+            Fp rs_val[PTR_U16_LIMBS];
             ptr_to_u16_limbs(rs_val, record.rs_vals[i]);
             COL_WRITE_ARRAY(row, Cols, rs_val[i], rs_val);
         }
@@ -95,16 +97,16 @@ struct Rv64VecHeapBranchAdapter {
         }
 
         COL_WRITE_VALUE(row, Cols, from_state.timestamp, record.from_timestamp);
-        COL_WRITE_VALUE(row, Cols, from_state.pc, record.from_pc);
+        COL_WRITE_VALUE(row, Cols, from_state.pc, ::program::pc_to_idx(record.from_pc));
     }
 };
 
 // Type aliases for the simple case with BLOCKS_PER_READ=1
 template <typename T, size_t NUM_READS>
-using Rv64HeapBranchAdapterCols = Rv64VecHeapBranchAdapterCols<T, NUM_READS, 1>;
+using HeapBranchAdapterCols = VecHeapBranchAdapterCols<T, NUM_READS, 1>;
 
 template <size_t NUM_READS>
-using Rv64HeapBranchAdapterRecord = Rv64VecHeapBranchAdapterRecord<NUM_READS, 1>;
+using HeapBranchAdapterRecord = VecHeapBranchAdapterRecord<NUM_READS, 1>;
 
 template <size_t NUM_READS>
-using Rv64HeapBranchAdapter = Rv64VecHeapBranchAdapter<NUM_READS, 1>;
+using HeapBranchAdapter = VecHeapBranchAdapter<NUM_READS, 1>;

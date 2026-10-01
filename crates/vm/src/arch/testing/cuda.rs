@@ -31,11 +31,11 @@ use openvm_cuda_common::{
 };
 use openvm_instructions::{
     instruction::Instruction,
-    program::{Program, PC_BITS},
-    riscv::{RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    program::{Program, DEFAULT_PC_STEP, MAX_ALLOWED_PC},
+    riscv::REGISTER_NUM_LIMBS,
 };
 #[cfg(feature = "rvr")]
-use openvm_instructions::{program::DEFAULT_PC_STEP, LocalOpcode, SystemOpcode};
+use openvm_instructions::{LocalOpcode, SystemOpcode};
 use openvm_poseidon2_air::{Poseidon2Config, Poseidon2SubAir};
 use openvm_stark_backend::{
     interaction::{LookupBus, PermutationCheckBus},
@@ -77,7 +77,7 @@ use crate::{
             MEMORY_BUS, MEMORY_MERKLE_BUS, POSEIDON2_DIRECT_BUS, READ_INSTRUCTION_BUS,
         },
         to_byte_ptr_bits, ExecutionBridge, ExecutionBus, ExecutionState, Executor, MemoryConfig,
-        Postflight, Streams, VmState, BLOCK_FE_WIDTH, MEMORY_BLOCK_BYTES, NUM_RV64_REGISTERS,
+        Postflight, Streams, VmState, BLOCK_FE_WIDTH, MEMORY_BLOCK_BYTES, NUM_REGISTERS,
     },
     system::{
         cuda::poseidon2::Poseidon2PeripheryChipGPU,
@@ -116,6 +116,10 @@ type GpuPostflightTraceGenerator<G> = Box<
         &GpuPostflightPlan,
     ) -> Result<AirProvingContext<GpuBackend>, GpuPostflightError>,
 >;
+#[cfg(feature = "rvr")]
+type RowsUsed<F> = Box<dyn Fn(&RowMajorMatrix<F>) -> usize>;
+#[cfg(feature = "rvr")]
+type FillPadding<F> = Box<dyn Fn(&mut [F])>;
 
 #[cfg(feature = "rvr")]
 pub struct GpuTestChipHarness<F, Executor, AIR, GpuChip, CpuChip> {
@@ -123,12 +127,12 @@ pub struct GpuTestChipHarness<F, Executor, AIR, GpuChip, CpuChip> {
     pub air: AIR,
     pub gpu_chip: GpuChip,
     pub cpu_chip: CpuChip,
-    pub preflight: TestPreflight<F>,
+    pub preflight: TestPreflight,
     generate_cpu_trace: Option<CpuPostflightTraceGenerator<F, CpuChip>>,
     generate_cpu_batch_trace: Option<CpuPostflightBatchTraceGenerator<F, CpuChip>>,
     generate_gpu_trace: Option<GpuPostflightTraceGenerator<GpuChip>>,
-    rows_used: Box<dyn Fn(&RowMajorMatrix<F>) -> usize>,
-    fill_padding: Box<dyn Fn(&mut [F])>,
+    rows_used: RowsUsed<F>,
+    fill_padding: FillPadding<F>,
     balance_memory: bool,
 }
 
@@ -221,20 +225,22 @@ impl TestBuilder<F> for GpuChipTestBuilder {
     fn execute<E>(
         &mut self,
         executor: &mut E,
-        preflight: &mut TestPreflight<F>,
-        instruction: &Instruction<F>,
+        preflight: &mut TestPreflight,
+        instruction: &Instruction,
     ) where
         E: Executor<F> + Clone,
     {
-        let initial_pc = self.rng.random_range(0..(1 << PC_BITS));
+        // A DEFAULT_PC_STEP-aligned byte pc over the full 32-bit range, excluding the last
+        // instruction slot (where the fallthrough pc would overflow).
+        let initial_pc = (self.rng.random::<u32>() & !3).min(MAX_ALLOWED_PC - DEFAULT_PC_STEP);
         self.execute_with_pc(executor, preflight, instruction, initial_pc);
     }
 
     fn execute_with_pc<E>(
         &mut self,
         executor: &mut E,
-        preflight: &mut TestPreflight<F>,
-        instruction: &Instruction<F>,
+        preflight: &mut TestPreflight,
+        instruction: &Instruction,
         initial_pc: u32,
     ) where
         E: Executor<F> + Clone,
@@ -245,7 +251,7 @@ impl TestBuilder<F> for GpuChipTestBuilder {
         let memory = std::mem::replace(&mut self.memory.memory.data, empty_memory);
         let mut state = VmState::new_with_defaults(initial_pc, memory, self.streams.clone(), 0);
         state.rng = self.rng.clone();
-        let output = execute_test_preflight(executor, instruction, &program, initial_pc, state);
+        let output = execute_test_preflight::<F, _>(&self.memory.config, executor, &program, state);
         let initial_state = ExecutionState::new(initial_pc, 1u32);
         let final_event = *output
             .history
@@ -310,16 +316,17 @@ impl TestBuilder<F> for GpuChipTestBuilder {
         to_byte_ptr_bits(self.memory.config.pointer_max_bits)
     }
 
-    fn last_to_pc(&self) -> F {
+    fn last_to_pc(&self) -> u32 {
         self.execution.0.last_to_pc()
     }
 
-    fn last_from_pc(&self) -> F {
+    fn last_from_pc(&self) -> u32 {
         self.execution.0.last_from_pc()
     }
 
-    fn execution_final_state(&self) -> ExecutionState<F> {
-        self.execution.0.records.last().unwrap().final_state
+    fn execution_final_state(&self) -> ExecutionState<u32> {
+        // Byte-pc state; the records themselves hold pc indices.
+        self.execution.0.last_states.unwrap().1
     }
 
     fn streams_mut(&mut self) -> &mut Streams {
@@ -327,7 +334,7 @@ impl TestBuilder<F> for GpuChipTestBuilder {
     }
 
     fn get_default_register(&mut self, increment: usize) -> usize {
-        let register_file_bytes = NUM_RV64_REGISTERS * RV64_REGISTER_NUM_LIMBS;
+        let register_file_bytes = NUM_REGISTERS * REGISTER_NUM_LIMBS;
         assert!(increment <= register_file_bytes);
         if self.default_register + increment > register_file_bytes {
             self.default_register = 0;
@@ -387,11 +394,7 @@ pub struct GpuChipTestBuilder {
 
 impl Default for GpuChipTestBuilder {
     fn default() -> Self {
-        let mut mem_config = MemoryConfig::default();
-        // Tests generate register pointers across the full AS-native pointer range.
-        mem_config.addr_spaces[RV64_REGISTER_AS as usize].num_cells =
-            1 << mem_config.pointer_max_bits;
-        Self::new(mem_config, default_var_range_checker_bus())
+        Self::new(MemoryConfig::default(), default_var_range_checker_bus())
     }
 }
 
@@ -451,7 +454,7 @@ impl GpuChipTestBuilder {
     pub fn execute_harness<E, A, C>(
         &mut self,
         harness: &mut TestChipHarness<F, E, A, C>,
-        instruction: &Instruction<F>,
+        instruction: &Instruction,
     ) where
         E: Executor<F> + Clone,
     {
@@ -461,7 +464,7 @@ impl GpuChipTestBuilder {
     pub fn execute_with_pc_harness<E, A, C>(
         &mut self,
         harness: &mut TestChipHarness<F, E, A, C>,
-        instruction: &Instruction<F>,
+        instruction: &Instruction,
         initial_pc: u32,
     ) where
         E: Executor<F> + Clone,
@@ -599,7 +602,7 @@ impl GpuChipTestBuilder {
     #[cfg(feature = "rvr")]
     pub fn record_preflight_history(
         &mut self,
-        program: &Program<F>,
+        program: &Program,
         history: &PreflightHistory,
         exit_code: Option<u32>,
     ) {
@@ -642,12 +645,8 @@ impl GpuChipTestBuilder {
             memory: Some(self.memory),
             ..Default::default()
         }
-        .load(
-            ExecutionDummyAir::new(self.execution.bus()),
-            self.execution,
-            (),
-        )
-        .load(ProgramDummyAir::new(self.program.bus()), self.program, ())
+        .load(ExecutionDummyAir::new(self.execution.bus()), self.execution)
+        .load(ProgramDummyAir::new(self.program.bus()), self.program)
     }
 }
 
@@ -662,12 +661,12 @@ pub struct GpuChipTester {
 }
 
 impl GpuChipTester {
-    pub fn load<A, G, R>(mut self, air: A, gpu_chip: G, input: R) -> Self
+    pub fn load<A, G>(mut self, air: A, gpu_chip: G) -> Self
     where
         A: AnyAir<SC> + 'static,
-        G: Chip<R, GpuBackend>,
+        G: Chip<GpuBackend>,
     {
-        let proving_ctx = gpu_chip.generate_proving_ctx(input);
+        let proving_ctx = gpu_chip.generate_proving_ctx();
         if proving_ctx.height() > 0 {
             self = self.load_air_proving_ctx(Arc::new(air) as AirRef<SC>, proving_ctx);
         }
@@ -677,9 +676,9 @@ impl GpuChipTester {
     pub fn load_periphery<A, G>(self, air: A, gpu_chip: G) -> Self
     where
         A: AnyAir<SC> + 'static,
-        G: Chip<(), GpuBackend>,
+        G: Chip<GpuBackend>,
     {
-        self.load(air, gpu_chip, ())
+        self.load(air, gpu_chip)
     }
 
     pub fn load_air_proving_ctx(
@@ -697,7 +696,7 @@ impl GpuChipTester {
     }
 
     #[cfg(feature = "rvr")]
-    pub fn balance_preflight_memory(&mut self, preflight: &TestPreflight<Val<SC>>) {
+    pub fn balance_preflight_memory(&mut self, preflight: &TestPreflight) {
         for execution in &preflight.executions {
             self.balance_preflight_history(&execution.program, &execution.history, None);
         }
@@ -706,7 +705,7 @@ impl GpuChipTester {
     #[cfg(feature = "rvr")]
     pub fn balance_preflight_history(
         &mut self,
-        program: &Program<Val<SC>>,
+        program: &Program,
         history: &PreflightHistory,
         exit_code: Option<u32>,
     ) {
@@ -947,7 +946,7 @@ impl GpuChipTester {
                         ))
                     }
                 };
-                let ctx = hasher_chip.generate_proving_ctx(());
+                let ctx = hasher_chip.generate_proving_ctx();
                 self = self.load_air_proving_ctx(air, ctx);
             }
         }

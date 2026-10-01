@@ -2,15 +2,23 @@
 
 use num_bigint::BigUint;
 use openvm_algebra_transpiler::Fp2Opcode;
-use openvm_instructions::LocalOpcode;
+#[cfg(test)]
+use openvm_instructions::MEMORY_BLOCK_BYTES;
+use openvm_instructions::{
+    instruction::Instruction,
+    riscv::{MEMORY_AS, REGISTER_AS},
+    LocalOpcode,
+};
 use rvr_openvm_ir::{ExtInstr, InstrAt, LiftedInstr};
-use rvr_openvm_lift::{max_main_memory_pages_for_contiguous_range, RvrExtension, RvrInstruction};
+use rvr_openvm_lift::{max_main_memory_pages_for_contiguous_range, RvrExtension};
 use strum::EnumCount;
 
 use crate::{
     decode_reg, pad_modulus, ArithKind, FieldArithInstr, FieldKind, FieldSetupInstr, KnownField,
     ModOp, SetupKind,
 };
+#[cfg(test)]
+use crate::{BINARY_INPUTS_AND_OUTPUT, MEMORY_BLOCK_BYTES_U32};
 
 // An Fp2 operation can read two independent 96-byte values and write one.
 const FP2_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION: usize =
@@ -49,10 +57,6 @@ impl FieldKind for Fp2Kind {
     }
     fn known_suffix(field: KnownField) -> Option<&'static str> {
         field.fp2_c_suffix()
-    }
-
-    fn supports_preflight() -> bool {
-        true
     }
 }
 
@@ -99,22 +103,22 @@ mod tests {
     #[derive(Default)]
     struct TestEmitCtx {
         operations: Vec<String>,
-        checkpoint: bool,
+        preflight: bool,
         next_tmp: usize,
     }
 
     impl TestEmitCtx {
-        fn checkpoint() -> Self {
+        fn preflight() -> Self {
             Self {
-                checkpoint: true,
+                preflight: true,
                 ..Self::default()
             }
         }
     }
 
     impl ExtEmitCtx for TestEmitCtx {
-        fn is_checkpoint_preflight(&self) -> bool {
-            self.checkpoint
+        fn is_preflight(&self) -> bool {
+            self.preflight
         }
 
         fn read_var(&mut self, var: Variable) -> String {
@@ -127,7 +131,9 @@ mod tests {
         }
 
         fn advance_timestamp(&mut self, slots: u32) {
-            self.operations.push(format!("advance_timestamp({slots});"));
+            if self.preflight {
+                self.operations.push(format!("timestamp_slots({slots});"));
+            }
         }
 
         fn write_var(&mut self, var: Variable, val: &str) {
@@ -155,19 +161,13 @@ mod tests {
             unreachable!()
         }
 
-        fn reserve_preflight_writes(&mut self, _writes: &str, _slots: &str) {
+        fn reserve_preflight_timestamp_slots(&mut self, _slots: &str) {
             unreachable!()
         }
 
         fn append_replay_value(&mut self, value: &str) {
-            if self.checkpoint {
-                self.operations.push(format!("residual({value});"));
-            }
-        }
-
-        fn advance_checkpoint_timestamp(&mut self, slots: u32) {
-            if self.checkpoint {
-                self.operations.push(format!("checkpoint_slots({slots});"));
+            if self.preflight {
+                self.operations.push(format!("replay_value({value});"));
             }
         }
 
@@ -225,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn fp2_arithmetic_checkpoint_matches_vec_heap_schedule() {
+    fn fp2_arithmetic_preflight_matches_vec_heap_schedule() {
         for num_limbs in [32, 48] {
             for op in [ModOp::Add, ModOp::Sub, ModOp::Mul, ModOp::Div] {
                 let instr = Fp2ArithInstr::new(
@@ -238,31 +238,41 @@ mod tests {
                 );
                 assert!(instr.supports_preflight());
 
-                let mut checkpoint = TestEmitCtx::checkpoint();
-                instr.emit_c(&mut checkpoint);
+                let mut preflight = TestEmitCtx::preflight();
+                instr.emit_c(&mut preflight);
                 assert_eq!(
-                    &checkpoint.operations[..4],
+                    &preflight.operations[..4],
                     [
                         "read(r2);",
                         "read(r3);",
                         "read(r1);",
-                        &format!("checkpoint_slots({});", num_limbs * 3 / 4),
+                        &format!(
+                            "timestamp_slots({});",
+                            num_limbs * Fp2Kind::STORAGE_FACTOR * BINARY_INPUTS_AND_OUTPUT
+                                / MEMORY_BLOCK_BYTES_U32
+                        ),
                     ]
                 );
-                assert!(checkpoint
+                assert!(preflight
                     .operations
                     .iter()
                     .any(|operation| operation.contains("& 7ull")));
-                let residuals: Vec<_> = checkpoint
+                let replay_values: Vec<_> = preflight
                     .operations
                     .iter()
-                    .filter(|operation| operation.starts_with("residual("))
+                    .filter(|operation| operation.starts_with("replay_value("))
                     .collect();
-                assert_eq!(residuals.len(), num_limbs as usize / 4);
-                for (word, residual) in residuals.iter().enumerate() {
+                assert_eq!(
+                    replay_values.len(),
+                    num_limbs as usize * Fp2Kind::STORAGE_FACTOR as usize / MEMORY_BLOCK_BYTES
+                );
+                for (word, replay_value) in replay_values.iter().enumerate() {
                     assert_eq!(
-                        residual.as_str(),
-                        format!("residual(peek_mem_u64(state, r1 + {}ull));", word * 8)
+                        replay_value.as_str(),
+                        format!(
+                            "replay_value(peek_mem_u64(state, r1 + {}ull));",
+                            word * MEMORY_BLOCK_BYTES
+                        )
                     );
                 }
 
@@ -270,17 +280,18 @@ mod tests {
                 instr.emit_c(&mut legacy);
                 assert_eq!(
                     &legacy.operations[..3],
-                    ["read(r1);", "read(r2);", "read(r3);"]
+                    ["read(r2);", "read(r3);", "read(r1);"]
                 );
                 assert!(!legacy.operations.iter().any(|operation| {
-                    operation.starts_with("checkpoint_slots(") || operation.starts_with("residual(")
+                    operation.starts_with("timestamp_slots(")
+                        || operation.starts_with("replay_value(")
                 }));
             }
         }
     }
 
     #[test]
-    fn fp2_setup_checkpoint_appends_full_destination_postimage() {
+    fn fp2_setup_preflight_appends_full_destination_postimage() {
         for num_limbs in [32, 48] {
             let instr = Fp2SetupInstr::new(
                 Variable::new(1),
@@ -291,46 +302,56 @@ mod tests {
             );
             assert!(instr.supports_preflight());
 
-            let mut checkpoint = TestEmitCtx::checkpoint();
-            instr.emit_c(&mut checkpoint);
+            let mut preflight = TestEmitCtx::preflight();
+            instr.emit_c(&mut preflight);
             assert_eq!(
-                &checkpoint.operations[..4],
+                &preflight.operations[..4],
                 [
                     "read(r2);",
                     "read(r3);",
                     "read(r1);",
-                    &format!("checkpoint_slots({});", num_limbs * 3 / 4),
+                    &format!(
+                        "timestamp_slots({});",
+                        num_limbs * Fp2Kind::STORAGE_FACTOR * BINARY_INPUTS_AND_OUTPUT
+                            / MEMORY_BLOCK_BYTES_U32
+                    ),
                 ]
             );
-            assert!(checkpoint
+            assert!(preflight
                 .operations
                 .iter()
                 .any(|operation| operation.contains("& 7ull")));
-            let residuals: Vec<_> = checkpoint
+            let replay_values: Vec<_> = preflight
                 .operations
                 .iter()
-                .filter(|operation| operation.starts_with("residual("))
+                .filter(|operation| operation.starts_with("replay_value("))
                 .collect();
-            assert_eq!(residuals.len(), num_limbs as usize / 4);
-            for (word, residual) in residuals.iter().enumerate() {
+            assert_eq!(
+                replay_values.len(),
+                num_limbs as usize * Fp2Kind::STORAGE_FACTOR as usize / MEMORY_BLOCK_BYTES
+            );
+            for (word, replay_value) in replay_values.iter().enumerate() {
                 assert_eq!(
-                    residual.as_str(),
-                    format!("residual(peek_mem_u64(state, r1 + {}ull));", word * 8)
+                    replay_value.as_str(),
+                    format!(
+                        "replay_value(peek_mem_u64(state, r1 + {}ull));",
+                        word * MEMORY_BLOCK_BYTES
+                    )
                 );
             }
-            assert!(checkpoint
+            assert!(preflight
                 .operations
                 .iter()
                 .any(|operation| operation.starts_with("bool tmp0 = rvr_ext_fp2_setup(")));
-            assert!(checkpoint
+            assert!(preflight
                 .operations
                 .iter()
                 .any(|operation| operation == "if (unlikely(!tmp0)) {"));
-            assert!(checkpoint
+            assert!(preflight
                 .operations
                 .iter()
                 .any(|operation| operation == "trap;"));
-            assert!(!checkpoint
+            assert!(!preflight
                 .operations
                 .iter()
                 .any(|operation| operation.starts_with("write(r")));
@@ -339,17 +360,45 @@ mod tests {
             instr.emit_c(&mut legacy);
             assert_eq!(
                 &legacy.operations[..3],
-                ["read(r1);", "read(r2);", "read(r3);"]
+                ["read(r2);", "read(r3);", "read(r1);"]
             );
             assert!(!legacy.operations.iter().any(|operation| {
-                operation.starts_with("checkpoint_slots(") || operation.starts_with("residual(")
+                operation.starts_with("timestamp_slots(") || operation.starts_with("replay_value(")
             }));
+        }
+    }
+
+    #[test]
+    fn fp2_lifter_requires_register_and_memory_address_spaces() {
+        let extension = Fp2RvrExtension::new(vec![BigUint::from(17u8)]);
+
+        for opcode in [
+            Fp2Opcode::ADD,
+            Fp2Opcode::SUB,
+            Fp2Opcode::SETUP_ADDSUB,
+            Fp2Opcode::MUL,
+            Fp2Opcode::DIV,
+            Fp2Opcode::SETUP_MULDIV,
+        ] {
+            let instruction = |d, e| {
+                Instruction::from_usize(opcode.global_opcode(), [8, 16, 24, d as usize, e as usize])
+            };
+
+            assert!(extension
+                .try_lift(&instruction(REGISTER_AS, MEMORY_AS), 0)
+                .is_some());
+            assert!(extension
+                .try_lift(&instruction(MEMORY_AS, MEMORY_AS), 0)
+                .is_none());
+            assert!(extension
+                .try_lift(&instruction(REGISTER_AS, REGISTER_AS), 0)
+                .is_none());
         }
     }
 }
 
 impl RvrExtension for Fp2RvrExtension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         let opcode = insn.opcode.as_usize();
         self.try_lift_fp2(insn, pc, opcode)
     }
@@ -375,7 +424,7 @@ impl RvrExtension for Fp2RvrExtension {
 }
 
 impl Fp2RvrExtension {
-    fn try_lift_fp2(&self, insn: &RvrInstruction, pc: u64, opcode: usize) -> Option<LiftedInstr> {
+    fn try_lift_fp2(&self, insn: &Instruction, pc: u64, opcode: usize) -> Option<LiftedInstr> {
         let base_offset = Fp2Opcode::CLASS_OFFSET;
         let count = Fp2Opcode::COUNT;
 
@@ -389,11 +438,14 @@ impl Fp2RvrExtension {
         if fp2_idx >= self.fp2_moduli.len() {
             return None;
         }
+        if insn.d.as_u32() != REGISTER_AS || insn.e.as_u32() != MEMORY_AS {
+            return None;
+        }
 
         let info = &self.fp2_moduli[fp2_idx];
-        let rd_reg = decode_reg(insn.a);
-        let rs1_reg = decode_reg(insn.b);
-        let rs2_reg = decode_reg(insn.c);
+        let rd_reg = decode_reg(insn.a.as_u32());
+        let rs1_reg = decode_reg(insn.b.as_u32());
+        let rs2_reg = decode_reg(insn.c.as_u32());
 
         let instr: Box<dyn ExtInstr> = match local {
             x if x == Fp2Opcode::ADD as usize => Box::new(Fp2ArithInstr::new(

@@ -10,10 +10,10 @@ use openvm_deferral_transpiler::DeferralOpcode;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
     LocalOpcode,
 };
-use openvm_riscv_circuit::adapters::rv64_bytes_to_u32;
+use openvm_riscv_circuit::adapters::{bytes_to_u32, validate_memory_block_span};
 use openvm_stark_backend::p3_field::PrimeField32;
 use openvm_stark_sdk::config::baby_bear_poseidon2::DIGEST_SIZE;
 
@@ -50,23 +50,12 @@ fn checked_output_len(pc: u32, output_len: [u8; 8]) -> Result<u32, ExecutionErro
     Ok(output_len)
 }
 
-#[inline(always)]
-fn check_block_aligned_ptr(pc: u32, ptr: u32) -> Result<u32, ExecutionError> {
-    if !ptr.is_multiple_of(MEMORY_BLOCK_BYTES as u32) {
-        return Err(ExecutionError::Fail {
-            pc,
-            msg: "deferral pointers must be eight-byte aligned",
-        });
-    }
-    Ok(ptr)
-}
-
 impl DeferralOutputExecutor {
     #[inline(always)]
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut DeferralOutputPrecompute,
     ) -> Result<(), StaticProgramError> {
         let Instruction {
@@ -80,16 +69,16 @@ impl DeferralOutputExecutor {
         } = inst;
 
         if opcode.local_opcode_idx(DeferralOpcode::CLASS_OFFSET) != DeferralOpcode::OUTPUT as usize
-            || d.as_canonical_u32() != RV64_REGISTER_AS
-            || e.as_canonical_u32() != RV64_MEMORY_AS
+            || d.as_u32() != REGISTER_AS
+            || e.as_u32() != MEMORY_AS
         {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
 
         *data = DeferralOutputPrecompute {
-            rd_ptr: a.as_canonical_u32(),
-            rs_ptr: b.as_canonical_u32(),
-            deferral_idx: c.as_canonical_u32(),
+            rd_ptr: a.as_u32(),
+            rs_ptr: b.as_u32(),
+            deferral_idx: c.as_u32(),
         };
         Ok(())
     }
@@ -108,7 +97,7 @@ impl<F: PrimeField32> InterpreterExecutor<F> for DeferralOutputExecutor {
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -123,7 +112,7 @@ impl<F: PrimeField32> InterpreterExecutor<F> for DeferralOutputExecutor {
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -145,7 +134,7 @@ impl<F: PrimeField32> InterpreterMeteredExecutor<F> for DeferralOutputExecutor {
         &self,
         air_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -162,7 +151,7 @@ impl<F: PrimeField32> InterpreterMeteredExecutor<F> for DeferralOutputExecutor {
         &self,
         air_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -186,21 +175,24 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait>(
         exec_state.streams.deferrals.len(),
         pre_compute.deferral_idx,
     )?;
-    let output_ptr = check_block_aligned_ptr(
+    let output_ptr = validate_memory_block_span(
         pc,
-        rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.rd_ptr)),
+        bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, pre_compute.rd_ptr)),
+        0,
     )?;
-    let input_ptr = check_block_aligned_ptr(
+    let input_ptr = validate_memory_block_span(
         pc,
-        rv64_bytes_to_u32(exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.rs_ptr)),
+        bytes_to_u32(exec_state.vm_read_bytes(REGISTER_AS, pre_compute.rs_ptr)),
+        OUTPUT_TOTAL_MEMORY_OPS,
     )?;
     let output_key_chunks: [[u8; MEMORY_BLOCK_BYTES]; OUTPUT_TOTAL_MEMORY_OPS] = from_fn(|i| {
-        exec_state.vm_read_bytes(RV64_MEMORY_AS, input_ptr + (i * MEMORY_BLOCK_BYTES) as u32)
+        exec_state.vm_read_bytes(MEMORY_AS, input_ptr + (i * MEMORY_BLOCK_BYTES) as u32)
     });
     let output_key: [u8; OUTPUT_TOTAL_BYTES] = join_byte_memory_ops(output_key_chunks);
     let (output_commit, output_len) = split_output(output_key);
 
     let output_len_val = checked_output_len(pc, output_len)? as usize;
+    validate_memory_block_span(pc, output_ptr, output_len_val / MEMORY_BLOCK_BYTES)?;
 
     // Bytes are sponge-hashed and constrained against output_commit. The
     // sponge rate is DIGEST_SIZE.
@@ -218,7 +210,7 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait>(
         let row_output_ptr = output_ptr + (row_idx * DIGEST_SIZE) as u32;
         for chunk_idx in 0..DIGEST_BYTE_MEMORY_OPS {
             exec_state.vm_write_bytes::<MEMORY_BLOCK_BYTES>(
-                RV64_MEMORY_AS,
+                MEMORY_AS,
                 row_output_ptr + (chunk_idx * MEMORY_BLOCK_BYTES) as u32,
                 &byte_memory_op_chunk(output_chunk, chunk_idx),
             );

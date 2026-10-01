@@ -6,26 +6,40 @@
 namespace openvm {
 inline constexpr size_t BYTE_BITS = 8;
 inline constexpr size_t U16_BITS = 16;
+// A u16 storage cell is 2 bytes wide, so byte pointers and u16-cell pointers convert by a
+// shift: `byte_ptr = cell_ptr << U16_CELL_SIZE_BITS`.
+inline constexpr size_t U16_CELL_SIZE_BITS = 1;
 } // namespace openvm
 
 namespace riscv {
 using openvm::BYTE_BITS;
 using openvm::U16_BITS;
+using openvm::U16_CELL_SIZE_BITS;
 
-inline constexpr size_t RV64_REGISTER_NUM_LIMBS = 8;
-inline constexpr size_t RV64_WORD_NUM_LIMBS = 4;
-inline constexpr size_t RV64_BYTE_BITS = BYTE_BITS;
-inline constexpr uint32_t RV64_BYTE_MASK = (1u << RV64_BYTE_BITS) - 1;
-inline constexpr size_t RV64_PTR_U16_LIMBS = RV64_WORD_NUM_LIMBS / 2;
-inline constexpr size_t RV64_PTR_BITS = U16_BITS * RV64_PTR_U16_LIMBS;
-inline constexpr size_t RV64_WORD_U16_LIMBS = RV64_WORD_NUM_LIMBS / 2;
+inline constexpr size_t REGISTER_NUM_LIMBS = 8;
+inline constexpr size_t WORD_NUM_LIMBS = 4;
+inline constexpr uint32_t BYTE_MASK = (1u << BYTE_BITS) - 1;
+inline constexpr size_t PTR_U16_LIMBS = WORD_NUM_LIMBS / 2;
+inline constexpr size_t PTR_BITS = U16_BITS * PTR_U16_LIMBS;
+inline constexpr size_t WORD_U16_LIMBS = WORD_NUM_LIMBS / 2;
 inline constexpr size_t RV_IS_TYPE_IMM_BITS = 12;
 } // namespace riscv
 
 namespace program {
-inline constexpr size_t PC_BITS = 30;
+// Number of bits of a pc index (`pc / DEFAULT_PC_STEP`), the circuit representation of the
+// program counter. Byte pcs span PC_IDX_BITS + PC_STEP_BITS = 32 bits.
+inline constexpr size_t PC_IDX_BITS = 30;
 inline constexpr size_t DEFAULT_PC_STEP = 4;
+// log2 of DEFAULT_PC_STEP.
+inline constexpr size_t PC_STEP_BITS = 2;
+// Maximum allowed byte pc: the last DEFAULT_PC_STEP-aligned 32-bit address.
+inline constexpr uint32_t MAX_ALLOWED_PC = UINT32_MAX - (DEFAULT_PC_STEP - 1);
+// Low bits of a pc index packed into the low u16 limb of the corresponding byte pc.
+inline constexpr size_t PC_IDX_LOW_BITS = openvm::U16_BITS - PC_STEP_BITS;
 inline constexpr size_t DEFAULT_BLOCK_SIZE = 8;
+
+// Converts a DEFAULT_PC_STEP-aligned byte pc into the pc index used by circuits.
+__device__ __host__ inline constexpr uint32_t pc_to_idx(uint32_t pc) { return pc >> PC_STEP_BITS; }
 } // namespace program
 
 namespace p3_keccak_air {

@@ -8,7 +8,10 @@ use openvm_circuit::system::memory::{
 use openvm_continuations::prover::debug_constraints;
 use openvm_continuations::{
     circuit::{deferral::DeferralMerkleProofs, Circuit},
-    prover::{DeferralCircuitProver, DeferralCircuitProverKey},
+    prover::{
+        assert_all_airs_required, keygen_all_required, DeferralCircuitProver,
+        DeferralCircuitProverKey,
+    },
     CommitBytes, VkCommitBytes, SC,
 };
 use openvm_cpu_backend::CpuBackend;
@@ -157,7 +160,7 @@ where
             num_user_pvs,
             def_idx,
         ));
-        let (pk, vk) = engine.keygen(&circuit.airs());
+        let (pk, vk) = keygen_all_required(&engine, &circuit.airs());
         Self {
             pk: Arc::new(pk),
             vk: Arc::new(vk),
@@ -183,6 +186,7 @@ where
         T: DeferredVerifyTraceGen<PB, EngineDeviceCtx<E>>,
         PB::Matrix: Clone,
     {
+        assert_all_airs_required(&pk);
         let verifier_circuit = S::new(
             child_vk.clone(),
             VerifierConfig {

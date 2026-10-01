@@ -13,7 +13,7 @@ use openvm_instructions::{
     exe::{SparseMemoryImage, VmExe},
     instruction::Instruction,
     program::Program,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
     LocalOpcode, SystemOpcode, DEFERRAL_AS,
 };
 use openvm_riscv_circuit::{Rv64I, Rv64Io, Rv64M};
@@ -88,8 +88,8 @@ fn deferral_output_coordinator_proves_from_preflight_history() {
             rd as usize,
             rs as usize,
             0,
-            RV64_REGISTER_AS as usize,
-            RV64_MEMORY_AS as usize,
+            REGISTER_AS as usize,
+            MEMORY_AS as usize,
         ],
     );
     let program = Program::from_instructions(&[
@@ -100,17 +100,17 @@ fn deferral_output_coordinator_proves_from_preflight_history() {
     let mut init_memory = SparseMemoryImage::default();
     insert_bytes(
         &mut init_memory,
-        RV64_REGISTER_AS,
+        REGISTER_AS,
         rd,
         &(output_ptr as u64).to_le_bytes(),
     );
     insert_bytes(
         &mut init_memory,
-        RV64_REGISTER_AS,
+        REGISTER_AS,
         rs,
         &(input_ptr as u64).to_le_bytes(),
     );
-    insert_bytes(&mut init_memory, RV64_MEMORY_AS, input_ptr, &output_key);
+    insert_bytes(&mut init_memory, MEMORY_AS, input_ptr, &output_key);
 
     let config = Rv64DeferralConfig {
         system: test_system_config(),
@@ -123,7 +123,7 @@ fn deferral_output_coordinator_proves_from_preflight_history() {
         ),
     };
     let exe = VmExe::new(program.clone()).with_init_memory(init_memory);
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let initial_state = checkpoint.create_initial_vm_state(Streams {
         deferrals: vec![DeferralState::new(vec![result])],
@@ -141,7 +141,7 @@ fn deferral_output_coordinator_proves_from_preflight_history() {
     assert_eq!(execution.retired, 2);
     assert_eq!(execution.to_state.timestamp, 10);
     assert_eq!(
-        execution.transcript.residuals,
+        execution.transcript.replay_values,
         vec![
             2,
             u64::from_le_bytes(output_raw[..DIGEST_SIZE].try_into().unwrap()),
@@ -149,7 +149,7 @@ fn deferral_output_coordinator_proves_from_preflight_history() {
         ]
     );
     assert_eq!(
-        &execution.state.memory.memory.mem[RV64_MEMORY_AS as usize].as_slice()
+        &execution.state.memory.memory.mem[MEMORY_AS as usize].as_slice()
             [output_ptr as usize..output_ptr as usize + output_raw.len()],
         output_raw
     );
@@ -160,12 +160,12 @@ fn deferral_output_coordinator_proves_from_preflight_history() {
         &vm.engine.device().device_ctx,
     )
     .unwrap();
-    let missing = execution.transcript.residuals.pop().unwrap();
+    let missing = execution.transcript.replay_values.pop().unwrap();
     let error = DeferralPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, 2)
         .err()
-        .expect("missing OUTPUT residual must be rejected");
+        .expect("missing OUTPUT replay value must be rejected");
     assert!(error.to_string().contains("code 306"), "{error}");
-    execution.transcript.residuals.push(missing);
+    execution.transcript.replay_values.push(missing);
 
     let (gpu_transcript, replay_plan) =
         DeferralPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, 2).unwrap();
@@ -181,15 +181,15 @@ fn deferral_output_coordinator_proves_from_preflight_history() {
     let memory = gpu_transcript.memory_log_host().unwrap();
     assert_eq!(memory.len(), 9);
     let expected = [
-        (1, RV64_REGISTER_AS, rd / 2, false),
-        (2, RV64_REGISTER_AS, rs / 2, false),
-        (3, RV64_MEMORY_AS, input_ptr / 2, false),
-        (4, RV64_MEMORY_AS, input_ptr / 2 + 4, false),
-        (5, RV64_MEMORY_AS, input_ptr / 2 + 8, false),
-        (6, RV64_MEMORY_AS, input_ptr / 2 + 12, false),
-        (7, RV64_MEMORY_AS, input_ptr / 2 + 16, false),
-        (8, RV64_MEMORY_AS, output_ptr / 2, true),
-        (9, RV64_MEMORY_AS, output_ptr / 2 + 4, true),
+        (1, REGISTER_AS, rd / 2, false),
+        (2, REGISTER_AS, rs / 2, false),
+        (3, MEMORY_AS, input_ptr / 2, false),
+        (4, MEMORY_AS, input_ptr / 2 + 4, false),
+        (5, MEMORY_AS, input_ptr / 2 + 8, false),
+        (6, MEMORY_AS, input_ptr / 2 + 12, false),
+        (7, MEMORY_AS, input_ptr / 2 + 16, false),
+        (8, MEMORY_AS, output_ptr / 2, true),
+        (9, MEMORY_AS, output_ptr / 2 + 4, true),
     ];
     for (event, &(timestamp, address_space, pointer, is_write)) in memory.iter().zip(&expected) {
         assert_eq!(event.timestamp, timestamp);
@@ -225,8 +225,8 @@ fn deferral_call_checkpoint_expands_exact_as4_chronology_and_proves_without_reco
             rd as usize,
             rs as usize,
             0,
-            RV64_REGISTER_AS as usize,
-            RV64_MEMORY_AS as usize,
+            REGISTER_AS as usize,
+            MEMORY_AS as usize,
         ],
     );
     let program = Program::from_instructions(&[
@@ -236,17 +236,17 @@ fn deferral_call_checkpoint_expands_exact_as4_chronology_and_proves_without_reco
     let mut init_memory = SparseMemoryImage::default();
     insert_bytes(
         &mut init_memory,
-        RV64_REGISTER_AS,
+        REGISTER_AS,
         rd,
         &(output_ptr as u64).to_le_bytes(),
     );
     insert_bytes(
         &mut init_memory,
-        RV64_REGISTER_AS,
+        REGISTER_AS,
         rs,
         &(input_ptr as u64).to_le_bytes(),
     );
-    insert_bytes(&mut init_memory, RV64_MEMORY_AS, input_ptr, &input_commit);
+    insert_bytes(&mut init_memory, MEMORY_AS, input_ptr, &input_commit);
 
     let mut system = test_system_config();
     system.memory_config.addr_spaces[DEFERRAL_AS as usize].num_cells = 1 << 20;
@@ -270,7 +270,7 @@ fn deferral_call_checkpoint_expands_exact_as4_chronology_and_proves_without_reco
         deferrals: vec![deferral],
         ..Default::default()
     };
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(streams);
     let (mut vm, pk) =
@@ -284,7 +284,7 @@ fn deferral_call_checkpoint_expands_exact_as4_chronology_and_proves_without_reco
         .unwrap();
     assert_eq!(execution.retired, 2);
     assert_eq!(execution.to_state.timestamp, 20);
-    assert_eq!(execution.transcript.residuals.len(), 13);
+    assert_eq!(execution.transcript.replay_values.len(), 13);
 
     let gpu_program = DeferralPreflightGpuTracegen::upload_postflight_program(
         &program,
@@ -293,20 +293,20 @@ fn deferral_call_checkpoint_expands_exact_as4_chronology_and_proves_without_reco
     )
     .unwrap();
 
-    let original = execution.transcript.residuals[5];
-    execution.transcript.residuals[5] = u64::from(F::ORDER_U32) << 32;
+    let original = execution.transcript.replay_values[5];
+    execution.transcript.replay_values[5] = u64::from(F::ORDER_U32) << 32;
     let error = DeferralPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, 2)
         .err()
-        .expect("non-canonical CALL residual must be rejected");
+        .expect("non-canonical CALL replay value must be rejected");
     assert!(error.to_string().contains("code 306"), "{error}");
-    execution.transcript.residuals[5] = original;
+    execution.transcript.replay_values[5] = original;
 
-    let missing = execution.transcript.residuals.pop().unwrap();
+    let missing = execution.transcript.replay_values.pop().unwrap();
     let error = DeferralPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, 2)
         .err()
-        .expect("missing CALL residual must be rejected");
+        .expect("missing CALL replay value must be rejected");
     assert!(error.to_string().contains("code 306"), "{error}");
-    execution.transcript.residuals.push(missing);
+    execution.transcript.replay_values.push(missing);
 
     let (transcript, replay_plan) =
         DeferralPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, 2).unwrap();
@@ -321,21 +321,21 @@ fn deferral_call_checkpoint_expands_exact_as4_chronology_and_proves_without_reco
     let memory = transcript.memory_log_host().unwrap();
     assert_eq!(memory.len(), 19);
     let expected = [
-        (1, RV64_REGISTER_AS, rd / 2, false),
-        (2, RV64_REGISTER_AS, rs / 2, false),
-        (3, RV64_MEMORY_AS, input_ptr / 2, false),
-        (4, RV64_MEMORY_AS, input_ptr / 2 + 4, false),
-        (5, RV64_MEMORY_AS, input_ptr / 2 + 8, false),
-        (6, RV64_MEMORY_AS, input_ptr / 2 + 12, false),
+        (1, REGISTER_AS, rd / 2, false),
+        (2, REGISTER_AS, rs / 2, false),
+        (3, MEMORY_AS, input_ptr / 2, false),
+        (4, MEMORY_AS, input_ptr / 2 + 4, false),
+        (5, MEMORY_AS, input_ptr / 2 + 8, false),
+        (6, MEMORY_AS, input_ptr / 2 + 12, false),
         (7, DEFERRAL_AS, 0, false),
         (8, DEFERRAL_AS, 4, false),
         (9, DEFERRAL_AS, 8, false),
         (10, DEFERRAL_AS, 12, false),
-        (11, RV64_MEMORY_AS, output_ptr / 2, true),
-        (12, RV64_MEMORY_AS, output_ptr / 2 + 4, true),
-        (13, RV64_MEMORY_AS, output_ptr / 2 + 8, true),
-        (14, RV64_MEMORY_AS, output_ptr / 2 + 12, true),
-        (15, RV64_MEMORY_AS, output_ptr / 2 + 16, true),
+        (11, MEMORY_AS, output_ptr / 2, true),
+        (12, MEMORY_AS, output_ptr / 2 + 4, true),
+        (13, MEMORY_AS, output_ptr / 2 + 8, true),
+        (14, MEMORY_AS, output_ptr / 2 + 12, true),
+        (15, MEMORY_AS, output_ptr / 2 + 16, true),
         (16, DEFERRAL_AS, 0, true),
         (17, DEFERRAL_AS, 4, true),
         (18, DEFERRAL_AS, 8, true),
@@ -358,7 +358,7 @@ fn deferral_call_checkpoint_expands_exact_as4_chronology_and_proves_without_reco
     assert!(field_values[..4]
         .iter()
         .all(|block| *block == [0; BLOCK_FE_WIDTH]));
-    let expected_accumulators = execution.transcript.residuals[5..13]
+    let expected_accumulators = execution.transcript.replay_values[5..13]
         .iter()
         .flat_map(|&packed| [packed as u32, (packed >> 32) as u32])
         .collect::<Vec<_>>();

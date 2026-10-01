@@ -16,8 +16,7 @@ pub struct VariableRangeCheckerChipGPU {
     pub cpu_chip: Option<Arc<VariableRangeCheckerChip>>,
 }
 
-/// `[value, bits]` are in the preprocessed trace.
-/// `generate_trace` returns `[count]`.
+/// The preprocessed trace contains `value` and `bits`; the generated trace contains `count`.
 impl VariableRangeCheckerChipGPU {
     pub fn new(bus: VariableRangeCheckerBus, device_ctx: GpuDeviceCtx) -> Self {
         let num_rows = (1 << (bus.range_max_bits + 1)) as usize;
@@ -44,8 +43,8 @@ impl VariableRangeCheckerChipGPU {
     }
 }
 
-impl Chip<(), GpuBackend> for VariableRangeCheckerChipGPU {
-    fn generate_proving_ctx(&self, _: ()) -> AirProvingContext<GpuBackend> {
+impl Chip<GpuBackend> for VariableRangeCheckerChipGPU {
+    fn generate_proving_ctx(&self) -> AirProvingContext<GpuBackend> {
         assert_eq!(size_of::<F>(), size_of::<u32>());
         let cpu_count = self.cpu_chip.as_ref().map(|cpu_chip| {
             cpu_chip

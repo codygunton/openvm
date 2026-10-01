@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 #[cfg(feature = "cuda")]
 use openvm_algebra_transpiler::Fp2Opcode;
-use openvm_algebra_transpiler::Rv64ModularArithmeticOpcode;
+use openvm_algebra_transpiler::ModularArithmeticOpcode;
 #[cfg(feature = "cuda")]
 use openvm_circuit::utils::test_gpu_engine;
 use openvm_circuit::{
@@ -15,12 +15,12 @@ use openvm_instructions::{
     exe::{SparseMemoryImage, VmExe},
     instruction::Instruction,
     program::Program,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_BYTES},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode, SystemOpcode,
 };
 #[cfg(feature = "cuda")]
 use openvm_stark_backend::StarkEngine;
-use openvm_stark_sdk::p3_baby_bear::BabyBear;
+use openvm_stark_sdk::config::baby_bear_poseidon2::F;
 
 use super::{modular_is_eq_x0_destination, Rv64ModularConfig, Rv64ModularCpuBuilder};
 #[cfg(feature = "cuda")]
@@ -65,7 +65,7 @@ const FP2_LHS_PTR: u32 = 0x600;
 const FP2_RHS_PTR: u32 = 0x680;
 
 fn reg(index: usize) -> usize {
-    index * RV64_REGISTER_BYTES as usize
+    index * REGISTER_BYTES as usize
 }
 
 fn padded_bytes(value: &BigUint) -> [u8; 32] {
@@ -74,46 +74,46 @@ fn padded_bytes(value: &BigUint) -> [u8; 32] {
     std::array::from_fn(|index| bytes.get(index).copied().unwrap_or_default())
 }
 
-fn fixture_with_pointer_offset(pointer_offset: u32) -> (Program<BabyBear>, VmExe<BabyBear>) {
+fn fixture_with_pointer_offset(pointer_offset: u32) -> (Program, VmExe) {
     let instructions = [
         Instruction::from_usize(
-            Rv64ModularArithmeticOpcode::SETUP_ADDSUB.global_opcode(),
+            ModularArithmeticOpcode::SETUP_ADDSUB.global_opcode(),
             [
                 reg(1),
                 reg(2),
                 reg(0),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
         Instruction::from_usize(
-            Rv64ModularArithmeticOpcode::ADD.global_opcode(),
+            ModularArithmeticOpcode::ADD.global_opcode(),
             [
                 reg(3),
                 reg(4),
                 reg(5),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
         Instruction::from_usize(
-            Rv64ModularArithmeticOpcode::SETUP_ISEQ.global_opcode(),
+            ModularArithmeticOpcode::SETUP_ISEQ.global_opcode(),
             [
                 reg(6),
                 reg(2),
                 reg(0),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
         Instruction::from_usize(
-            Rv64ModularArithmeticOpcode::IS_EQ.global_opcode(),
+            ModularArithmeticOpcode::IS_EQ.global_opcode(),
             [
                 reg(7),
                 reg(4),
                 reg(4),
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
             ],
         ),
         Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
@@ -134,7 +134,7 @@ fn fixture_with_pointer_offset(pointer_offset: u32) -> (Program<BabyBear>, VmExe
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(|(offset, byte)| ((RV64_REGISTER_AS, (reg(register) + offset) as u32), byte)),
+                .map(|(offset, byte)| ((REGISTER_AS, (reg(register) + offset) as u32), byte)),
         );
     }
     for (pointer, value) in [
@@ -147,7 +147,7 @@ fn fixture_with_pointer_offset(pointer_offset: u32) -> (Program<BabyBear>, VmExe
             value
                 .into_iter()
                 .enumerate()
-                .map(|(offset, byte)| ((RV64_MEMORY_AS, pointer + offset as u32), byte)),
+                .map(|(offset, byte)| ((MEMORY_AS, pointer + offset as u32), byte)),
         );
     }
 
@@ -157,7 +157,7 @@ fn fixture_with_pointer_offset(pointer_offset: u32) -> (Program<BabyBear>, VmExe
     )
 }
 
-fn fixture() -> (Program<BabyBear>, VmExe<BabyBear>) {
+fn fixture() -> (Program, VmExe) {
     fixture_with_pointer_offset(0)
 }
 
@@ -186,7 +186,7 @@ fn write_fixture_bytes(
 fn write_fixture_pointer(memory: &mut SparseMemoryImage, register: usize, pointer: u32) {
     write_fixture_bytes(
         memory,
-        RV64_REGISTER_AS,
+        REGISTER_AS,
         reg(register) as u32,
         u64::from(pointer).to_le_bytes(),
     );
@@ -198,30 +198,30 @@ fn field_expr_instruction(
     destination: usize,
     lhs: usize,
     rhs: usize,
-) -> Instruction<BabyBear> {
+) -> Instruction {
     Instruction::from_usize(
         opcode,
         [
             reg(destination),
             reg(lhs),
             reg(rhs),
-            RV64_REGISTER_AS as usize,
-            RV64_MEMORY_AS as usize,
+            REGISTER_AS as usize,
+            MEMORY_AS as usize,
         ],
     )
 }
 
 #[cfg(feature = "cuda")]
-fn field_expr_fixture(modulus: &BigUint) -> (Program<BabyBear>, VmExe<BabyBear>) {
+fn field_expr_fixture(modulus: &BigUint) -> (Program, VmExe) {
     let instructions = [
         field_expr_instruction(
-            Rv64ModularArithmeticOpcode::SETUP_MULDIV.global_opcode(),
+            ModularArithmeticOpcode::SETUP_MULDIV.global_opcode(),
             1,
             2,
             0,
         ),
-        field_expr_instruction(Rv64ModularArithmeticOpcode::MUL.global_opcode(), 3, 4, 5),
-        field_expr_instruction(Rv64ModularArithmeticOpcode::DIV.global_opcode(), 6, 4, 5),
+        field_expr_instruction(ModularArithmeticOpcode::MUL.global_opcode(), 3, 4, 5),
+        field_expr_instruction(ModularArithmeticOpcode::DIV.global_opcode(), 6, 4, 5),
         field_expr_instruction(Fp2Opcode::SETUP_ADDSUB.global_opcode(), 7, 2, 0),
         field_expr_instruction(Fp2Opcode::ADD.global_opcode(), 8, 9, 10),
         field_expr_instruction(Fp2Opcode::SUB.global_opcode(), 11, 9, 10),
@@ -254,25 +254,25 @@ fn field_expr_fixture(modulus: &BigUint) -> (Program<BabyBear>, VmExe<BabyBear>)
 
     write_fixture_bytes(
         &mut memory,
-        RV64_MEMORY_AS,
+        MEMORY_AS,
         FIELD_EXPR_MODULUS_PTR,
         padded_bytes(modulus),
     );
     write_fixture_bytes(
         &mut memory,
-        RV64_MEMORY_AS,
+        MEMORY_AS,
         MOD_LHS_PTR,
         padded_bytes(&BigUint::from(4u32)),
     );
     write_fixture_bytes(
         &mut memory,
-        RV64_MEMORY_AS,
+        MEMORY_AS,
         MOD_RHS_PTR,
         padded_bytes(&BigUint::from(2u32)),
     );
     write_fixture_bytes(
         &mut memory,
-        RV64_MEMORY_AS,
+        MEMORY_AS,
         FP2_LHS_PTR,
         padded_bytes(&(BigUint::from(1u32) << 32))
             .into_iter()
@@ -280,7 +280,7 @@ fn field_expr_fixture(modulus: &BigUint) -> (Program<BabyBear>, VmExe<BabyBear>)
     );
     write_fixture_bytes(
         &mut memory,
-        RV64_MEMORY_AS,
+        MEMORY_AS,
         FP2_RHS_PTR,
         padded_bytes(&BigUint::from(1u32))
             .into_iter()
@@ -304,7 +304,7 @@ fn field_expr_config(modulus: BigUint) -> Rv64ModularWithFp2Config {
 fn prove_field_expr_checkpoint_replay(modulus: BigUint) {
     let (program, exe) = field_expr_fixture(&modulus);
     let config = field_expr_config(modulus);
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, pk) = VirtualMachine::new_with_keygen(
@@ -334,9 +334,9 @@ fn prove_field_expr_checkpoint_replay(modulus: BigUint) {
             .unwrap();
     assert_eq!(transcript.error_code().unwrap(), 0);
     for opcode in [
-        Rv64ModularArithmeticOpcode::SETUP_MULDIV.global_opcode(),
-        Rv64ModularArithmeticOpcode::MUL.global_opcode(),
-        Rv64ModularArithmeticOpcode::DIV.global_opcode(),
+        ModularArithmeticOpcode::SETUP_MULDIV.global_opcode(),
+        ModularArithmeticOpcode::MUL.global_opcode(),
+        ModularArithmeticOpcode::DIV.global_opcode(),
         Fp2Opcode::SETUP_ADDSUB.global_opcode(),
         Fp2Opcode::ADD.global_opcode(),
         Fp2Opcode::SUB.global_opcode(),
@@ -365,19 +365,19 @@ fn prove_field_expr_checkpoint_replay(modulus: BigUint) {
 #[test]
 fn modular_checkpoint_executor_records_only_irreducible_results() {
     let (_, exe) = fixture();
-    let executor = VmExecutor::new(config()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let execution = checkpoint
         .execute_from_state(state, PreflightLimits::new(5, 5, 1))
         .unwrap();
 
-    // SETUP_ADDSUB and SETUP_ISEQ are derivable without residuals. ADD needs
+    // SETUP_ADDSUB and SETUP_ISEQ are derivable without replay values. ADD needs
     // four output words and IS_EQ needs one result bit.
     assert_eq!(execution.retired, 5);
     assert_eq!(execution.to_state.pc, 16);
     assert_eq!(execution.to_state.timestamp, 53);
-    assert_eq!(execution.transcript.residuals, [12, 0, 0, 0, 1]);
+    assert_eq!(execution.transcript.replay_values, [12, 0, 0, 0, 1]);
 }
 
 #[test]
@@ -395,31 +395,31 @@ fn modular_metering_counts_only_irreducible_results() {
 
     assert_eq!(segments.len(), 1);
     assert_eq!(segments[0].num_insns, 5);
-    assert_eq!(segments[0].num_preflight_residuals, 5);
+    assert_eq!(segments[0].num_preflight_replay_values, 5);
 }
 
 #[test]
 fn modular_is_equal_rejects_x0_destination_before_execution() {
     for opcode in [
-        Rv64ModularArithmeticOpcode::IS_EQ,
-        Rv64ModularArithmeticOpcode::SETUP_ISEQ,
+        ModularArithmeticOpcode::IS_EQ,
+        ModularArithmeticOpcode::SETUP_ISEQ,
     ] {
         let program = Program::from_instructions(&[
-            Instruction::<BabyBear>::from_usize(
+            Instruction::from_usize(
                 opcode.global_opcode(),
                 [
                     reg(0),
                     reg(1),
                     reg(2),
-                    RV64_REGISTER_AS as usize,
-                    RV64_MEMORY_AS as usize,
+                    REGISTER_AS as usize,
+                    MEMORY_AS as usize,
                 ],
             ),
             Instruction::from_usize(SystemOpcode::TERMINATE.global_opcode(), [0; 5]),
         ]);
         assert_eq!(modular_is_eq_x0_destination(&program, 1), Some(0));
         let exe = VmExe::new(program);
-        let executor = VmExecutor::new(config()).unwrap();
+        let executor = VmExecutor::<F, _>::new(config()).unwrap();
         assert!(executor.interpreter_instance(&exe).is_err());
         assert!(executor.preflight_instance(&exe).is_err());
     }
@@ -427,7 +427,7 @@ fn modular_is_equal_rejects_x0_destination_before_execution() {
 
 #[test]
 fn modular_heap_pointers_follow_the_eight_byte_memory_equipartition() {
-    let executor = VmExecutor::new(config()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config()).unwrap();
 
     for pointer_offset in [0, 8] {
         let (_, exe) = fixture_with_pointer_offset(pointer_offset);
@@ -461,7 +461,7 @@ fn modular_heap_pointers_follow_the_eight_byte_memory_equipartition() {
 fn modular_checkpoint_expansion_proves_without_records() {
     let (program, exe) = fixture();
     let config = config();
-    let executor = VmExecutor::new(config.clone()).unwrap();
+    let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
     let checkpoint = executor.preflight_instance(&exe).unwrap();
     let state = checkpoint.create_initial_vm_state(Vec::<Vec<u8>>::new());
     let (mut vm, pk) = VirtualMachine::new_with_keygen(
@@ -478,7 +478,7 @@ fn modular_checkpoint_expansion_proves_without_records() {
         .unwrap();
     assert_eq!(execution.retired, 5);
     assert_eq!(execution.to_state.timestamp, 53);
-    assert_eq!(execution.transcript.residuals, [12, 0, 0, 0, 1]);
+    assert_eq!(execution.transcript.replay_values, [12, 0, 0, 0, 1]);
 
     let gpu_program = AlgebraPreflightGpuTracegen::upload_postflight_program(
         &program,
@@ -489,13 +489,13 @@ fn modular_checkpoint_expansion_proves_without_records() {
     )
     .unwrap();
 
-    let missing = execution.transcript.residuals.pop().unwrap();
+    let missing = execution.transcript.replay_values.pop().unwrap();
     let error =
         AlgebraPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
             .err()
-            .expect("missing Algebra residual must fail checkpoint replay");
+            .expect("missing Algebra replay value must fail checkpoint replay");
     assert!(error.to_string().contains("code 306"), "{error}");
-    execution.transcript.residuals.push(missing);
+    execution.transcript.replay_values.push(missing);
 
     let (transcript, replay_plan) =
         AlgebraPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, execution.retired)
@@ -503,10 +503,10 @@ fn modular_checkpoint_expansion_proves_without_records() {
     assert_eq!(transcript.error_code().unwrap(), 0);
     assert_eq!(transcript.memory_log_host().unwrap().len(), 52);
     for opcode in [
-        Rv64ModularArithmeticOpcode::SETUP_ADDSUB,
-        Rv64ModularArithmeticOpcode::ADD,
-        Rv64ModularArithmeticOpcode::SETUP_ISEQ,
-        Rv64ModularArithmeticOpcode::IS_EQ,
+        ModularArithmeticOpcode::SETUP_ADDSUB,
+        ModularArithmeticOpcode::ADD,
+        ModularArithmeticOpcode::SETUP_ISEQ,
+        ModularArithmeticOpcode::IS_EQ,
     ] {
         assert_eq!(replay_plan.opcode_range(opcode.global_opcode()).len(), 1);
     }

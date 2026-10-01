@@ -1,15 +1,15 @@
 use std::any::Any;
 
 use openvm_bigint_transpiler::{
-    Rv64BaseAlu256Opcode, Rv64BranchEqual256Opcode, Rv64BranchLessThan256Opcode,
-    Rv64LessThan256Opcode, Rv64Mul256Opcode, Rv64Shift256Opcode,
+    BaseAlu256Opcode, BranchEqual256Opcode, BranchLessThan256Opcode, LessThan256Opcode,
+    Mul256Opcode, Shift256Opcode,
 };
 use openvm_circuit::{
     arch::{
         cuda::postflight::{
             GpuPostflightError, GpuPostflightPlan, GpuPostflightProgram, GpuPostflightTranscript,
         },
-        prepare_gpu_postflight, to_byte_ptr_bits, GenerationError, Postflight, PostflightTracegen,
+        prepare_gpu_postflight, to_byte_ptr_bits, GenerationError, PostflightTracegen,
         PreflightOutput, VirtualMachine, VmBuilder,
     },
     system::cuda::{
@@ -21,26 +21,22 @@ use openvm_circuit::{
 };
 use openvm_circuit_primitives::range_tuple::RangeTupleCheckerChipGPU;
 use openvm_cuda_backend::{BabyBearPoseidon2GpuEngine as GpuBabyBearPoseidon2Engine, GpuBackend};
+#[cfg(feature = "rvr")]
+use openvm_instructions::riscv::MEMORY_AS;
 use openvm_instructions::{program::Program, LocalOpcode};
+#[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
+use openvm_riscv_circuit::preflight::PreflightReplayProgram;
+#[cfg(feature = "rvr")]
+use openvm_riscv_circuit::preflight::{
+    PostflightAccessRegistry, PostflightAccessSchedule, PostflightAccessSpan,
+};
 use openvm_riscv_circuit::{Rv64ImGpuProverExt, Rv64ImPreflightGpuTracegen};
 use openvm_stark_backend::prover::{AirProvingContext, ProvingContext};
-use openvm_stark_sdk::{
-    config::baby_bear_poseidon2::BabyBearPoseidon2Config, p3_baby_bear::BabyBear,
-};
-#[cfg(feature = "rvr")]
-use {
-    openvm_circuit::arch::rvr::cuda::{PostflightAccessRegistry, PostflightAccessSpan},
-    openvm_instructions::riscv::RV64_MEMORY_AS,
-};
+use openvm_stark_sdk::config::baby_bear_poseidon2::BabyBearPoseidon2Config;
 #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
 use {
-    openvm_circuit::arch::{
-        rvr::{cuda::CheckpointReplayProgram, PreflightExecution},
-        MemoryConfig,
-    },
+    openvm_circuit::arch::{rvr::PreflightExecution, MemoryConfig},
     openvm_cuda_common::stream::GpuDeviceCtx,
-    openvm_instructions::program::Program,
-    openvm_stark_backend::p3_field::PrimeField32,
 };
 
 use super::*;
@@ -71,13 +67,13 @@ impl<'a> Int256PreflightGpuTracegen<'a> {
 
     #[doc(hidden)]
     pub fn extension_opcodes() -> Vec<u32> {
-        Self::opcodes(Rv64BaseAlu256Opcode::iter())
+        Self::opcodes(BaseAlu256Opcode::iter())
             .into_iter()
-            .chain(Self::opcodes(Rv64Shift256Opcode::iter()))
-            .chain(Self::opcodes(Rv64LessThan256Opcode::iter()))
-            .chain(Self::opcodes(Rv64BranchEqual256Opcode::iter()))
-            .chain(Self::opcodes(Rv64BranchLessThan256Opcode::iter()))
-            .chain(Self::opcodes(Rv64Mul256Opcode::iter()))
+            .chain(Self::opcodes(Shift256Opcode::iter()))
+            .chain(Self::opcodes(LessThan256Opcode::iter()))
+            .chain(Self::opcodes(BranchEqual256Opcode::iter()))
+            .chain(Self::opcodes(BranchLessThan256Opcode::iter()))
+            .chain(Self::opcodes(Mul256Opcode::iter()))
             .collect()
     }
 
@@ -87,33 +83,42 @@ impl<'a> Int256PreflightGpuTracegen<'a> {
         registry: &mut PostflightAccessRegistry,
     ) -> Result<(), GpuPostflightError> {
         let alu_spans = [
-            PostflightAccessSpan::read_fixed(RV64_MEMORY_AS, 0, 4),
-            PostflightAccessSpan::read_fixed(RV64_MEMORY_AS, 1, 4),
-            PostflightAccessSpan::write_fixed_from_residuals(RV64_MEMORY_AS, 2, 4),
+            PostflightAccessSpan::read_fixed(MEMORY_AS, 0, 4),
+            PostflightAccessSpan::read_fixed(MEMORY_AS, 1, 4),
+            PostflightAccessSpan::write_fixed_from_replay_values(MEMORY_AS, 2, 4),
         ];
-        for opcode in Self::opcodes(Rv64BaseAlu256Opcode::iter())
+        let alu_schedule = PostflightAccessSchedule {
+            register_operands: &[2, 3, 1],
+            zero_operand_mask: (1 << 6) | (1 << 7),
+            register_as_operand: 4,
+            memory_as_operand: 5,
+            spans: &alu_spans,
+        };
+        for opcode in Self::opcodes(BaseAlu256Opcode::iter())
             .into_iter()
-            .chain(Self::opcodes(Rv64Shift256Opcode::iter()))
-            .chain(Self::opcodes(Rv64LessThan256Opcode::iter()))
-            .chain(Self::opcodes(Rv64Mul256Opcode::iter()))
+            .chain(Self::opcodes(Shift256Opcode::iter()))
+            .chain(Self::opcodes(LessThan256Opcode::iter()))
+            .chain(Self::opcodes(Mul256Opcode::iter()))
         {
-            registry.register(opcode, &[2, 3, 1], (1 << 6) | (1 << 7), 4, 5, &alu_spans)?;
+            registry.register(opcode, alu_schedule)?;
         }
         let branch_spans = [
-            PostflightAccessSpan::read_fixed(RV64_MEMORY_AS, 0, 4),
-            PostflightAccessSpan::read_fixed(RV64_MEMORY_AS, 1, 4),
+            PostflightAccessSpan::read_fixed(MEMORY_AS, 0, 4),
+            PostflightAccessSpan::read_fixed(MEMORY_AS, 1, 4),
         ];
-        for opcode in Self::opcodes(Rv64BranchEqual256Opcode::iter())
+        for opcode in Self::opcodes(BranchEqual256Opcode::iter())
             .into_iter()
-            .chain(Self::opcodes(Rv64BranchLessThan256Opcode::iter()))
+            .chain(Self::opcodes(BranchLessThan256Opcode::iter()))
         {
-            registry.register_branch_residual(
+            registry.register_branch_from_replay_value(
                 opcode,
-                &[1, 2],
-                (1 << 6) | (1 << 7),
-                4,
-                5,
-                &branch_spans,
+                PostflightAccessSchedule {
+                    register_operands: &[1, 2],
+                    zero_operand_mask: (1 << 6) | (1 << 7),
+                    register_as_operand: 4,
+                    memory_as_operand: 5,
+                    spans: &branch_spans,
+                },
                 3,
             )?;
         }
@@ -121,16 +126,14 @@ impl<'a> Int256PreflightGpuTracegen<'a> {
     }
 
     #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
-    pub fn upload_postflight_program<F: PrimeField32>(
-        program: &Program<F>,
+    pub fn upload_postflight_program(
+        program: &Program,
         memory_config: &MemoryConfig,
         device_ctx: &GpuDeviceCtx,
-    ) -> Result<CheckpointReplayProgram, GpuPostflightError> {
+    ) -> Result<PreflightReplayProgram, GpuPostflightError> {
         let mut registry = PostflightAccessRegistry::default();
         Self::register_postflight_access_schedules(&mut registry)?;
-        registry
-            .validate_no_native_collisions(Rv64ImPreflightGpuTracegen::postflight_opcode_bases())?;
-        CheckpointReplayProgram::upload_with_postflight_access_registry(
+        PreflightReplayProgram::upload_with_postflight_access_registry(
             program,
             memory_config,
             &registry,
@@ -141,19 +144,14 @@ impl<'a> Int256PreflightGpuTracegen<'a> {
     #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
     pub fn postflight<VB>(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, VB>,
-        program: &CheckpointReplayProgram,
+        program: &PreflightReplayProgram,
         execution: &PreflightExecution,
         num_insns: u32,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError>
     where
         VB: VmBuilder<GpuBabyBearPoseidon2Engine, SystemChipInventory = SystemChipInventoryGPU>,
     {
-        vm.postflight(
-            program,
-            execution,
-            num_insns,
-            Rv64ImPreflightGpuTracegen::postflight_opcode_bases(),
-        )
+        Rv64ImPreflightGpuTracegen::postflight(vm, program, execution, num_insns)
     }
 
     pub fn new(
@@ -173,29 +171,29 @@ impl<'a> Int256PreflightGpuTracegen<'a> {
             transcript,
             replay_plan,
             pending_add_sub: has_any(
-                Self::opcodes(Rv64BaseAlu256Opcode::iter())
+                Self::opcodes(BaseAlu256Opcode::iter())
                     .into_iter()
                     .take(2)
                     .collect(),
             ),
             pending_bitwise: has_any(
-                Self::opcodes(Rv64BaseAlu256Opcode::iter())
+                Self::opcodes(BaseAlu256Opcode::iter())
                     .into_iter()
                     .skip(2)
                     .collect(),
             ),
-            pending_less_than: has_any(Self::opcodes(Rv64LessThan256Opcode::iter())),
-            pending_branch_equal: has_any(Self::opcodes(Rv64BranchEqual256Opcode::iter())),
-            pending_branch_less_than: has_any(Self::opcodes(Rv64BranchLessThan256Opcode::iter())),
-            pending_mul: has_any(Self::opcodes(Rv64Mul256Opcode::iter())),
+            pending_less_than: has_any(Self::opcodes(LessThan256Opcode::iter())),
+            pending_branch_equal: has_any(Self::opcodes(BranchEqual256Opcode::iter())),
+            pending_branch_less_than: has_any(Self::opcodes(BranchLessThan256Opcode::iter())),
+            pending_mul: has_any(Self::opcodes(Mul256Opcode::iter())),
             pending_shift_logical: has_any(
-                Self::opcodes(Rv64Shift256Opcode::iter())
+                Self::opcodes(Shift256Opcode::iter())
                     .into_iter()
                     .take(2)
                     .collect(),
             ),
             pending_shift_arithmetic: has_any(
-                Self::opcodes(Rv64Shift256Opcode::iter())
+                Self::opcodes(Shift256Opcode::iter())
                     .into_iter()
                     .skip(2)
                     .collect(),
@@ -275,14 +273,14 @@ impl<'a> Int256PreflightGpuTracegen<'a> {
             self.transcript,
             self.replay_plan,
             (self, rv64),
-            |(tracegen, rv64), insertion_idx, chip| {
+            |(tracegen, rv64), chip| {
                 if let Some(ctx) = tracegen
                     .generate_for_chip(chip)
                     .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?
                 {
                     Ok(ctx)
                 } else {
-                    rv64.generate_for_chip(insertion_idx, chip)
+                    rv64.generate_for_chip(chip)
                         .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
                 }
             },
@@ -331,12 +329,12 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Int256> for Int256GpuProverEx
             }
         };
 
-        inventory.next_air::<Rv64AddSub256Air>()?;
+        inventory.next_air::<AddSub256Air>()?;
         let add_sub =
             AddSub256ChipGpu::new(range_checker.clone(), byte_ptr_max_bits, timestamp_max_bits);
         inventory.add_executor_chip(add_sub);
 
-        inventory.next_air::<Rv64BitwiseLogic256Air>()?;
+        inventory.next_air::<BitwiseLogic256Air>()?;
         let bitwise = BitwiseLogic256ChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
@@ -345,12 +343,12 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Int256> for Int256GpuProverEx
         );
         inventory.add_executor_chip(bitwise);
 
-        inventory.next_air::<Rv64LessThan256Air>()?;
+        inventory.next_air::<LessThan256Air>()?;
         let lt =
             LessThan256ChipGpu::new(range_checker.clone(), byte_ptr_max_bits, timestamp_max_bits);
         inventory.add_executor_chip(lt);
 
-        inventory.next_air::<Rv64BranchEqual256Air>()?;
+        inventory.next_air::<BranchEqual256Air>()?;
         let beq = BranchEqual256ChipGpu::new(
             range_checker.clone(),
             byte_ptr_max_bits,
@@ -358,7 +356,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Int256> for Int256GpuProverEx
         );
         inventory.add_executor_chip(beq);
 
-        inventory.next_air::<Rv64BranchLessThan256Air>()?;
+        inventory.next_air::<BranchLessThan256Air>()?;
         let blt = BranchLessThan256ChipGpu::new(
             range_checker.clone(),
             byte_ptr_max_bits,
@@ -366,7 +364,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Int256> for Int256GpuProverEx
         );
         inventory.add_executor_chip(blt);
 
-        inventory.next_air::<Rv64Multiplication256Air>()?;
+        inventory.next_air::<Multiplication256Air>()?;
         let mult = Multiplication256ChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
@@ -376,7 +374,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Int256> for Int256GpuProverEx
         );
         inventory.add_executor_chip(mult);
 
-        inventory.next_air::<Rv64ShiftLogical256Air>()?;
+        inventory.next_air::<ShiftLogical256Air>()?;
         let shift_logical = ShiftLogical256ChipGpu::new(
             range_checker.clone(),
             byte_ptr_max_bits,
@@ -384,7 +382,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Int256> for Int256GpuProverEx
         );
         inventory.add_executor_chip(shift_logical);
 
-        inventory.next_air::<Rv64ShiftRightArithmetic256Air>()?;
+        inventory.next_air::<ShiftRightArithmetic256Air>()?;
         let shift_right_arithmetic = ShiftRightArithmetic256ChipGpu::new(
             range_checker.clone(),
             byte_ptr_max_bits,
@@ -404,16 +402,16 @@ impl PostflightTracegen<GpuBabyBearPoseidon2Engine> for Int256Rv64GpuBuilder {
 
     fn prepare_postflight(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
-        program: &Program<BabyBear>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
         prepare_gpu_postflight(vm, program)
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
+        _host_program: &Program,
         program: &Self::Prepared,
         output: &PreflightOutput,
-        _postflight: &Postflight<'_, BabyBear>,
     ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
         let (transcript, replay_plan) = vm
             .postflight_history(program, output)

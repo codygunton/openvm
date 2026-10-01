@@ -13,6 +13,7 @@ fn main() {
             .flag("-Icuda/include")
             .flag("-I../../../crates/circuits/primitives/cuda/include")
             .flag("-I../../../crates/vm/cuda/include")
+            .flag("-I../../riscv-adapters/cuda/include")
             .watch("cuda/include/block_hasher")
             .watch("cuda/include/main")
             .watch("../../../crates/circuits/primitives/cuda/include/primitives/constants.h")
@@ -26,12 +27,14 @@ fn main() {
             .watch("../../../crates/vm/cuda/include/system/memory/controller.cuh")
             .watch("../../../crates/vm/cuda/include/system/memory/offline_checker.cuh")
             .watch("../../../crates/vm/cuda/include/system/memory/params.cuh")
+            .watch("../../riscv-adapters/cuda/include/riscv-adapters/pointer_conv.cuh")
             .library_name("tracegen_gpu_sha2")
             .flag("-I../../../crates/vm/cuda/rvr/include")
             .watch("cuda/include/rvr/replay.cuh")
             .watch("../../../crates/circuits/primitives/cuda/include/primitives/buffer_view.cuh")
             .watch("../../../crates/vm/cuda/rvr/include/arch/rvr/preflight.cuh")
             .watch("../../../crates/vm/cuda/rvr/include/arch/rvr/replay.cuh")
+            .watch("cuda/src/sha2_hasher.cu")
             .files(["cuda/src/rvr/sha2_main.cu", "cuda/src/rvr/sha2_hasher.cu"]);
 
         builder.emit_link_directives();

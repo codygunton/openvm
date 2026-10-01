@@ -6,6 +6,7 @@
 #include "primitives/histogram.cuh"
 #include "primitives/trace_access.h"
 #include "primitives/utils.cuh"
+#include "riscv-adapters/pointer_conv.cuh"
 #include "system/memory/controller.cuh"
 #include "arch/rvr/replay.cuh"
 
@@ -115,7 +116,7 @@ __global__ void keccakf_op_replay_tracegen(
         return;
     }
 
-    ReplayPreviousValue write_previous[KECCAK_WIDTH_MEM_OPS];
+    uint32_t write_previous_timestamps[KECCAK_WIDTH_MEM_OPS];
     uint64_t state[KECCAK_WIDTH_MEM_OPS];
     for (uint32_t i = 0; i < KECCAK_WIDTH_MEM_OPS; i++) {
         size_t write_idx = rd_idx + 1 + i;
@@ -124,6 +125,7 @@ __global__ void keccakf_op_replay_tracegen(
             return;
         }
         auto const &write = memory[write_idx];
+        ReplayPreviousValue previous;
         if (write.timestamp != from.timestamp + 1 + i || !preflight_is_write(write) ||
             preflight_address_space(write) != memory_as ||
             write.pointer != buffer_ptr / 2 + i * BLOCK_FE_WIDTH ||
@@ -133,12 +135,13 @@ __global__ void keccakf_op_replay_tracegen(
                 predecessors[write_idx],
                 memory,
                 seeds,
-                write_previous[i]
+                previous
             )) {
             preflight_set_error(error, KECCAKF_REPLAY_ERROR);
             return;
         }
-        state[i] = keccakf_replay_u64(write_previous[i].value);
+        write_previous_timestamps[i] = previous.timestamp;
+        state[i] = keccakf_replay_u64(previous.value);
         preimages[idx * KECCAK_WIDTH_MEM_OPS + i] = state[i];
     }
     size_t event_end = rd_idx + 1 + KECCAK_WIDTH_MEM_OPS;
@@ -160,11 +163,11 @@ __global__ void keccakf_op_replay_tracegen(
 
     VariableRangeChecker range_checker(range_checker_ptr, range_checker_num_bins);
     MemoryAuxColsFactory mem_helper(range_checker, timestamp_max_bits);
-    KECCAKF_OP_WRITE(pc, from.pc);
+    KECCAKF_OP_WRITE(pc_idx, ::program::pc_to_idx(from.pc));
     KECCAKF_OP_WRITE(is_valid, 1);
     KECCAKF_OP_WRITE(timestamp, from.timestamp);
     KECCAKF_OP_WRITE(rd_ptr, rd_ptr);
-    uint16_t buffer_ptr_limbs[RV64_PTR_U16_LIMBS];
+    uint16_t buffer_ptr_limbs[PTR_U16_LIMBS];
     ptr_to_u16_limbs(buffer_ptr_limbs, buffer_ptr);
     KECCAKF_OP_WRITE_ARRAY(buffer_ptr_limbs, buffer_ptr_limbs);
     KECCAKF_OP_WRITE_ARRAY(preimage, reinterpret_cast<uint16_t const *>(state));
@@ -173,14 +176,12 @@ __global__ void keccakf_op_replay_tracegen(
     for (uint32_t i = 0; i < KECCAK_WIDTH_MEM_OPS; i++) {
         mem_helper.fill(
             KECCAKF_OP_SLICE(buffer_word_aux[i]),
-            write_previous[i].timestamp,
+            write_previous_timestamps[i],
             from.timestamp + 1 + i
         );
     }
-    range_checker.add_count(
-        ptr_bound_from_high_u16(buffer_ptr_limbs[RV64_PTR_U16_LIMBS - 1], pointer_max_bits),
-        U16_BITS
-    );
+    // Block-index range-check counts (mirrors KeccakfOpChip::fill_trace_inputs).
+    add_block_index_range_checks(range_checker, buffer_ptr, pointer_max_bits);
 }
 
 extern "C" int _keccakf_op_replay_tracegen(

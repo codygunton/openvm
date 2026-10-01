@@ -14,9 +14,9 @@ use crate::arch::VmState;
 use crate::system::memory::online::{GuestMemory, LinearMemory};
 use crate::{
     arch::{
-        debug_proving_ctx, execution_mode::Segment, verify_segments, vm::VirtualMachine, Executor,
-        ExitCode, MeteredExecutor, Postflight, PostflightTracegen, Streams, VmBuilder,
-        VmCircuitConfig, VmConfig, VmExecutionConfig, VmField,
+        debug_proving_ctx, verify_segments, vm::VirtualMachine, Executor, ExitCode,
+        MeteredExecutor, PostflightTracegen, Streams, VmBuilder, VmCircuitConfig, VmConfig,
+        VmExecutionConfig, VmField,
     },
     system::memory::MemoryImage,
 };
@@ -48,7 +48,7 @@ cfg_if::cfg_if! {
 // NOTE on trait bounds: the compiler cannot figure out Val<SC>=BabyBear without the
 // VmExecutionConfig and VmCircuitConfig bounds even though VmProverBuilder already includes them.
 // The compiler also seems to need the extra VC even though VC=VB::VmConfig
-pub fn air_test<VB, VC>(builder: VB, config: VC, exe: impl Into<VmExe<BabyBear>>)
+pub fn air_test<VB, VC>(builder: VB, config: VC, exe: impl Into<VmExe>)
 where
     VB: VmBuilder<TestStarkEngine, VmConfig = VC>,
     VC: VmExecutionConfig<BabyBear>
@@ -65,7 +65,7 @@ where
 pub fn air_test_with_min_segments<VB, VC>(
     builder: VB,
     config: VC,
-    exe: impl Into<VmExe<BabyBear>>,
+    exe: impl Into<VmExe>,
     input: impl Into<Streams>,
     min_segments: usize,
 ) -> Option<MemoryImage>
@@ -151,7 +151,7 @@ fn check_vm_state_eq(lhs: &VmState<GuestMemory>, rhs: &VmState<GuestMemory>) -> 
 #[cfg(feature = "rvr")]
 pub fn check_rvr_equivalence<E, VB>(
     vm: &VirtualMachine<E, VB>,
-    exe: &VmExe<Val<E::SC>>,
+    exe: &VmExe,
     input: &Streams,
 ) -> eyre::Result<()>
 where
@@ -279,7 +279,7 @@ pub fn air_test_impl<E, VB>(
     params: SystemParams,
     builder: VB,
     config: VB::VmConfig,
-    exe: impl Into<VmExe<Val<E::SC>>>,
+    exe: impl Into<VmExe>,
     input: impl Into<Streams>,
     min_segments: usize,
     debug: bool,
@@ -320,30 +320,14 @@ where
     let mut proofs = Vec::new();
     let mut exit_code = None;
     for (seg_idx, segment) in segments.iter().enumerate() {
-        let Segment {
-            num_insns,
-            trace_heights,
-            ..
-        } = segment.clone();
         let from_state = Option::take(&mut state).unwrap();
         vm.transport_init_memory_to_device(&from_state.memory);
-        let mut output = vm.execute_preflight_for(&preflight_interpreter, from_state, num_insns)?;
-        let postflight = Postflight::new(
-            &exe.program,
-            &output.history,
-            &config.as_ref().memory_config,
-            output.exit_code,
-        )?;
-        output
-            .state
-            .memory
-            .memory
-            .extend_touched_pages_from_touched(postflight.touched_memory());
+        let output = preflight_interpreter.execute_segment(from_state, segment)?;
         exit_code = output.exit_code;
-        let ctx = vm.generate_proving_ctx(&prepared_tracegen, &output, &postflight)?;
+        let ctx = vm.generate_proving_ctx(&exe.program, &prepared_tracegen, &output)?;
         state = Some(output.state);
 
-        validate_metered_estimates(&vm, &trace_heights, &ctx, seg_idx);
+        validate_metered_estimates(&vm, &segment.trace_heights, &ctx, seg_idx);
 
         if debug {
             debug_proving_ctx(&vm, &ctx);

@@ -5,7 +5,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use openvm_circuit::arch::{Postflight, PostflightError, VmField};
+use openvm_circuit::arch::VmField;
 use openvm_circuit_primitives::{utils::next_power_of_two_or_zero, Chip};
 use openvm_cpu_backend::CpuBackend;
 use openvm_poseidon2_air::{Poseidon2Config, Poseidon2SubChip, POSEIDON2_WIDTH};
@@ -84,15 +84,6 @@ impl<F: VmField> DeferralPoseidon2Chip<F> {
         from_fn(|i| output[i + offset])
     }
 
-    /// Generates the permutation trace accumulated by Deferral CALL and
-    /// OUTPUT replay. Host callbacks are never invoked here.
-    pub fn generate_trace_from_postflight(
-        &self,
-        _postflight: &Postflight<'_, F>,
-    ) -> Result<RowMajorMatrix<F>, PostflightError> {
-        Ok(self.generate_trace())
-    }
-
     fn generate_trace(&self) -> RowMajorMatrix<F> {
         let width = DeferralPoseidon2Cols::<F>::width();
         if !self.nonempty.load(std::sync::atomic::Ordering::Relaxed) {
@@ -143,11 +134,11 @@ impl<F: VmField> DeferralPoseidon2Chip<F> {
     }
 }
 
-impl<SC: StarkProtocolConfig> Chip<(), CpuBackend<SC>> for DeferralPoseidon2Chip<Val<SC>>
+impl<SC: StarkProtocolConfig> Chip<CpuBackend<SC>> for DeferralPoseidon2Chip<Val<SC>>
 where
     Val<SC>: VmField,
 {
-    fn generate_proving_ctx(&self, _: ()) -> AirProvingContext<CpuBackend<SC>> {
+    fn generate_proving_ctx(&self) -> AirProvingContext<CpuBackend<SC>> {
         AirProvingContext::simple_no_pis(self.generate_trace())
     }
 }

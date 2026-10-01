@@ -1,6 +1,6 @@
 //! Adapter wrappers that convert between Vec/Block-based interfaces and Flat/Basic interfaces.
 //!
-//! These wrappers allow using `Rv64VecHeapAdapter*` types with cores that expect flat
+//! These wrappers allow using `VecHeapAdapter*` types with cores that expect flat
 //! `BasicAdapterInterface` data formats.
 
 use openvm_circuit::arch::{
@@ -19,10 +19,10 @@ use openvm_stark_backend::{
 /// Wrapper that converts a `VecHeapAdapterInterface` (block-based) to `BasicAdapterInterface`
 /// (flat).
 ///
-/// This allows using `Rv64VecHeapAdapterAir` with cores that expect flat read/write data.
+/// This allows using `VecHeapAdapterAir` with cores that expect flat read/write data.
 ///
 /// # Type Parameters
-/// - `A`: The inner adapter AIR (e.g., `Rv64VecHeapAdapterAir`)
+/// - `A`: The inner adapter AIR (e.g., `VecHeapAdapterAir`)
 /// - `NUM_READS`: Number of read operands
 /// - `BLOCKS_PER_READ`: Number of blocks per read operand
 /// - `BLOCKS_PER_WRITE`: Number of blocks per write operand
@@ -187,7 +187,7 @@ where
             AB::Expr,
             InnerI<AB::Expr, NUM_READS, BLOCKS_PER_READ, BLOCKS_PER_WRITE, BLOCK_VALUE_WIDTH>,
         > = AdapterAirContext {
-            to_pc: ctx.to_pc,
+            to_pc_idx: ctx.to_pc_idx,
             reads: inner_reads,
             writes: inner_writes,
             instruction: ctx.instruction,
@@ -196,8 +196,8 @@ where
         self.0.eval(builder, local, inner_ctx)
     }
 
-    fn get_from_pc(&self, local: &[AB::Var]) -> AB::Var {
-        self.0.get_from_pc(local)
+    fn get_from_pc_idx(&self, local: &[AB::Var]) -> AB::Var {
+        self.0.get_from_pc_idx(local)
     }
 }
 
@@ -228,30 +228,6 @@ where
     }
 }
 
-/// Wrapper that converts block-based read/write data to flat format for ALU operations.
-#[derive(Clone, Copy, Debug, derive_new::new)]
-pub struct VecToFlatAluAdapterExecutor<
-    A,
-    const NUM_READS: usize,
-    const BLOCKS_PER_READ: usize,
-    const BLOCKS_PER_WRITE: usize,
-    const BLOCK_VALUE_WIDTH: usize,
-    const TOTAL_READ_SIZE: usize,
-    const TOTAL_WRITE_SIZE: usize,
->(pub A);
-
-/// U16 counterpart of [`VecToFlatAluAdapterExecutor`].
-#[derive(Clone, Copy, Debug, derive_new::new)]
-pub struct VecToFlatAluU16AdapterExecutor<
-    A,
-    const NUM_READS: usize,
-    const BLOCKS_PER_READ: usize,
-    const BLOCKS_PER_WRITE: usize,
-    const BLOCK_VALUE_WIDTH: usize,
-    const TOTAL_READ_SIZE: usize,
-    const TOTAL_WRITE_SIZE: usize,
->(pub A);
-
 // =================================================================================================
 // Branch Adapter Wrappers (reads only, no writes)
 // =================================================================================================
@@ -259,11 +235,11 @@ pub struct VecToFlatAluU16AdapterExecutor<
 /// Wrapper that converts a `VecHeapBranchAdapterInterface` (block-based) to `BasicAdapterInterface`
 /// (flat).
 ///
-/// This allows using `Rv64VecHeapBranchAdapterAir` with cores that expect flat read data.
+/// This allows using `VecHeapBranchAdapterAir` with cores that expect flat read data.
 /// Branch operations have no writes.
 ///
 /// # Type Parameters
-/// - `A`: The inner adapter AIR (e.g., `Rv64VecHeapBranchAdapterAir`)
+/// - `A`: The inner adapter AIR (e.g., `VecHeapBranchAdapterAir`)
 /// - `NUM_READS`: Number of read operands
 /// - `BLOCKS_PER_READ`: Number of blocks per read operand
 /// - `BLOCK_VALUE_WIDTH`: Number of values in each block
@@ -364,7 +340,7 @@ where
             AB::Expr,
             InnerI<AB::Expr, NUM_READS, BLOCKS_PER_READ, BLOCK_VALUE_WIDTH>,
         > = AdapterAirContext {
-            to_pc: ctx.to_pc,
+            to_pc_idx: ctx.to_pc_idx,
             reads: inner_reads,
             writes: (),
             instruction: ctx.instruction,
@@ -373,8 +349,8 @@ where
         self.0.eval(builder, local, inner_ctx)
     }
 
-    fn get_from_pc(&self, local: &[AB::Var]) -> AB::Var {
-        self.0.get_from_pc(local)
+    fn get_from_pc_idx(&self, local: &[AB::Var]) -> AB::Var {
+        self.0.get_from_pc_idx(local)
     }
 }
 
@@ -394,14 +370,3 @@ where
         self.0.num_public_values()
     }
 }
-
-/// Wrapper that converts block-based read data to flat format for branch operations.
-/// Branch operations have no writes.
-#[derive(Clone, Copy, Debug, derive_new::new)]
-pub struct VecToFlatBranchAdapterExecutor<
-    A,
-    const NUM_READS: usize,
-    const BLOCKS_PER_READ: usize,
-    const BLOCK_VALUE_WIDTH: usize,
-    const TOTAL_READ_SIZE: usize,
->(pub A);

@@ -1,15 +1,15 @@
 use openvm_circuit::system::memory::offline_checker::{MemoryBaseAuxCols, MemoryReadAuxCols};
 use openvm_circuit_primitives::{StructReflection, StructReflectionHelper};
 use openvm_circuit_primitives_derive::AlignedBorrow;
-use openvm_riscv_circuit::adapters::RV64_PTR_U16_LIMBS;
+use openvm_riscv_circuit::adapters::PTR_U16_LIMBS;
 
 use crate::{KECCAK_WIDTH_MEM_OPS, KECCAK_WIDTH_U16S};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, AlignedBorrow, StructReflection)]
 pub struct KeccakfOpCols<T> {
-    /// Program counter
-    pub pc: T,
+    /// Circuit PC index (`byte_pc / DEFAULT_PC_STEP`).
+    pub pc_idx: T,
     /// True on the row handling execution for an instruction.
     pub is_valid: T,
     /// The starting timestamp for execution in this row.
@@ -20,7 +20,7 @@ pub struct KeccakfOpCols<T> {
     pub rd_ptr: T,
     /// `buffer_ptr <- [rd_ptr:8]_1`.
     /// Low 32 bits as u16 cells.
-    pub buffer_ptr_limbs: [T; RV64_PTR_U16_LIMBS],
+    pub buffer_ptr_limbs: [T; PTR_U16_LIMBS],
     /// The preimage state before the `keccakf` permutation.
     pub preimage: [T; KECCAK_WIDTH_U16S],
     /// The postimage state after the `keccakf` permutation.

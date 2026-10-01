@@ -5,7 +5,7 @@
 // The core-column interpreter is validated bit-exact against
 // FieldExpressionFiller::fill_trace_row (rows and range-checker histograms) on
 // EcAddNe, MulDiv (flags/Select/Div-under-Select/setup rows) and IntMul/IntAdd
-// expressions. Adapter columns use the shared Rv64VecHeapAdapter device fill.
+// expressions. Adapter columns use the shared VecHeapAdapter device fill.
 #include "algebra/vec_heap_replay.cuh"
 #include "launcher.cuh"
 #include "primitives/histogram.cuh"
@@ -25,10 +25,10 @@ static constexpr uint32_t NO_FLAG = UINT32_MAX;
 static constexpr size_t FIELD_EXPR_HEADER_WORDS = 34;
 static constexpr uint32_t MAX_U32_LIMBS = 12;
 
-// Value-phase opcodes
+// Evaluation opcodes compute canonical field values.
 enum { VOP_LOAD_INPUT = 0, VOP_CONST, VOP_ADD, VOP_SUB, VOP_MUL, VOP_DIV,
        VOP_INTADD, VOP_INTMUL, VOP_SELECT, VOP_SAVE_VAR, VOP_LOAD_OUTPUT };
-// Limb-phase opcodes
+// Witness opcodes evaluate limb expressions used by the constraints.
 enum { LOP_INPUT = 0, LOP_VAR, LOP_CONST, LOP_ADD, LOP_SUB, LOP_MUL,
        LOP_INTADD, LOP_INTMUL, LOP_SELECT };
 
@@ -467,7 +467,7 @@ __device__ __forceinline__ uint32_t f_of_i64(int64_t v) {
     return static_cast<uint32_t>(m);
 }
 
-// Fill the core sub-row (validated logic; see device_program.rs reference interpreter).
+// Fill the core sub-row; CUDA tests compare it against FieldExpressionFiller.
 // `core_row` must point at the first core column. When `is_dummy`, inputs are zero,
 // flags false, range checks skipped, is_valid = 0 (mirrors fill_dummy_trace_row).
 template <uint32_t K>
@@ -483,7 +483,7 @@ static __device__ bool field_expr_fill_core_row(
     uint32_t *err) {
     constexpr uint32_t k = K;
     const uint32_t nl = s.num_limbs, lb = s.limb_bits;
-    uint32_t *var_canon = my_aux; // num_vars * k, retained between phases
+    uint32_t *var_canon = my_aux; // num_vars * k, retained for the witness phase
     uint32_t *workspace = var_canon + s.num_vars * k;
     uint32_t *slots = workspace; // num_slots * k
     uint32_t *mont_workspace = slots + s.num_slots * k; // 2k+2
@@ -534,7 +534,7 @@ static __device__ bool field_expr_fill_core_row(
         }
     }
 
-    // ---- value phase ----
+    // Evaluation computes canonical field values and stores the variables written to the trace.
     for (uint32_t i = 0; i < s.num_slots * k; i++) slots[i] = 0;
     for (uint32_t io = 0; io < s.n_vops; io++) {
         const uint32_t *op = s.vops + 7 * io;
@@ -654,7 +654,7 @@ static __device__ bool field_expr_fill_core_row(
             if (!is_dummy) rc.add_count(limb, lb);
         }
 
-    // ---- constraint phase ----
+    // Witness generation emits the quotients and carries that prove each limb constraint.
     size_t carry_col = col;
     for (int ci = 0; ci < s.n_cons; ci++) carry_col += (s.cons + 8 * ci)[4];
     for (int ci = 0; ci < s.n_cons; ci++) {
@@ -837,7 +837,7 @@ static __global__ void validate_field_expr_replay(
         return;
     }
     constexpr size_t ADAPTER_WIDTH =
-        sizeof(Rv64VecHeapAdapterCols<uint8_t, NUM_READS, BLOCKS, BLOCKS>);
+        sizeof(VecHeapAdapterCols<uint8_t, NUM_READS, BLOCKS, BLOCKS>);
     constexpr size_t INPUT_BYTES = NUM_READS * BLOCKS * MEMORY_BLOCK_BYTES;
     constexpr size_t OUTPUT_BYTES = BLOCKS * MEMORY_BLOCK_BYTES;
     if (s.k != K || width != ADAPTER_WIDTH + s.width ||
@@ -868,7 +868,7 @@ static __global__ void field_expr_replay_tracegen(
 ) {
     constexpr uint32_t K = BLOCKS <= 6 ? 2 * BLOCKS : BLOCKS;
     constexpr size_t ADAPTER_WIDTH =
-        sizeof(Rv64VecHeapAdapterCols<uint8_t, NUM_READS, BLOCKS, BLOCKS>);
+        sizeof(VecHeapAdapterCols<uint8_t, NUM_READS, BLOCKS, BLOCKS>);
     __shared__ FieldExprProg shared_program;
     if (threadIdx.x == 0) load_prog(blob, shared_program);
     __syncthreads();
@@ -929,22 +929,18 @@ static __global__ void field_expr_replay_tracegen(
 }
 
 template <size_t NUM_READS, size_t BLOCKS>
-static int field_expr_launch_config(
-    size_t height,
-    size_t aux_words,
-    size_t max_scratch_words,
-    size_t *grid_blocks,
+static int field_expr_kernel_config(
+    size_t *max_grid_blocks,
     size_t *block_threads,
-    size_t *scratch_words,
-    size_t *active_threads,
     size_t *local_bytes_per_thread
 ) {
-    if (height == 0 || aux_words == 0 || grid_blocks == nullptr ||
-        block_threads == nullptr || scratch_words == nullptr ||
-        active_threads == nullptr || local_bytes_per_thread == nullptr) {
+    if (max_grid_blocks == nullptr || block_threads == nullptr ||
+        local_bytes_per_thread == nullptr) {
         return cudaErrorInvalidValue;
     }
     static constexpr int THREADS = 128;
+    // These properties depend only on the selected device and kernel variant. The host caches
+    // them with the chip and derives height/scratch-limited launch dimensions per trace.
     int blocks_per_multiprocessor;
     cudaError_t result = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
         &blocks_per_multiprocessor,
@@ -965,64 +961,45 @@ static int field_expr_launch_config(
         &attributes, field_expr_replay_tracegen<NUM_READS, BLOCKS>
     );
     if (result != cudaSuccess) return result;
-
-    size_t row_blocks = (height + THREADS - 1) / THREADS;
     size_t resident_blocks =
         static_cast<size_t>(blocks_per_multiprocessor) * multiprocessors;
-    size_t scratch_limited_blocks =
-        max_scratch_words / (static_cast<size_t>(THREADS) * aux_words);
-    size_t blocks = row_blocks < resident_blocks ? row_blocks : resident_blocks;
-    blocks = blocks < scratch_limited_blocks ? blocks : scratch_limited_blocks;
-    if (blocks == 0) return cudaErrorMemoryAllocation;
-    *grid_blocks = blocks;
+    if (resident_blocks == 0) return cudaErrorInvalidValue;
+    *max_grid_blocks = resident_blocks;
     *block_threads = THREADS;
-    *active_threads = blocks * THREADS;
-    *scratch_words = *active_threads * aux_words;
     *local_bytes_per_thread = attributes.localSizeBytes;
     return cudaSuccess;
 }
 
-extern "C" int _field_expr_replay_launch_config(
+extern "C" int _field_expr_replay_kernel_config(
     size_t num_reads,
     size_t blocks,
-    size_t height,
-    size_t aux_words,
-    size_t max_scratch_words,
-    size_t *grid_blocks,
+    size_t *max_grid_blocks,
     size_t *block_threads,
-    size_t *scratch_words,
-    size_t *active_threads,
     size_t *local_bytes_per_thread
 ) {
     if (num_reads == 2 && blocks == 4)
-        return field_expr_launch_config<2, 4>(
-            height, aux_words, max_scratch_words, grid_blocks, block_threads,
-            scratch_words, active_threads, local_bytes_per_thread
+        return field_expr_kernel_config<2, 4>(
+            max_grid_blocks, block_threads, local_bytes_per_thread
         );
     if (num_reads == 2 && blocks == 6)
-        return field_expr_launch_config<2, 6>(
-            height, aux_words, max_scratch_words, grid_blocks, block_threads,
-            scratch_words, active_threads, local_bytes_per_thread
+        return field_expr_kernel_config<2, 6>(
+            max_grid_blocks, block_threads, local_bytes_per_thread
         );
     if (num_reads == 2 && blocks == 8)
-        return field_expr_launch_config<2, 8>(
-            height, aux_words, max_scratch_words, grid_blocks, block_threads,
-            scratch_words, active_threads, local_bytes_per_thread
+        return field_expr_kernel_config<2, 8>(
+            max_grid_blocks, block_threads, local_bytes_per_thread
         );
     if (num_reads == 2 && blocks == 12)
-        return field_expr_launch_config<2, 12>(
-            height, aux_words, max_scratch_words, grid_blocks, block_threads,
-            scratch_words, active_threads, local_bytes_per_thread
+        return field_expr_kernel_config<2, 12>(
+            max_grid_blocks, block_threads, local_bytes_per_thread
         );
     if (num_reads == 1 && blocks == 8)
-        return field_expr_launch_config<1, 8>(
-            height, aux_words, max_scratch_words, grid_blocks, block_threads,
-            scratch_words, active_threads, local_bytes_per_thread
+        return field_expr_kernel_config<1, 8>(
+            max_grid_blocks, block_threads, local_bytes_per_thread
         );
     if (num_reads == 1 && blocks == 12)
-        return field_expr_launch_config<1, 12>(
-            height, aux_words, max_scratch_words, grid_blocks, block_threads,
-            scratch_words, active_threads, local_bytes_per_thread
+        return field_expr_kernel_config<1, 12>(
+            max_grid_blocks, block_threads, local_bytes_per_thread
         );
     return cudaErrorInvalidValue;
 }

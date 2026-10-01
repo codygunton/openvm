@@ -2,8 +2,27 @@ pub use rvr_state::{
     PreflightFieldBlock, PreflightInitialWrite, PreflightMemoryEvent, PreflightProgramEvent,
 };
 
-use super::VmState;
+use super::{AddressSpaceHostLayout, VmState, BLOCK_FE_WIDTH};
 use crate::system::memory::online::GuestMemory;
+
+/// Packs one U8 memory-bus block into the low four bytes of the inline history payload.
+#[inline]
+pub(crate) const fn encode_u8_block(value: [u8; BLOCK_FE_WIDTH]) -> [u16; BLOCK_FE_WIDTH] {
+    [
+        u16::from_le_bytes([value[0], value[1]]),
+        u16::from_le_bytes([value[2], value[3]]),
+        0,
+        0,
+    ]
+}
+
+/// Unpacks one U8 memory-bus block from the low four bytes of a validated history payload.
+#[inline]
+pub(crate) const fn decode_u8_block(value: [u16; BLOCK_FE_WIDTH]) -> [u8; BLOCK_FE_WIDTH] {
+    let low = value[0].to_le_bytes();
+    let high = value[1].to_le_bytes();
+    [low[0], low[1], high[0], high[1]]
+}
 
 /// Append-only memory history produced during serial preflight execution.
 ///
@@ -36,4 +55,26 @@ pub struct PreflightOutput {
     pub history: PreflightHistory,
     pub state: VmState<GuestMemory>,
     pub exit_code: Option<u32>,
+}
+
+impl PreflightOutput {
+    /// Preserve sparse-transfer bookkeeping when interpreter writes bypass the
+    /// normal online-memory access path.
+    pub(crate) fn mark_written_pages(&mut self) {
+        let memory = &mut self.state.memory.memory;
+        for write in self
+            .history
+            .memory
+            .accesses
+            .iter()
+            .filter(|event| event.is_write())
+        {
+            let address_space = write.address_space() as usize;
+            let cell_size = memory.config[address_space].layout.size();
+            memory.touched_pages[address_space].mark_byte_range(
+                write.pointer as usize * cell_size,
+                BLOCK_FE_WIDTH * cell_size,
+            );
+        }
+    }
 }

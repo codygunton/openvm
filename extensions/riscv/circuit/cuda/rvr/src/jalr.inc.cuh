@@ -23,7 +23,7 @@ __global__ void jalr_replay_tracegen(
     size_t idx = blockIdx.x * static_cast<size_t>(blockDim.x) + threadIdx.x;
     if (idx >= height) return;
     RowSlice row(trace + idx, height);
-    row.fill_zero(0, sizeof(Rv64JalrCols<uint8_t>));
+    row.fill_zero(0, sizeof(JalrCols<uint8_t>));
     if (idx >= num_steps) return;
 
     auto const &step = steps[step_start + idx];
@@ -49,14 +49,10 @@ __global__ void jalr_replay_tracegen(
     uint32_t imm = instruction.words[3];
     uint32_t needs_write = instruction.words[6];
     uint32_t imm_sign = instruction.words[7];
-    constexpr uint32_t REGISTER_FILE_BYTES = 32 * RV64_REGISTER_NUM_LIMBS;
-    bool rd_is_canonical =
-        rd_ptr < REGISTER_FILE_BYTES && rd_ptr % RV64_REGISTER_NUM_LIMBS == 0;
-    bool rs1_is_canonical =
-        rs1_ptr < REGISTER_FILE_BYTES && rs1_ptr % RV64_REGISTER_NUM_LIMBS == 0;
     if (instruction.words[0] != jalr_opcode || instruction.words[4] != register_as ||
         instruction.words[5] != 0 || imm > UINT16_MAX || needs_write > 1 || imm_sign > 1 ||
-        needs_write != (rd_ptr != 0) || !rd_is_canonical || !rs1_is_canonical) {
+        needs_write != (rd_ptr != 0) || !replay_canonical_register_pointer(rd_ptr) ||
+        !replay_canonical_register_pointer(rs1_ptr)) {
         preflight_set_error(error, 204);
         return;
     }
@@ -92,7 +88,8 @@ __global__ void jalr_replay_tracegen(
     }
 
     uint16_t rs1[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(read.value, rs1) || rs1[2] != 0 || rs1[3] != 0) {
+    replay_u16_block(read.value, rs1);
+    if (rs1[2] != 0 || rs1[3] != 0) {
         preflight_set_error(error, 206);
         return;
     }
@@ -101,36 +98,35 @@ __global__ void jalr_replay_tracegen(
     uint32_t imm_extended = imm + imm_sign * 0xffff0000u;
     int64_t unaligned_signed =
         static_cast<int64_t>(rs1_val) + static_cast<int64_t>(static_cast<int32_t>(imm_extended));
-    if (unaligned_signed < 0 ||
-        static_cast<uint64_t>(unaligned_signed) >= (uint64_t(1) << PC_BITS)) {
+    // The raw sum must fit in the implemented u32 PC domain. RISC-V then clears bit 0 before
+    // checking instruction alignment (mirrors `try_run_jalr`).
+    if (unaligned_signed < 0 || unaligned_signed > int64_t(UINT32_MAX)) {
         preflight_set_error(error, 209);
         return;
     }
-    constexpr uint32_t MAX_PC = (1u << PC_BITS) - 1;
-    if (from.pc > MAX_PC - DEFAULT_PC_STEP) {
+    uint32_t raw_target_pc = static_cast<uint32_t>(unaligned_signed);
+    uint32_t to_pc = raw_target_pc & ~1u;
+    if (to_pc % DEFAULT_PC_STEP != 0) {
         preflight_set_error(error, 209);
         return;
     }
-    uint32_t unaligned_to_pc = static_cast<uint32_t>(unaligned_signed);
-    if (to.pc != (unaligned_to_pc & ~1u)) {
+    if (to.pc != to_pc) {
         preflight_set_error(error, 207);
         return;
     }
 
+    uint64_t rd = uint64_t(from.pc) + DEFAULT_PC_STEP;
     uint16_t expected_rd[BLOCK_FE_WIDTH] = {
-        static_cast<uint16_t>(from.pc + DEFAULT_PC_STEP),
-        static_cast<uint16_t>((from.pc + DEFAULT_PC_STEP) >> U16_BITS),
-        0,
+        static_cast<uint16_t>(rd),
+        static_cast<uint16_t>(rd >> U16_BITS),
+        static_cast<uint16_t>(rd >> (2 * U16_BITS)),
         0,
     };
     ReplayPreviousValue write_previous = {};
     if (needs_write) {
         auto const &write = memory[write_index];
         uint16_t logged_rd[BLOCK_FE_WIDTH];
-        if (!replay_u16_block(write.value, logged_rd)) {
-            preflight_set_error(error, 206);
-            return;
-        }
+        replay_u16_block(write.value, logged_rd);
         bool matches = true;
 #pragma unroll
         for (size_t i = 0; i < BLOCK_FE_WIDTH; i++) {
@@ -160,7 +156,7 @@ __global__ void jalr_replay_tracegen(
     }
 
     auto checker = VariableRangeChecker(range_checker, range_checker_num_bins);
-    Rv64JalrAdapter adapter(checker, timestamp_max_bits);
+    JalrAdapter adapter(checker, timestamp_max_bits);
     adapter.fill_trace_row(
         row,
         from.pc,
@@ -172,9 +168,9 @@ __global__ void jalr_replay_tracegen(
         write_previous.timestamp,
         write_previous.value
     );
-    Rv64JalrCore core(checker);
+    JalrCore core(checker);
     core.fill_trace_row(
-        row.slice_from(COL_INDEX(Rv64JalrCols, core)),
+        row.slice_from(COL_INDEX(JalrCols, core)),
         from.pc,
         rs1_val,
         static_cast<uint16_t>(imm),
@@ -205,13 +201,13 @@ extern "C" int _jalr_replay_tracegen(
     uint32_t timestamp_max_bits,
     cudaStream_t stream
 ) {
-    assert(width == sizeof(Rv64JalrCols<uint8_t>));
+    assert(width == sizeof(JalrCols<uint8_t>));
     assert(d_memory.len() == d_predecessors.len());
     assert(step_start <= d_steps.len());
     assert(num_steps <= d_steps.len() - step_start);
     assert(height >= num_steps);
 
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     jalr_replay_tracegen<<<grid, block, 0, stream>>>(
         d_trace,
         height,

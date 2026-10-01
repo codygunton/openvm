@@ -8,9 +8,10 @@ use std::{
 use derive_new::new;
 use getset::{Setters, WithSetters};
 use openvm_instructions::{
-    riscv::{RV64_IMM_AS, RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{IMM_AS, MEMORY_AS, REGISTER_AS},
     DEFERRAL_AS, PUBLIC_VALUES_AS, VM_DIGEST_WIDTH,
 };
+pub use openvm_instructions::{BLOCK_FE_WIDTH, MEMORY_BLOCK_BYTES, U16_CELL_SIZE};
 use openvm_platform::memory::MEM_SIZE;
 use openvm_poseidon2_air::Poseidon2Config;
 #[cfg(feature = "rvr")]
@@ -30,8 +31,8 @@ use crate::{
     },
     system::{
         memory::{
-            merkle::public_values::{assert_public_values_shape, public_values_cells_from_bytes},
-            num_memory_airs, POINTER_MAX_BITS,
+            merkle::public_values::assert_public_values_shape, num_memory_airs,
+            DEFAULT_POINTER_MAX_BITS,
         },
         SystemChipComplex,
     },
@@ -61,13 +62,11 @@ pub const OPENVM_DEFAULT_INIT_FILE_NAME: &str = "openvm_init.rs";
 //
 // Terminology:
 //   Cell    one storage word in an address space.
-//   Block   the unit of one memory-bus message: BLOCK_FE_WIDTH cells =
-//           MEMORY_BLOCK_BYTES bytes.
+//   Block   the unit of one memory-bus message: BLOCK_FE_WIDTH cells. Its host byte width
+//           depends on the cell layout (4 for U8, 8 for U16, 16 for Field32).
+//   MEMORY_BLOCK_BYTES is the byte width of one RV64 U16 register/memory block.
 //   Digest  the output of one Poseidon2 compression (VM_DIGEST_WIDTH cells); also
 //           one merkle leaf.
-
-/// Host byte width of one u16-celled storage cell.
-pub const U16_CELL_SIZE: usize = size_of::<u16>();
 
 // TODO: replace with `p3_util::log2_strict_usize` once p3-util is bumped to
 // >= 0.4.3 (where it becomes `const fn`).
@@ -84,17 +83,8 @@ pub const fn to_byte_ptr_bits(ptr_bits: usize) -> usize {
     ptr_bits + U16_CELL_SIZE_BITS
 }
 
-/// Cells per memory-bus block.
-pub const BLOCK_FE_WIDTH: usize = 4;
-
-/// Bytes per memory-bus block.
-pub const MEMORY_BLOCK_BYTES: usize = BLOCK_FE_WIDTH * U16_CELL_SIZE;
-
-// TODO: make executor debug bounds use `MemoryConfig::pointer_max_bits` once
-// execution state carries the memory config.
-
 /// Number of registers in the RV64 register file.
-pub const NUM_RV64_REGISTERS: usize = 32;
+pub const NUM_REGISTERS: usize = 32;
 
 /// Returns a Poseidon2 config for the VM.
 pub fn vm_poseidon2_config<F: Field>() -> Poseidon2Config<F> {
@@ -225,7 +215,7 @@ pub struct MemoryConfig {
     /// It is expected that the size of the list is `(1 << addr_space_height) + 1` and the first
     /// element is 0, which means no address space.
     pub addr_spaces: Vec<AddressSpaceHostConfig>,
-    /// Maximum bit width of AS-native OpenVM memory pointers.
+    /// Maximum bit width of pointers within each address space. Pointers index cells, not bytes.
     pub pointer_max_bits: usize,
     /// All timestamps must be in the range `[0, 2^timestamp_max_bits)`. Maximum allowed: 29.
     pub timestamp_max_bits: usize,
@@ -237,13 +227,13 @@ impl Default for MemoryConfig {
     fn default() -> Self {
         let mut addr_spaces =
             Self::empty_address_space_configs((1 << 3) + ADDR_SPACE_OFFSET as usize);
-        // RV64 register, memory, and public-values address spaces use u16 storage cells.
-        addr_spaces[RV64_REGISTER_AS as usize].num_cells =
-            NUM_RV64_REGISTERS * size_of::<u64>() / U16_CELL_SIZE;
-        addr_spaces[RV64_MEMORY_AS as usize].num_cells = MEM_SIZE / U16_CELL_SIZE;
+        // RV64 register and memory address spaces use u16 storage cells. Public values are bytes.
+        addr_spaces[REGISTER_AS as usize].num_cells =
+            NUM_REGISTERS * size_of::<u64>() / U16_CELL_SIZE;
+        addr_spaces[MEMORY_AS as usize].num_cells = MEM_SIZE / U16_CELL_SIZE;
         addr_spaces[PUBLIC_VALUES_AS as usize].num_cells = DEFAULT_MAX_NUM_PUBLIC_VALUES;
         addr_spaces[DEFERRAL_AS as usize].num_cells = DEFAULT_DEFERRAL_ADDR_SPACE_CELLS;
-        Self::new(3, addr_spaces, POINTER_MAX_BITS, 29, 17)
+        Self::new(3, addr_spaces, DEFAULT_POINTER_MAX_BITS, 29, 17)
     }
 }
 
@@ -252,14 +242,12 @@ impl MemoryConfig {
         // By default only address spaces 1..=4 have non-empty cell counts.
         let mut addr_spaces =
             vec![AddressSpaceHostConfig::new(0, MemoryCellType::field32()); num_addr_spaces];
-        addr_spaces[RV64_IMM_AS as usize] = AddressSpaceHostConfig::new(0, MemoryCellType::Null);
-        addr_spaces[RV64_REGISTER_AS as usize] =
-            AddressSpaceHostConfig::new(0, MemoryCellType::U16);
+        addr_spaces[IMM_AS as usize] = AddressSpaceHostConfig::new(0, MemoryCellType::Null);
+        addr_spaces[REGISTER_AS as usize] = AddressSpaceHostConfig::new(0, MemoryCellType::U16);
 
-        addr_spaces[RV64_MEMORY_AS as usize] = AddressSpaceHostConfig::new(0, MemoryCellType::U16);
+        addr_spaces[MEMORY_AS as usize] = AddressSpaceHostConfig::new(0, MemoryCellType::U16);
 
-        addr_spaces[PUBLIC_VALUES_AS as usize] =
-            AddressSpaceHostConfig::new(0, MemoryCellType::U16);
+        addr_spaces[PUBLIC_VALUES_AS as usize] = AddressSpaceHostConfig::new(0, MemoryCellType::U8);
 
         addr_spaces
     }
@@ -269,7 +257,7 @@ impl MemoryConfig {
         let mut addr_spaces =
             Self::empty_address_space_configs((1 << 3) + ADDR_SPACE_OFFSET as usize);
         addr_spaces[DEFERRAL_AS as usize].num_cells = 1 << 28;
-        Self::new(3, addr_spaces, POINTER_MAX_BITS, 29, 17)
+        Self::new(3, addr_spaces, DEFAULT_POINTER_MAX_BITS, 29, 17)
     }
 }
 
@@ -282,7 +270,7 @@ pub struct SystemConfig {
     pub max_constraint_degree: usize,
     /// Memory configuration
     pub memory_config: MemoryConfig,
-    /// Number of cells in the user public-values address space.
+    /// Number of bytes in the user public-values address space.
     pub num_public_values: usize,
     /// Max memory in bytes used across all chips for triggering segmentation.
     /// This field is skipped in serde as it's only used in execution and
@@ -301,6 +289,11 @@ impl SystemConfig {
         assert!(
             memory_config.timestamp_max_bits <= 29,
             "Timestamp max bits must be <= 29 for LessThan to work in 31-bit field"
+        );
+        assert!(
+            (16..=32).contains(&memory_config.pointer_max_bits),
+            "pointer_max_bits must be in [16, 32]: pointers decompose into a 16-bit low limb, \
+             and block indices must embed injectively in the 31-bit field"
         );
         assert_public_values_shape::<VM_DIGEST_WIDTH>(num_public_values);
         memory_config.addr_spaces[PUBLIC_VALUES_AS as usize].num_cells = num_public_values;
@@ -325,10 +318,6 @@ impl SystemConfig {
         self.num_public_values = num_public_values;
         self.memory_config.addr_spaces[PUBLIC_VALUES_AS as usize].num_cells = num_public_values;
         self
-    }
-
-    pub fn with_public_values_bytes(self, num_public_values_bytes: usize) -> Self {
-        self.with_public_values(public_values_cells_from_bytes(num_public_values_bytes))
     }
 
     /// Returns the AIR ID of the memory boundary AIR. Panic if the boundary AIR is not enabled.
@@ -408,10 +397,13 @@ pub enum MemoryCellType {
 }
 
 impl MemoryCellType {
-    pub fn field32() -> Self {
-        Self::F {
-            size: size_of::<u32>() as u8,
-        }
+    /// Field cells encoded canonically as 32-bit words in memory history.
+    pub const FIELD32: Self = Self::F {
+        size: size_of::<u32>() as u8,
+    };
+
+    pub const fn field32() -> Self {
+        Self::FIELD32
     }
 }
 

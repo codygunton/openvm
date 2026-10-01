@@ -6,8 +6,8 @@ use openvm_circuit::{
             GpuPostflightError, GpuPostflightPlan, GpuPostflightProgram, GpuPostflightTranscript,
         },
         prepare_gpu_postflight, to_byte_ptr_bits, AirInventory, ChipInventory, ChipInventoryError,
-        GenerationError, Postflight, PostflightTracegen, PreflightOutput, VirtualMachine,
-        VmBuilder, VmChipComplex, VmProverExtension,
+        GenerationError, PostflightTracegen, PreflightOutput, VirtualMachine, VmBuilder,
+        VmChipComplex, VmProverExtension,
     },
     system::cuda::{
         extensions::{
@@ -17,28 +17,24 @@ use openvm_circuit::{
     },
 };
 use openvm_cuda_backend::{BabyBearPoseidon2GpuEngine as GpuBabyBearPoseidon2Engine, GpuBackend};
+#[cfg(feature = "rvr")]
+use openvm_instructions::riscv::MEMORY_AS;
 use openvm_instructions::{program::Program, LocalOpcode};
+#[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
+use openvm_riscv_circuit::preflight::PreflightReplayProgram;
+#[cfg(feature = "rvr")]
+use openvm_riscv_circuit::preflight::{
+    PostflightAccessRegistry, PostflightAccessSchedule, PostflightAccessSpan,
+};
 use openvm_riscv_circuit::{Rv64ImGpuProverExt, Rv64ImPreflightGpuTracegen};
 use openvm_sha2_air::{Sha256Config, Sha512Config};
-use openvm_sha2_transpiler::Rv64Sha2Opcode;
+use openvm_sha2_transpiler::Sha2Opcode;
 use openvm_stark_backend::prover::{AirProvingContext, ProvingContext};
-use openvm_stark_sdk::{
-    config::baby_bear_poseidon2::BabyBearPoseidon2Config, p3_baby_bear::BabyBear,
-};
-#[cfg(feature = "rvr")]
-use {
-    openvm_circuit::arch::rvr::cuda::{PostflightAccessRegistry, PostflightAccessSpan},
-    openvm_instructions::riscv::RV64_MEMORY_AS,
-};
+use openvm_stark_sdk::config::baby_bear_poseidon2::BabyBearPoseidon2Config;
 #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
 use {
-    openvm_circuit::arch::{
-        rvr::{cuda::CheckpointReplayProgram, PreflightExecution},
-        MemoryConfig,
-    },
+    openvm_circuit::arch::{rvr::PreflightExecution, MemoryConfig},
     openvm_cuda_common::stream::GpuDeviceCtx,
-    openvm_instructions::program::Program,
-    openvm_stark_backend::p3_field::PrimeField32,
 };
 
 use super::*;
@@ -68,8 +64,8 @@ impl<'a> Sha2PreflightGpuTracegen<'a> {
     #[doc(hidden)]
     pub fn extension_opcodes() -> [u32; 2] {
         [
-            Rv64Sha2Opcode::SHA256.global_opcode().as_usize() as u32,
-            Rv64Sha2Opcode::SHA512.global_opcode().as_usize() as u32,
+            Sha2Opcode::SHA256.global_opcode().as_usize() as u32,
+            Sha2Opcode::SHA512.global_opcode().as_usize() as u32,
         ]
     }
 
@@ -78,41 +74,40 @@ impl<'a> Sha2PreflightGpuTracegen<'a> {
     pub fn register_postflight_access_schedules(
         registry: &mut PostflightAccessRegistry,
     ) -> Result<(), GpuPostflightError> {
-        for (opcode, input_blocks, state_blocks) in [
-            (Rv64Sha2Opcode::SHA256, 8, 4),
-            (Rv64Sha2Opcode::SHA512, 16, 8),
-        ] {
+        for (opcode, input_blocks, state_blocks) in
+            [(Sha2Opcode::SHA256, 8, 4), (Sha2Opcode::SHA512, 16, 8)]
+        {
             registry.register(
                 opcode.global_opcode().as_usize() as u32,
-                &[1, 2, 3],
-                (1 << 6) | (1 << 7),
-                4,
-                5,
-                &[
-                    PostflightAccessSpan::read_fixed(RV64_MEMORY_AS, 2, input_blocks),
-                    PostflightAccessSpan::read_fixed(RV64_MEMORY_AS, 1, state_blocks),
-                    PostflightAccessSpan::write_fixed_from_residuals(
-                        RV64_MEMORY_AS,
-                        0,
-                        state_blocks,
-                    ),
-                ],
+                PostflightAccessSchedule {
+                    register_operands: &[1, 2, 3],
+                    zero_operand_mask: (1 << 6) | (1 << 7),
+                    register_as_operand: 4,
+                    memory_as_operand: 5,
+                    spans: &[
+                        PostflightAccessSpan::read_fixed(MEMORY_AS, 2, input_blocks),
+                        PostflightAccessSpan::read_fixed(MEMORY_AS, 1, state_blocks),
+                        PostflightAccessSpan::write_fixed_from_replay_values(
+                            MEMORY_AS,
+                            0,
+                            state_blocks,
+                        ),
+                    ],
+                },
             )?;
         }
         Ok(())
     }
 
     #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
-    pub fn upload_postflight_program<F: PrimeField32>(
-        program: &Program<F>,
+    pub fn upload_postflight_program(
+        program: &Program,
         memory_config: &MemoryConfig,
         device_ctx: &GpuDeviceCtx,
-    ) -> Result<CheckpointReplayProgram, GpuPostflightError> {
+    ) -> Result<PreflightReplayProgram, GpuPostflightError> {
         let mut registry = PostflightAccessRegistry::default();
         Self::register_postflight_access_schedules(&mut registry)?;
-        registry
-            .validate_no_native_collisions(Rv64ImPreflightGpuTracegen::postflight_opcode_bases())?;
-        CheckpointReplayProgram::upload_with_postflight_access_registry(
+        PreflightReplayProgram::upload_with_postflight_access_registry(
             program,
             memory_config,
             &registry,
@@ -123,19 +118,14 @@ impl<'a> Sha2PreflightGpuTracegen<'a> {
     #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
     pub fn postflight<VB>(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, VB>,
-        program: &CheckpointReplayProgram,
+        program: &PreflightReplayProgram,
         execution: &PreflightExecution,
         num_insns: u32,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError>
     where
         VB: VmBuilder<GpuBabyBearPoseidon2Engine, SystemChipInventory = SystemChipInventoryGPU>,
     {
-        vm.postflight(
-            program,
-            execution,
-            num_insns,
-            Rv64ImPreflightGpuTracegen::postflight_opcode_bases(),
-        )
+        Rv64ImPreflightGpuTracegen::postflight(vm, program, execution, num_insns)
     }
 
     pub fn new(
@@ -144,10 +134,10 @@ impl<'a> Sha2PreflightGpuTracegen<'a> {
         replay_plan: &'a GpuPostflightPlan,
     ) -> Self {
         let has_sha256 = !replay_plan
-            .opcode_range(Rv64Sha2Opcode::SHA256.global_opcode())
+            .opcode_range(Sha2Opcode::SHA256.global_opcode())
             .is_empty();
         let has_sha512 = !replay_plan
-            .opcode_range(Rv64Sha2Opcode::SHA512.global_opcode())
+            .opcode_range(Sha2Opcode::SHA512.global_opcode())
             .is_empty();
         Self {
             program,
@@ -250,14 +240,14 @@ impl<'a> Sha2PreflightGpuTracegen<'a> {
             self.transcript,
             self.replay_plan,
             (self, rv64),
-            |(tracegen, rv64), insertion_idx, chip| {
+            |(tracegen, rv64), chip| {
                 if let Some(ctx) = tracegen
                     .generate_for_chip(chip)
                     .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?
                 {
                     Ok(ctx)
                 } else {
-                    rv64.generate_for_chip(insertion_idx, chip)
+                    rv64.generate_for_chip(chip)
                         .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
                 }
             },
@@ -329,16 +319,16 @@ impl PostflightTracegen<GpuBabyBearPoseidon2Engine> for Sha2Rv64GpuBuilder {
 
     fn prepare_postflight(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
-        program: &Program<BabyBear>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
         prepare_gpu_postflight(vm, program)
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
+        _host_program: &Program,
         program: &Self::Prepared,
         output: &PreflightOutput,
-        _postflight: &Postflight<'_, BabyBear>,
     ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
         let (transcript, replay_plan) = vm
             .postflight_history(program, output)

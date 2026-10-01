@@ -3,25 +3,27 @@ use std::{
     mem::size_of,
 };
 
-use openvm_bigint_transpiler::Rv64BranchLessThan256Opcode;
+use openvm_bigint_transpiler::BranchLessThan256Opcode;
 use openvm_circuit::{arch::*, system::memory::online::GuestMemory};
 use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
-use openvm_riscv_circuit::adapters::rv64_bytes_to_u32;
+use openvm_riscv_circuit::adapters::{
+    bytes_to_u32, decode_signed_instruction_imm, RV_B_TYPE_IMM_BITS,
+};
 use openvm_riscv_transpiler::BranchLessThanOpcode;
 use openvm_stark_backend::p3_field::PrimeField32;
 
 use crate::{
     common::{i256_lt, read_int256, u256_lt},
-    Rv64BranchLessThan256Executor, INT256_NUM_U8_LIMBS,
+    BranchLessThan256Executor, INT256_NUM_U8_LIMBS,
 };
 
-impl Rv64BranchLessThan256Executor {
+impl BranchLessThan256Executor {
     pub fn new() -> Self {
         Self
     }
@@ -30,7 +32,7 @@ impl Rv64BranchLessThan256Executor {
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
 struct BranchLtPreCompute {
-    imm: isize,
+    imm: i32,
     a: u8,
     b: u8,
 }
@@ -46,11 +48,11 @@ macro_rules! dispatch {
     };
 }
 
-impl<F: PrimeField32> InterpreterExecutor<F> for Rv64BranchLessThan256Executor {
+impl<F: PrimeField32> InterpreterExecutor<F> for BranchLessThan256Executor {
     fn get_opcode_name(&self, opcode: usize) -> String {
         format!(
             "{:?}",
-            BranchLessThanOpcode::from_usize(opcode - Rv64BranchLessThan256Opcode::CLASS_OFFSET)
+            BranchLessThanOpcode::from_usize(opcode - BranchLessThan256Opcode::CLASS_OFFSET)
         )
     }
 
@@ -62,7 +64,7 @@ impl<F: PrimeField32> InterpreterExecutor<F> for Rv64BranchLessThan256Executor {
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -77,7 +79,7 @@ impl<F: PrimeField32> InterpreterExecutor<F> for Rv64BranchLessThan256Executor {
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -89,7 +91,7 @@ impl<F: PrimeField32> InterpreterExecutor<F> for Rv64BranchLessThan256Executor {
     }
 }
 
-impl<F: PrimeField32> InterpreterMeteredExecutor<F> for Rv64BranchLessThan256Executor {
+impl<F: PrimeField32> InterpreterMeteredExecutor<F> for BranchLessThan256Executor {
     fn metered_pre_compute_size(&self) -> usize {
         size_of::<E2PreCompute<BranchLtPreCompute>>()
     }
@@ -99,7 +101,7 @@ impl<F: PrimeField32> InterpreterMeteredExecutor<F> for Rv64BranchLessThan256Exe
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -116,7 +118,7 @@ impl<F: PrimeField32> InterpreterMeteredExecutor<F> for Rv64BranchLessThan256Exe
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -135,15 +137,13 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, OP: BranchLessThanOp>(
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) -> Result<(), ExecutionError> {
     let mut pc = exec_state.pc();
-    let rs1_ptr =
-        exec_state.vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.a as u32);
-    let rs2_ptr =
-        exec_state.vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.b as u32);
-    let rs1 = read_int256(exec_state, RV64_MEMORY_AS, rv64_bytes_to_u32(rs1_ptr))?;
-    let rs2 = read_int256(exec_state, RV64_MEMORY_AS, rv64_bytes_to_u32(rs2_ptr))?;
+    let rs1_ptr = exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.a as u32);
+    let rs2_ptr = exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.b as u32);
+    let rs1 = read_int256(exec_state, MEMORY_AS, bytes_to_u32(rs1_ptr))?;
+    let rs2 = read_int256(exec_state, MEMORY_AS, bytes_to_u32(rs2_ptr))?;
     let cmp_result = OP::compute(rs1, rs2);
     if cmp_result {
-        pc = (pc as isize + pre_compute.imm) as u32;
+        pc = pc.wrapping_add_signed(pre_compute.imm);
     } else {
         pc = pc.wrapping_add(DEFAULT_PC_STEP);
     }
@@ -177,11 +177,11 @@ unsafe fn execute_e2_impl<CTX: MeteredExecutionCtxTrait, OP: BranchLessThanOp>(
     execute_e12_impl::<CTX, OP>(&pre_compute.data, exec_state)
 }
 
-impl Rv64BranchLessThan256Executor {
-    fn pre_compute_impl<F: PrimeField32>(
+impl BranchLessThan256Executor {
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut BranchLtPreCompute,
     ) -> Result<BranchLessThanOpcode, StaticProgramError> {
         let Instruction {
@@ -193,23 +193,19 @@ impl Rv64BranchLessThan256Executor {
             e,
             ..
         } = inst;
-        let c = c.as_canonical_u32();
-        let imm = if F::ORDER_U32 - c < c {
-            -((F::ORDER_U32 - c) as isize)
-        } else {
-            c as isize
-        };
-        let e_u32 = e.as_canonical_u32();
-        if d.as_canonical_u32() != RV64_REGISTER_AS || e_u32 != RV64_MEMORY_AS {
+        let imm = decode_signed_instruction_imm(*c, RV_B_TYPE_IMM_BITS)
+            .ok_or(StaticProgramError::InvalidInstruction(pc))?;
+        let e_u32 = e.as_u32();
+        if d.as_u32() != REGISTER_AS || e_u32 != MEMORY_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         *data = BranchLtPreCompute {
             imm,
-            a: a.as_canonical_u32() as u8,
-            b: b.as_canonical_u32() as u8,
+            a: a.as_u32() as u8,
+            b: b.as_u32() as u8,
         };
         let local_opcode = BranchLessThanOpcode::from_usize(
-            opcode.local_opcode_idx(Rv64BranchLessThan256Opcode::CLASS_OFFSET),
+            opcode.local_opcode_idx(BranchLessThan256Opcode::CLASS_OFFSET),
         );
         Ok(local_opcode)
     }

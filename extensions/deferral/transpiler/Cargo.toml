@@ -1,5 +1,6 @@
 [package]
 name = "openvm-deferral-transpiler"
+description = "OpenVM transpiler extension for deferral call and output instructions."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -13,8 +14,6 @@ openvm-deferral-guest = { workspace = true }
 openvm-instructions = { workspace = true }
 openvm-instructions-derive = { workspace = true }
 openvm-transpiler = { workspace = true }
-
-p3-field = { workspace = true }
 
 rrs-lib = { workspace = true }
 eyre = { workspace = true }

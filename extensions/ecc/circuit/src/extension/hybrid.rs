@@ -7,6 +7,8 @@ use openvm_algebra_circuit::{
     cuda::field_expr::FieldExprReplayChip, AlgebraPreflightGpuTracegen, Fp2Extension,
     ModularExtension, Rv64ModularHybridBuilder,
 };
+#[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
+use openvm_circuit::arch::rvr::PreflightExecution;
 use openvm_circuit::{
     arch::{
         cuda::postflight::{
@@ -27,23 +29,21 @@ use openvm_cuda_backend::{
     BabyBearPoseidon2GpuEngine as GpuBabyBearPoseidon2Engine, GpuBackend,
 };
 use openvm_cuda_common::stream::GpuDeviceCtx;
-use openvm_ecc_transpiler::Rv64WeierstrassOpcode;
+use openvm_ecc_transpiler::WeierstrassOpcode;
 use openvm_instructions::{program::Program, LocalOpcode};
 use openvm_mod_circuit_builder::ExprBuilderConfig;
+#[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
+use openvm_riscv_circuit::preflight::PreflightReplayProgram;
+#[cfg(feature = "rvr")]
+use openvm_riscv_circuit::preflight::{
+    PostflightAccessRegistry, PostflightAccessSchedule, PostflightAccessSpan,
+};
 use openvm_riscv_circuit::Rv64ImPreflightGpuTracegen;
 use openvm_stark_backend::prover::{AirProvingContext, ProvingContext};
 use strum::EnumCount;
-#[cfg(feature = "rvr")]
-use {
-    crate::CurveConfig,
-    openvm_circuit::arch::rvr::cuda::{PostflightAccessRegistry, PostflightAccessSpan},
-};
-#[cfg(all(feature = "rvr", test))]
-use {
-    openvm_circuit::arch::rvr::{cuda::CheckpointReplayProgram, PreflightExecution},
-    openvm_stark_backend::p3_field::PrimeField32,
-};
 
+#[cfg(feature = "rvr")]
+use crate::CurveConfig;
 use crate::{
     get_ec_addne_chip, get_ec_double_chip,
     weierstrass_chip::{
@@ -127,25 +127,24 @@ impl<const NUM_READS: usize, const BLOCKS: usize> HybridWeierstrassChip<F, NUM_R
         device_ctx: GpuDeviceCtx,
         opcode_base: usize,
         range_checker: Arc<VariableRangeCheckerChipGPU>,
-    ) -> Self {
-        let replay = FieldExprReplayChip::new(&cpu, opcode_base, range_checker)
-            .expect("valid Weierstrass field-expression replay configuration");
-        Self {
+    ) -> Result<Self, GpuPostflightError> {
+        let replay = FieldExprReplayChip::new(&cpu, opcode_base, range_checker)?;
+        Ok(Self {
             cpu,
             device_ctx,
             replay: Some(replay),
-        }
+        })
     }
 
     fn local_opcodes() -> Result<[usize; 2], GpuPostflightError> {
         match NUM_READS {
             2 => Ok([
-                Rv64WeierstrassOpcode::EC_ADD_NE as usize,
-                Rv64WeierstrassOpcode::SETUP_EC_ADD_NE as usize,
+                WeierstrassOpcode::EC_ADD_NE as usize,
+                WeierstrassOpcode::SETUP_EC_ADD_NE as usize,
             ]),
             1 => Ok([
-                Rv64WeierstrassOpcode::EC_DOUBLE as usize,
-                Rv64WeierstrassOpcode::SETUP_EC_DOUBLE as usize,
+                WeierstrassOpcode::EC_DOUBLE as usize,
+                WeierstrassOpcode::SETUP_EC_DOUBLE as usize,
             ]),
             _ => Err(GpuPostflightError::InvalidTranscript(format!(
                 "unsupported Weierstrass replay read count {NUM_READS}"
@@ -206,22 +205,21 @@ impl<'a> WeierstrassPreflightGpuTracegen<'a> {
                     "Weierstrass curve {curve_idx} exceeds the supported 48-byte layout"
                 )));
             };
-            let opcode_base = Rv64WeierstrassOpcode::CLASS_OFFSET
-                .checked_add(
-                    curve_idx
-                        .checked_mul(Rv64WeierstrassOpcode::COUNT)
-                        .ok_or_else(|| {
+            let opcode_base =
+                WeierstrassOpcode::CLASS_OFFSET
+                    .checked_add(curve_idx.checked_mul(WeierstrassOpcode::COUNT).ok_or_else(
+                        || {
                             GpuPostflightError::InvalidAccessSchedule(
                                 "Weierstrass opcode range overflow".to_string(),
                             )
-                        })?,
-                )
-                .ok_or_else(|| {
-                    GpuPostflightError::InvalidAccessSchedule(
-                        "Weierstrass opcode range overflow".to_string(),
-                    )
-                })?;
-            let opcode = |local: Rv64WeierstrassOpcode| {
+                        },
+                    )?)
+                    .ok_or_else(|| {
+                        GpuPostflightError::InvalidAccessSchedule(
+                            "Weierstrass opcode range overflow".to_string(),
+                        )
+                    })?;
+            let opcode = |local: WeierstrassOpcode| {
                 let opcode = opcode_base.checked_add(local as usize).ok_or_else(|| {
                     GpuPostflightError::InvalidAccessSchedule(
                         "Weierstrass opcode range overflow".to_string(),
@@ -231,92 +229,91 @@ impl<'a> WeierstrassPreflightGpuTracegen<'a> {
             };
             let add_spans = [
                 PostflightAccessSpan::read_fixed(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     0,
                     blocks as u32,
                 ),
                 PostflightAccessSpan::read_fixed(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     1,
                     blocks as u32,
                 ),
-                PostflightAccessSpan::write_fixed_from_residuals(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                PostflightAccessSpan::write_fixed_from_replay_values(
+                    openvm_instructions::riscv::MEMORY_AS,
                     2,
                     blocks as u32,
                 ),
             ];
+            let add_schedule = PostflightAccessSchedule {
+                register_operands: &[2, 3, 1],
+                zero_operand_mask: (1 << 6) | (1 << 7),
+                register_as_operand: 4,
+                memory_as_operand: 5,
+                spans: &add_spans,
+            };
             for local in [
-                Rv64WeierstrassOpcode::EC_ADD_NE,
-                Rv64WeierstrassOpcode::SETUP_EC_ADD_NE,
+                WeierstrassOpcode::EC_ADD_NE,
+                WeierstrassOpcode::SETUP_EC_ADD_NE,
             ] {
-                registry.register(
-                    opcode(local)?,
-                    &[2, 3, 1],
-                    (1 << 6) | (1 << 7),
-                    4,
-                    5,
-                    &add_spans,
-                )?;
+                registry.register(opcode(local)?, add_schedule)?;
             }
             let double_spans = [
                 PostflightAccessSpan::read_fixed(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     0,
                     blocks as u32,
                 ),
-                PostflightAccessSpan::write_fixed_from_residuals(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                PostflightAccessSpan::write_fixed_from_replay_values(
+                    openvm_instructions::riscv::MEMORY_AS,
                     1,
                     blocks as u32,
                 ),
             ];
-            registry.register(
-                opcode(Rv64WeierstrassOpcode::EC_DOUBLE)?,
-                &[2, 1],
-                (1 << 3) | (1 << 6) | (1 << 7),
-                4,
-                5,
-                &double_spans,
-            )?;
+            let double_schedule = PostflightAccessSchedule {
+                register_operands: &[2, 1],
+                zero_operand_mask: (1 << 3) | (1 << 6) | (1 << 7),
+                register_as_operand: 4,
+                memory_as_operand: 5,
+                spans: &double_spans,
+            };
+            registry.register(opcode(WeierstrassOpcode::EC_DOUBLE)?, double_schedule)?;
             let setup_words = ec_double_setup_words(
                 curve,
                 blocks * openvm_circuit::arch::MEMORY_BLOCK_BYTES / 2,
             )?;
             let setup_double_spans = [
                 PostflightAccessSpan::read_fixed(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     0,
                     blocks as u32,
                 ),
                 registry.write_fixed_from_static(
-                    openvm_instructions::riscv::RV64_MEMORY_AS,
+                    openvm_instructions::riscv::MEMORY_AS,
                     1,
                     &setup_words,
                 )?,
             ];
             registry.register(
-                opcode(Rv64WeierstrassOpcode::SETUP_EC_DOUBLE)?,
-                &[2, 1],
-                (1 << 3) | (1 << 6) | (1 << 7),
-                4,
-                5,
-                &setup_double_spans,
+                opcode(WeierstrassOpcode::SETUP_EC_DOUBLE)?,
+                PostflightAccessSchedule {
+                    spans: &setup_double_spans,
+                    ..double_schedule
+                },
             )?;
         }
         Ok(())
     }
 
     /// Uploads one concrete RV64+Algebra+Weierstrass checkpoint program.
-    #[cfg(all(test, feature = "rvr"))]
-    pub fn upload_postflight_program<T: PrimeField32>(
-        program: &Program<T>,
+    #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
+    pub fn upload_postflight_program(
+        program: &Program,
         memory_config: &MemoryConfig,
         modular: &ModularExtension,
         fp2: Option<&Fp2Extension>,
         weierstrass: &WeierstrassExtension,
         device_ctx: &GpuDeviceCtx,
-    ) -> Result<CheckpointReplayProgram, GpuPostflightError> {
+    ) -> Result<PreflightReplayProgram, GpuPostflightError> {
         let mut registry = PostflightAccessRegistry::default();
         AlgebraPreflightGpuTracegen::register_postflight_access_schedules(
             &mut registry,
@@ -324,9 +321,7 @@ impl<'a> WeierstrassPreflightGpuTracegen<'a> {
             fp2,
         )?;
         Self::register_postflight_access_schedules(&mut registry, weierstrass)?;
-        registry
-            .validate_no_native_collisions(Rv64ImPreflightGpuTracegen::postflight_opcode_bases())?;
-        CheckpointReplayProgram::upload_with_postflight_access_registry(
+        PreflightReplayProgram::upload_with_postflight_access_registry(
             program,
             memory_config,
             &registry,
@@ -334,22 +329,17 @@ impl<'a> WeierstrassPreflightGpuTracegen<'a> {
         )
     }
 
-    #[cfg(all(test, feature = "rvr"))]
+    #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
     pub fn postflight<VB>(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, VB>,
-        program: &CheckpointReplayProgram,
+        program: &PreflightReplayProgram,
         execution: &PreflightExecution,
         num_insns: u32,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError>
     where
         VB: VmBuilder<GpuBabyBearPoseidon2Engine, SystemChipInventory = SystemChipInventoryGPU>,
     {
-        vm.postflight(
-            program,
-            execution,
-            num_insns,
-            Rv64ImPreflightGpuTracegen::postflight_opcode_bases(),
-        )
+        Rv64ImPreflightGpuTracegen::postflight(vm, program, execution, num_insns)
     }
 
     pub fn new(
@@ -360,9 +350,8 @@ impl<'a> WeierstrassPreflightGpuTracegen<'a> {
     ) -> Self {
         let claimed_opcodes = (0..extension.supported_curves.len())
             .flat_map(|curve_idx| {
-                let base =
-                    Rv64WeierstrassOpcode::CLASS_OFFSET + curve_idx * Rv64WeierstrassOpcode::COUNT;
-                (0..Rv64WeierstrassOpcode::COUNT).map(move |local| (base + local) as u32)
+                let base = WeierstrassOpcode::CLASS_OFFSET + curve_idx * WeierstrassOpcode::COUNT;
+                (0..WeierstrassOpcode::COUNT).map(move |local| (base + local) as u32)
             })
             .collect::<Vec<_>>();
         let pending_opcodes = claimed_opcodes
@@ -469,7 +458,7 @@ impl<'a> WeierstrassPreflightGpuTracegen<'a> {
             self.transcript,
             self.replay_plan,
             (self, algebra, rv64),
-            |(tracegen, algebra, rv64), insertion_idx, chip| {
+            |(tracegen, algebra, rv64), chip| {
                 if let Some(ctx) = tracegen
                     .generate_for_chip(chip)
                     .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?
@@ -481,7 +470,7 @@ impl<'a> WeierstrassPreflightGpuTracegen<'a> {
                 {
                     Ok(ctx)
                 } else {
-                    rv64.generate_for_chip(insertion_idx, chip)
+                    rv64.generate_for_chip(chip)
                         .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
                 }
             },
@@ -516,7 +505,7 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, WeierstrassExtension> for Ecc
         for (curve_idx, curve) in extension.supported_curves.iter().enumerate() {
             let bytes = curve.modulus.bits().div_ceil(8) as usize;
             let opcode_base =
-                Rv64WeierstrassOpcode::CLASS_OFFSET + curve_idx * Rv64WeierstrassOpcode::COUNT;
+                WeierstrassOpcode::CLASS_OFFSET + curve_idx * WeierstrassOpcode::COUNT;
 
             if bytes <= NUM_LIMBS_32 {
                 let config = ExprBuilderConfig {
@@ -537,8 +526,14 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, WeierstrassExtension> for Ecc
                     device_ctx.clone(),
                     opcode_base,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(addne, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization(
+                        "Weierstrass add-ne replay",
+                        source,
+                    )
+                })?;
+                inventory.add_executor_chip_with_tracegen(addne, move |chip, postflight| {
                     let trace =
                         generate_add_ne_trace_from_postflight(&chip.cpu, postflight, opcode_base)?;
                     Ok(cpu_proving_ctx_to_gpu(
@@ -560,8 +555,14 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, WeierstrassExtension> for Ecc
                     device_ctx.clone(),
                     opcode_base,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(double, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization(
+                        "Weierstrass double replay",
+                        source,
+                    )
+                })?;
+                inventory.add_executor_chip_with_tracegen(double, move |chip, postflight| {
                     let trace =
                         generate_double_trace_from_postflight(&chip.cpu, postflight, opcode_base)?;
                     Ok(cpu_proving_ctx_to_gpu(
@@ -588,8 +589,14 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, WeierstrassExtension> for Ecc
                     device_ctx.clone(),
                     opcode_base,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(addne, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization(
+                        "Weierstrass add-ne replay",
+                        source,
+                    )
+                })?;
+                inventory.add_executor_chip_with_tracegen(addne, move |chip, postflight| {
                     let trace =
                         generate_add_ne_trace_from_postflight(&chip.cpu, postflight, opcode_base)?;
                     Ok(cpu_proving_ctx_to_gpu(
@@ -611,8 +618,14 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, WeierstrassExtension> for Ecc
                     device_ctx.clone(),
                     opcode_base,
                     range_checker_gpu.clone(),
-                );
-                inventory.add_postflight_executor_chip(double, move |chip, postflight| {
+                )
+                .map_err(|source| {
+                    ChipInventoryError::prover_chip_initialization(
+                        "Weierstrass double replay",
+                        source,
+                    )
+                })?;
+                inventory.add_executor_chip_with_tracegen(double, move |chip, postflight| {
                     let trace =
                         generate_double_trace_from_postflight(&chip.cpu, postflight, opcode_base)?;
                     Ok(cpu_proving_ctx_to_gpu(
@@ -638,16 +651,16 @@ impl PostflightTracegen<GpuBabyBearPoseidon2Engine> for Rv64WeierstrassHybridBui
 
     fn prepare_postflight(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
-        program: &Program<F>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
         prepare_gpu_postflight(vm, program)
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
+        _host_program: &Program,
         program: &Self::Prepared,
         output: &PreflightOutput,
-        _postflight: &Postflight<'_, F>,
     ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
         let (transcript, replay_plan) = vm
             .postflight_history(program, output)

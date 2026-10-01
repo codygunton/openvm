@@ -13,7 +13,7 @@ use openvm_sdk::{
     fs::{read_object_from_file, write_object_to_file, write_to_file_json},
     keygen::{AggPrefixProvingKey, AggProvingKey, AppProvingKey},
     types::{AppExecutionCommit, VerificationBaselineJson, VersionedVmStarkProof},
-    Sdk, F, SC,
+    Sdk, SC,
 };
 use openvm_sdk_config::SdkVmConfig;
 use openvm_stark_backend::keygen::types::MultiStarkProvingKey;
@@ -105,7 +105,7 @@ enum ProveSubCommand {
         #[arg(
             long,
             action,
-            help = "Path to root proving key, by default will be ${HOME}/.openvm/root.pk",
+            help = "Path to root proving key, by default uses ${HOME}/.openvm/v[OPENVM_VERSION]/root.pk",
             help_heading = "OpenVM Options"
         )]
         root_pk: Option<PathBuf>,
@@ -113,7 +113,7 @@ enum ProveSubCommand {
         #[arg(
             long,
             action,
-            help = "Path to Halo2 proving key, by default will be ${HOME}/.openvm/halo2.pk",
+            help = "Path to Halo2 proving key, by default uses ${HOME}/.openvm/v[OPENVM_VERSION]/halo2.pk",
             help_heading = "OpenVM Options"
         )]
         halo2_pk: Option<PathBuf>,
@@ -298,7 +298,7 @@ pub(crate) fn load_app_pk(
 pub(crate) fn load_or_build_exe(
     run_args: &RunArgs,
     cargo_args: &RunCargoArgs,
-) -> Result<(VmExe<F>, String)> {
+) -> Result<(VmExe, String)> {
     let exe_path = if let Some(exe) = &run_args.exe {
         exe
     } else {

@@ -3,10 +3,7 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use openvm_circuit::{
-    arch::{Postflight, PostflightError, VmField},
-    utils::next_power_of_two_or_zero,
-};
+use openvm_circuit::utils::next_power_of_two_or_zero;
 use openvm_circuit_primitives::Chip;
 use openvm_cpu_backend::CpuBackend;
 use openvm_stark_backend::{
@@ -36,17 +33,6 @@ impl DeferralCircuitCountChip {
         val_atomic.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Generates the count trace accumulated by Deferral CALL and OUTPUT
-    /// replay. The preflight history parameter makes the dependency explicit
-    /// at registration sites; counts themselves are emitted by those primary
-    /// trace generators.
-    pub fn generate_trace_from_postflight<F: VmField>(
-        &self,
-        _postflight: &Postflight<'_, F>,
-    ) -> Result<RowMajorMatrix<F>, PostflightError> {
-        Ok(self.generate_trace())
-    }
-
     fn generate_trace<F: PrimeCharacteristicRing + Send + Sync>(&self) -> RowMajorMatrix<F> {
         let width = DeferralCircuitCountCols::<u8>::width();
         let height = next_power_of_two_or_zero(self.count.len());
@@ -71,7 +57,7 @@ impl DeferralCircuitCountChip {
     }
 }
 
-impl<SC: StarkProtocolConfig> Chip<(), CpuBackend<SC>> for DeferralCircuitCountChip
+impl<SC: StarkProtocolConfig> Chip<CpuBackend<SC>> for DeferralCircuitCountChip
 where
     Val<SC>: PrimeCharacteristicRing,
 {
@@ -79,7 +65,7 @@ where
         Some(next_power_of_two_or_zero(self.count.len()))
     }
 
-    fn generate_proving_ctx(&self, _: ()) -> AirProvingContext<CpuBackend<SC>> {
+    fn generate_proving_ctx(&self) -> AirProvingContext<CpuBackend<SC>> {
         AirProvingContext::simple_no_pis(self.generate_trace())
     }
 }

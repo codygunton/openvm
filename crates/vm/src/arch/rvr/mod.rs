@@ -8,7 +8,7 @@
 //! preflight   program + mutable VM state -> final VM state + replay seed
 //! ```
 //!
-//! Preflight emits two append-only arrays containing checkpoints and residuals.
+//! Preflight emits two append-only arrays containing checkpoints and replay values.
 //! They are a compact replay seed, not chip records. Postflight re-executes
 //! independent intervals on the GPU to derive the immutable program and memory
 //! history used by system, RISC-V, and extension trace generators.
@@ -17,8 +17,6 @@ mod abi_consts;
 pub mod bridge;
 mod cache;
 pub mod compile;
-#[cfg(feature = "cuda")]
-pub mod cuda;
 pub mod debug;
 mod execute;
 mod initial_image;

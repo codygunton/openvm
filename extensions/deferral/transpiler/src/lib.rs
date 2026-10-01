@@ -1,14 +1,14 @@
 use eyre::Result;
-use openvm_deferral_guest::{COMMIT_NUM_BYTES, DEFERRAL_FUNCT3, MAX_DEF_CIRCUITS, OPCODE};
+pub use openvm_deferral_guest::MAX_DEF_CIRCUITS;
+use openvm_deferral_guest::{COMMIT_NUM_BYTES, DEFERRAL_FUNCT3, OPCODE};
 use openvm_instructions::{
     exe::SparseMemoryImage,
     instruction::Instruction,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode, DEFERRAL_AS,
 };
 use openvm_instructions_derive::LocalOpcode;
 use openvm_transpiler::{TranspilerExtension, TranspilerOutput};
-use p3_field::PrimeField32;
 use rrs_lib::instruction_formats::IType;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, FromRepr};
@@ -49,8 +49,8 @@ impl DeferralTranspilerExtension {
     }
 }
 
-impl<F: PrimeField32> TranspilerExtension<F> for DeferralTranspilerExtension {
-    fn process_custom(&self, instruction_stream: &[u32]) -> Option<TranspilerOutput<F>> {
+impl TranspilerExtension for DeferralTranspilerExtension {
+    fn process_custom(&self, instruction_stream: &[u32]) -> Option<TranspilerOutput> {
         if instruction_stream.is_empty() {
             return None;
         }
@@ -83,21 +83,21 @@ impl<F: PrimeField32> TranspilerExtension<F> for DeferralTranspilerExtension {
             DeferralOpcode::CALL => Instruction::from_usize(
                 DeferralOpcode::CALL.global_opcode(),
                 [
-                    RV64_REGISTER_NUM_LIMBS * dec_insn.rd,
-                    RV64_REGISTER_NUM_LIMBS * dec_insn.rs1,
+                    REGISTER_NUM_LIMBS * dec_insn.rd,
+                    REGISTER_NUM_LIMBS * dec_insn.rs1,
                     def_idx,
-                    RV64_REGISTER_AS as usize,
-                    RV64_MEMORY_AS as usize,
+                    REGISTER_AS as usize,
+                    MEMORY_AS as usize,
                 ],
             ),
             DeferralOpcode::OUTPUT => Instruction::from_usize(
                 DeferralOpcode::OUTPUT.global_opcode(),
                 [
-                    RV64_REGISTER_NUM_LIMBS * dec_insn.rd,
-                    RV64_REGISTER_NUM_LIMBS * dec_insn.rs1,
+                    REGISTER_NUM_LIMBS * dec_insn.rd,
+                    REGISTER_NUM_LIMBS * dec_insn.rs1,
                     def_idx,
-                    RV64_REGISTER_AS as usize,
-                    RV64_MEMORY_AS as usize,
+                    REGISTER_AS as usize,
+                    MEMORY_AS as usize,
                 ],
             ),
         };

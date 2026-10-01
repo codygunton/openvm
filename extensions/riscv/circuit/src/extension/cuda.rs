@@ -1,17 +1,15 @@
 use std::{any::Any, sync::Arc};
 
 #[cfg(feature = "rvr")]
-use openvm_circuit::arch::rvr::cuda::PostflightOpcodeBases;
-#[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
-use openvm_circuit::arch::rvr::{cuda::CheckpointReplayProgram, PreflightExecution};
+use openvm_circuit::arch::rvr::PreflightExecution;
 use openvm_circuit::{
     arch::{
         cuda::postflight::{
             GpuPostflightError, GpuPostflightPlan, GpuPostflightProgram, GpuPostflightTranscript,
         },
         prepare_gpu_postflight, to_byte_ptr_bits, ChipInventory, ChipInventoryError,
-        GenerationError, Postflight, PostflightTracegen, PreflightOutput, VirtualMachine,
-        VmBuilder, VmProverExtension,
+        GenerationError, PostflightTracegen, PreflightOutput, VirtualMachine, VmBuilder,
+        VmProverExtension,
     },
     system::cuda::{
         extensions::{get_inventory_range_checker, get_or_create_bitwise_op_lookup},
@@ -31,38 +29,38 @@ use openvm_cuda_backend::{
 };
 use openvm_instructions::{program::Program, LocalOpcode, SystemOpcode};
 use openvm_riscv_transpiler::{
-    BaseAluImmOpcode, BaseAluOpcode, BaseAluWImmOpcode, BaseAluWOpcode, BranchEqualOpcode,
-    BranchLessThanOpcode, DivRemOpcode, DivRemWOpcode, LessThanImmOpcode, LessThanOpcode,
-    MulHOpcode, MulOpcode, MulWOpcode, Rv64AuipcOpcode, Rv64HintStoreOpcode, Rv64JalLuiOpcode,
-    Rv64JalrOpcode, Rv64LoadStoreOpcode, ShiftImmOpcode, ShiftOpcode, ShiftWImmOpcode,
+    AuipcOpcode, BaseAluImmOpcode, BaseAluOpcode, BaseAluWImmOpcode, BaseAluWOpcode,
+    BranchEqualOpcode, BranchLessThanOpcode, DivRemOpcode, DivRemWOpcode, HintStoreOpcode,
+    JalLuiOpcode, JalrOpcode, LessThanImmOpcode, LessThanOpcode, LoadStoreOpcode, MulHOpcode,
+    MulOpcode, MulWOpcode, RevealOpcode, ShiftImmOpcode, ShiftOpcode, ShiftWImmOpcode,
     ShiftWOpcode,
 };
 use openvm_stark_backend::prover::{AirProvingContext, ProvingContext};
-use openvm_stark_sdk::config::baby_bear_poseidon2::{BabyBearPoseidon2Config, F};
+use openvm_stark_sdk::config::baby_bear_poseidon2::BabyBearPoseidon2Config;
 
+#[cfg(feature = "rvr")]
+use crate::preflight::PreflightReplayProgram;
 use crate::{
-    Rv64AddIAir, Rv64AddIChipGpu, Rv64AddIWAir, Rv64AddIWChipGpu, Rv64AddSubAir, Rv64AddSubChipGpu,
-    Rv64AddSubWAir, Rv64AddSubWChipGpu, Rv64AuipcAir, Rv64AuipcChipGpu, Rv64BitwiseLogicAir,
-    Rv64BitwiseLogicChipGpu, Rv64BitwiseLogicImmAir, Rv64BitwiseLogicImmChipGpu,
-    Rv64BranchEqualAir, Rv64BranchEqualChipGpu, Rv64BranchLessThanAir, Rv64BranchLessThanChipGpu,
-    Rv64DivRemAir, Rv64DivRemChipGpu, Rv64DivRemWAir, Rv64DivRemWChipGpu, Rv64HintStoreAir,
-    Rv64HintStoreChipGpu, Rv64I, Rv64Io, Rv64JalLuiAir, Rv64JalLuiChipGpu, Rv64JalrAir,
-    Rv64JalrChipGpu, Rv64LessThanAir, Rv64LessThanChipGpu, Rv64LessThanImmAir,
-    Rv64LessThanImmChipGpu, Rv64LoadByteAir, Rv64LoadByteChipGpu, Rv64LoadDoublewordAir,
-    Rv64LoadDoublewordChipGpu, Rv64LoadHalfwordAir, Rv64LoadHalfwordChipGpu,
-    Rv64LoadSignExtendByteAir, Rv64LoadSignExtendByteChipGpu, Rv64LoadSignExtendHalfwordAir,
-    Rv64LoadSignExtendHalfwordChipGpu, Rv64LoadSignExtendWordAir, Rv64LoadSignExtendWordChipGpu,
-    Rv64LoadWordAir, Rv64LoadWordChipGpu, Rv64M, Rv64MulHAir, Rv64MulHChipGpu, Rv64MulWAir,
-    Rv64MulWChipGpu, Rv64MultiplicationAir, Rv64MultiplicationChipGpu, Rv64ShiftLogicalAir,
-    Rv64ShiftLogicalChipGpu, Rv64ShiftLogicalImmAir, Rv64ShiftLogicalImmChipGpu,
-    Rv64ShiftRightArithmeticAir, Rv64ShiftRightArithmeticChipGpu, Rv64ShiftRightArithmeticImmAir,
-    Rv64ShiftRightArithmeticImmChipGpu, Rv64ShiftWLogicalAir, Rv64ShiftWLogicalChipGpu,
-    Rv64ShiftWLogicalImmAir, Rv64ShiftWLogicalImmChipGpu, Rv64ShiftWRightArithmeticAir,
-    Rv64ShiftWRightArithmeticChipGpu, Rv64ShiftWRightArithmeticImmAir,
-    Rv64ShiftWRightArithmeticImmChipGpu, Rv64StoreByteAir, Rv64StoreByteChipGpu,
-    Rv64StoreDoublewordAir, Rv64StoreDoublewordChipGpu, Rv64StoreHalfwordAir,
-    Rv64StoreHalfwordChipGpu, Rv64StoreWordAir, Rv64StoreWordChipGpu,
+    AddIAir, AddIChipGpu, AddIWAir, AddIWChipGpu, AddSubAir, AddSubChipGpu, AddSubWAir,
+    AddSubWChipGpu, AuipcAir, AuipcChipGpu, BitwiseLogicAir, BitwiseLogicChipGpu,
+    BitwiseLogicImmAir, BitwiseLogicImmChipGpu, BranchEqualAir, BranchEqualChipGpu,
+    BranchLessThanAir, BranchLessThanChipGpu, DivRemAir, DivRemChipGpu, DivRemWAir, DivRemWChipGpu,
+    HintStoreAir, HintStoreChipGpu, JalLuiAir, JalLuiChipGpu, JalrAir, JalrChipGpu, LessThanAir,
+    LessThanChipGpu, LessThanImmAir, LessThanImmChipGpu, LoadByteAir, LoadByteChipGpu,
+    LoadDoublewordAir, LoadDoublewordChipGpu, LoadHalfwordAir, LoadHalfwordChipGpu,
+    LoadSignExtendByteAir, LoadSignExtendByteChipGpu, LoadSignExtendHalfwordAir,
+    LoadSignExtendHalfwordChipGpu, LoadSignExtendWordAir, LoadSignExtendWordChipGpu, LoadWordAir,
+    LoadWordChipGpu, MulHAir, MulHChipGpu, MulWAir, MulWChipGpu, MultiplicationAir,
+    MultiplicationChipGpu, RevealAir, RevealChipGpu, Rv64I, Rv64Io, Rv64M, ShiftLogicalAir,
+    ShiftLogicalChipGpu, ShiftLogicalImmAir, ShiftLogicalImmChipGpu, ShiftRightArithmeticAir,
+    ShiftRightArithmeticChipGpu, ShiftRightArithmeticImmAir, ShiftRightArithmeticImmChipGpu,
+    ShiftWLogicalAir, ShiftWLogicalChipGpu, ShiftWLogicalImmAir, ShiftWLogicalImmChipGpu,
+    ShiftWRightArithmeticAir, ShiftWRightArithmeticChipGpu, ShiftWRightArithmeticImmAir,
+    ShiftWRightArithmeticImmChipGpu, StoreByteAir, StoreByteChipGpu, StoreDoublewordAir,
+    StoreDoublewordChipGpu, StoreHalfwordAir, StoreHalfwordChipGpu, StoreWordAir, StoreWordChipGpu,
 };
+
+include!(concat!(env!("OUT_DIR"), "/checkpoint_replay_opcodes.rs"));
 
 pub struct Rv64ImGpuProverExt;
 
@@ -73,16 +71,16 @@ macro_rules! impl_postflight_tracegen {
 
             fn prepare_postflight(
                 vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
-                program: &Program<F>,
+                program: &Program,
             ) -> Result<Self::Prepared, GenerationError> {
                 prepare_gpu_postflight(vm, program)
             }
 
             fn generate_proving_ctx(
                 vm: &mut VirtualMachine<GpuBabyBearPoseidon2Engine, Self>,
+                _host_program: &Program,
                 program: &Self::Prepared,
                 output: &PreflightOutput,
-                _postflight: &Postflight<'_, F>,
             ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
                 let (transcript, replay_plan) = vm
                     .postflight_history(program, output)
@@ -113,57 +111,22 @@ pub struct Rv64ImPreflightGpuTracegen<'a> {
 }
 
 impl<'a> Rv64ImPreflightGpuTracegen<'a> {
-    #[cfg(feature = "rvr")]
-    #[doc(hidden)]
-    pub fn postflight_opcode_bases() -> PostflightOpcodeBases {
-        PostflightOpcodeBases {
-            base_alu: Self::opcode(BaseAluOpcode::ADD),
-            shift: Self::opcode(ShiftOpcode::SLL),
-            less_than: Self::opcode(LessThanOpcode::SLT),
-            load_store: Self::opcode(Rv64LoadStoreOpcode::LOADD),
-            branch_equal: Self::opcode(BranchEqualOpcode::BEQ),
-            branch_less_than: Self::opcode(BranchLessThanOpcode::BLT),
-            jal_lui: Self::opcode(Rv64JalLuiOpcode::JAL),
-            jalr: Self::opcode(Rv64JalrOpcode::JALR),
-            auipc: Self::opcode(Rv64AuipcOpcode::AUIPC),
-            mul: Self::opcode(MulOpcode::MUL),
-            mulh: Self::opcode(MulHOpcode::MULH),
-            divrem: Self::opcode(DivRemOpcode::DIV),
-            base_alu_w: Self::opcode(BaseAluWOpcode::ADDW),
-            shift_w: Self::opcode(ShiftWOpcode::SLLW),
-            mul_w: Self::opcode(MulWOpcode::MULW),
-            divrem_w: Self::opcode(DivRemWOpcode::DIVW),
-            base_alu_imm: Self::opcode(BaseAluImmOpcode::ADDI),
-            shift_imm: Self::opcode(ShiftImmOpcode::SLLI),
-            less_than_imm: Self::opcode(LessThanImmOpcode::SLTI),
-            base_alu_w_imm: Self::opcode(BaseAluWImmOpcode::ADDIW),
-            shift_w_imm: Self::opcode(ShiftWImmOpcode::SLLIW),
-            hint_store: Self::opcode(Rv64HintStoreOpcode::HINT_STORED),
-            phantom: SystemOpcode::PHANTOM.global_opcode().as_usize() as u32,
-            terminate: SystemOpcode::TERMINATE.global_opcode().as_usize() as u32,
-        }
-    }
-
     /// Checkpoint replay for RV64IM and phantom execution. Loads and stores
     /// first become unresolved block intents; the VM chronology pass resolves
     /// those intents before the ordinary transcript indexes and unchanged
     /// trace generators consume them.
-    #[cfg(all(feature = "rvr", any(test, feature = "test-utils")))]
+    #[cfg(feature = "rvr")]
     pub fn postflight<VB>(
         vm: &VirtualMachine<GpuBabyBearPoseidon2Engine, VB>,
-        program: &CheckpointReplayProgram,
+        program: &PreflightReplayProgram,
         execution: &PreflightExecution,
         num_insns: u32,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError>
     where
         VB: VmBuilder<GpuBabyBearPoseidon2Engine, SystemChipInventory = SystemChipInventoryGPU>,
     {
-        vm.postflight(
-            program,
-            execution,
-            num_insns,
-            Self::postflight_opcode_bases(),
-        )
+        let context = vm.gpu_postflight_context(program.program())?;
+        program.postflight(context, execution, num_insns)
     }
 
     pub fn new(
@@ -215,81 +178,16 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
     /// Returns whether the standard RV64/system replay path owns `opcode`.
     #[doc(hidden)]
     pub fn owns_opcode(opcode: u32) -> bool {
-        opcode == SystemOpcode::TERMINATE.global_opcode().as_usize() as u32
-            || Self::supports_opcode(opcode)
+        Self::replay_opcodes().any(|candidate| candidate == opcode)
+    }
+
+    /// Opcodes implemented by the native RV64 replay kernel.
+    pub(crate) fn replay_opcodes() -> impl Iterator<Item = u32> {
+        REPLAY_OPCODES.iter().copied()
     }
 
     fn supports_opcode(opcode: u32) -> bool {
-        [
-            BaseAluOpcode::ADD.global_opcode(),
-            BaseAluOpcode::SUB.global_opcode(),
-            BaseAluOpcode::XOR.global_opcode(),
-            BaseAluOpcode::OR.global_opcode(),
-            BaseAluOpcode::AND.global_opcode(),
-            BaseAluWOpcode::ADDW.global_opcode(),
-            BaseAluWOpcode::SUBW.global_opcode(),
-            LessThanOpcode::SLT.global_opcode(),
-            LessThanOpcode::SLTU.global_opcode(),
-            ShiftOpcode::SLL.global_opcode(),
-            ShiftOpcode::SRL.global_opcode(),
-            ShiftOpcode::SRA.global_opcode(),
-            ShiftWOpcode::SLLW.global_opcode(),
-            ShiftWOpcode::SRLW.global_opcode(),
-            ShiftWOpcode::SRAW.global_opcode(),
-            BaseAluWImmOpcode::ADDIW.global_opcode(),
-            ShiftWImmOpcode::SLLIW.global_opcode(),
-            ShiftWImmOpcode::SRLIW.global_opcode(),
-            ShiftWImmOpcode::SRAIW.global_opcode(),
-            BranchEqualOpcode::BEQ.global_opcode(),
-            BranchEqualOpcode::BNE.global_opcode(),
-            BranchLessThanOpcode::BLT.global_opcode(),
-            BranchLessThanOpcode::BLTU.global_opcode(),
-            BranchLessThanOpcode::BGE.global_opcode(),
-            BranchLessThanOpcode::BGEU.global_opcode(),
-            Rv64JalLuiOpcode::JAL.global_opcode(),
-            Rv64JalLuiOpcode::LUI.global_opcode(),
-            Rv64JalrOpcode::JALR.global_opcode(),
-            Rv64AuipcOpcode::AUIPC.global_opcode(),
-            BaseAluImmOpcode::ADDI.global_opcode(),
-            ShiftImmOpcode::SLLI.global_opcode(),
-            ShiftImmOpcode::SRLI.global_opcode(),
-            ShiftImmOpcode::SRAI.global_opcode(),
-            LessThanImmOpcode::SLTI.global_opcode(),
-            LessThanImmOpcode::SLTIU.global_opcode(),
-            BaseAluImmOpcode::XORI.global_opcode(),
-            BaseAluImmOpcode::ORI.global_opcode(),
-            BaseAluImmOpcode::ANDI.global_opcode(),
-            Rv64LoadStoreOpcode::LOADB.global_opcode(),
-            Rv64LoadStoreOpcode::LOADBU.global_opcode(),
-            Rv64LoadStoreOpcode::LOADH.global_opcode(),
-            Rv64LoadStoreOpcode::LOADHU.global_opcode(),
-            Rv64LoadStoreOpcode::LOADW.global_opcode(),
-            Rv64LoadStoreOpcode::LOADWU.global_opcode(),
-            Rv64LoadStoreOpcode::LOADD.global_opcode(),
-            // Store replay accepts the AIR-supported main-memory and public-values spaces.
-            Rv64LoadStoreOpcode::STOREB.global_opcode(),
-            Rv64LoadStoreOpcode::STOREH.global_opcode(),
-            Rv64LoadStoreOpcode::STOREW.global_opcode(),
-            Rv64LoadStoreOpcode::STORED.global_opcode(),
-            MulOpcode::MUL.global_opcode(),
-            MulWOpcode::MULW.global_opcode(),
-            MulHOpcode::MULH.global_opcode(),
-            MulHOpcode::MULHSU.global_opcode(),
-            MulHOpcode::MULHU.global_opcode(),
-            DivRemOpcode::DIV.global_opcode(),
-            DivRemOpcode::DIVU.global_opcode(),
-            DivRemOpcode::REM.global_opcode(),
-            DivRemOpcode::REMU.global_opcode(),
-            DivRemWOpcode::DIVW.global_opcode(),
-            DivRemWOpcode::DIVUW.global_opcode(),
-            DivRemWOpcode::REMW.global_opcode(),
-            DivRemWOpcode::REMUW.global_opcode(),
-            Rv64HintStoreOpcode::HINT_STORED.global_opcode(),
-            Rv64HintStoreOpcode::HINT_BUFFER.global_opcode(),
-            SystemOpcode::PHANTOM.global_opcode(),
-        ]
-        .into_iter()
-        .any(|candidate| candidate.as_usize() as u32 == opcode)
+        Self::replay_opcodes().any(|candidate| candidate == opcode)
     }
 
     fn mark_generated(&mut self, opcodes: impl IntoIterator<Item = u32>) {
@@ -321,9 +219,9 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
             self.transcript,
             self.replay_plan,
             self,
-            |tracegen, insertion_idx, chip| {
+            |tracegen, chip| {
                 tracegen
-                    .generate_for_chip(insertion_idx, chip)
+                    .generate_for_chip(chip)
                     .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
             },
             |tracegen| {
@@ -342,7 +240,6 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
     /// the constructor coverage check, so it receives a dummy trace.
     pub fn generate_for_chip(
         &mut self,
-        _insertion_idx: usize,
         chip: &dyn Any,
     ) -> Result<AirProvingContext<GpuBackend>, GpuPostflightError> {
         if let Some(chip) = chip.downcast_ref::<PhantomChipGPU>() {
@@ -369,44 +266,32 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
             };
         }
 
-        replay_chip!(Rv64AddSubChipGpu, [BaseAluOpcode::ADD, BaseAluOpcode::SUB]);
+        replay_chip!(AddSubChipGpu, [BaseAluOpcode::ADD, BaseAluOpcode::SUB]);
         replay_chip!(
-            Rv64BitwiseLogicChipGpu,
+            BitwiseLogicChipGpu,
             [BaseAluOpcode::XOR, BaseAluOpcode::OR, BaseAluOpcode::AND,]
         );
+        replay_chip!(AddSubWChipGpu, [BaseAluWOpcode::ADDW, BaseAluWOpcode::SUBW]);
+        replay_chip!(LessThanChipGpu, [LessThanOpcode::SLT, LessThanOpcode::SLTU]);
+        replay_chip!(ShiftLogicalChipGpu, [ShiftOpcode::SLL, ShiftOpcode::SRL]);
+        replay_chip!(ShiftRightArithmeticChipGpu, [ShiftOpcode::SRA]);
         replay_chip!(
-            Rv64AddSubWChipGpu,
-            [BaseAluWOpcode::ADDW, BaseAluWOpcode::SUBW]
-        );
-        replay_chip!(
-            Rv64LessThanChipGpu,
-            [LessThanOpcode::SLT, LessThanOpcode::SLTU]
-        );
-        replay_chip!(
-            Rv64ShiftLogicalChipGpu,
-            [ShiftOpcode::SLL, ShiftOpcode::SRL]
-        );
-        replay_chip!(Rv64ShiftRightArithmeticChipGpu, [ShiftOpcode::SRA]);
-        replay_chip!(
-            Rv64ShiftWLogicalChipGpu,
+            ShiftWLogicalChipGpu,
             [ShiftWOpcode::SLLW, ShiftWOpcode::SRLW]
         );
-        replay_chip!(Rv64ShiftWRightArithmeticChipGpu, [ShiftWOpcode::SRAW]);
-        replay_chip!(Rv64AddIWChipGpu, [BaseAluWImmOpcode::ADDIW]);
+        replay_chip!(ShiftWRightArithmeticChipGpu, [ShiftWOpcode::SRAW]);
+        replay_chip!(AddIWChipGpu, [BaseAluWImmOpcode::ADDIW]);
         replay_chip!(
-            Rv64ShiftWLogicalImmChipGpu,
+            ShiftWLogicalImmChipGpu,
             [ShiftWImmOpcode::SLLIW, ShiftWImmOpcode::SRLIW]
         );
+        replay_chip!(ShiftWRightArithmeticImmChipGpu, [ShiftWImmOpcode::SRAIW]);
         replay_chip!(
-            Rv64ShiftWRightArithmeticImmChipGpu,
-            [ShiftWImmOpcode::SRAIW]
-        );
-        replay_chip!(
-            Rv64BranchEqualChipGpu,
+            BranchEqualChipGpu,
             [BranchEqualOpcode::BEQ, BranchEqualOpcode::BNE]
         );
         replay_chip!(
-            Rv64BranchLessThanChipGpu,
+            BranchLessThanChipGpu,
             [
                 BranchLessThanOpcode::BLT,
                 BranchLessThanOpcode::BLTU,
@@ -414,41 +299,33 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
                 BranchLessThanOpcode::BGEU,
             ]
         );
+        replay_chip!(JalLuiChipGpu, [JalLuiOpcode::JAL, JalLuiOpcode::LUI]);
+        replay_chip!(JalrChipGpu, [JalrOpcode::JALR]);
+        replay_chip!(AuipcChipGpu, [AuipcOpcode::AUIPC]);
+        replay_chip!(LoadSignExtendByteChipGpu, [LoadStoreOpcode::LOADB]);
+        replay_chip!(LoadByteChipGpu, [LoadStoreOpcode::LOADBU]);
+        replay_chip!(LoadSignExtendHalfwordChipGpu, [LoadStoreOpcode::LOADH]);
+        replay_chip!(LoadHalfwordChipGpu, [LoadStoreOpcode::LOADHU]);
+        replay_chip!(LoadSignExtendWordChipGpu, [LoadStoreOpcode::LOADW]);
+        replay_chip!(LoadWordChipGpu, [LoadStoreOpcode::LOADWU]);
+        replay_chip!(LoadDoublewordChipGpu, [LoadStoreOpcode::LOADD]);
+        replay_chip!(StoreByteChipGpu, [LoadStoreOpcode::STOREB]);
+        replay_chip!(StoreHalfwordChipGpu, [LoadStoreOpcode::STOREH]);
+        replay_chip!(StoreWordChipGpu, [LoadStoreOpcode::STOREW]);
+        replay_chip!(StoreDoublewordChipGpu, [LoadStoreOpcode::STORED]);
+        replay_chip!(RevealChipGpu, [RevealOpcode::REVEAL]);
         replay_chip!(
-            Rv64JalLuiChipGpu,
-            [Rv64JalLuiOpcode::JAL, Rv64JalLuiOpcode::LUI]
+            HintStoreChipGpu,
+            [HintStoreOpcode::HINT_STORED, HintStoreOpcode::HINT_BUFFER,]
         );
-        replay_chip!(Rv64JalrChipGpu, [Rv64JalrOpcode::JALR]);
-        replay_chip!(Rv64AuipcChipGpu, [Rv64AuipcOpcode::AUIPC]);
-        replay_chip!(Rv64LoadSignExtendByteChipGpu, [Rv64LoadStoreOpcode::LOADB]);
-        replay_chip!(Rv64LoadByteChipGpu, [Rv64LoadStoreOpcode::LOADBU]);
+        replay_chip!(MultiplicationChipGpu, [MulOpcode::MUL]);
+        replay_chip!(MulWChipGpu, [MulWOpcode::MULW]);
         replay_chip!(
-            Rv64LoadSignExtendHalfwordChipGpu,
-            [Rv64LoadStoreOpcode::LOADH]
-        );
-        replay_chip!(Rv64LoadHalfwordChipGpu, [Rv64LoadStoreOpcode::LOADHU]);
-        replay_chip!(Rv64LoadSignExtendWordChipGpu, [Rv64LoadStoreOpcode::LOADW]);
-        replay_chip!(Rv64LoadWordChipGpu, [Rv64LoadStoreOpcode::LOADWU]);
-        replay_chip!(Rv64LoadDoublewordChipGpu, [Rv64LoadStoreOpcode::LOADD]);
-        replay_chip!(Rv64StoreByteChipGpu, [Rv64LoadStoreOpcode::STOREB]);
-        replay_chip!(Rv64StoreHalfwordChipGpu, [Rv64LoadStoreOpcode::STOREH]);
-        replay_chip!(Rv64StoreWordChipGpu, [Rv64LoadStoreOpcode::STOREW]);
-        replay_chip!(Rv64StoreDoublewordChipGpu, [Rv64LoadStoreOpcode::STORED]);
-        replay_chip!(
-            Rv64HintStoreChipGpu,
-            [
-                Rv64HintStoreOpcode::HINT_STORED,
-                Rv64HintStoreOpcode::HINT_BUFFER,
-            ]
-        );
-        replay_chip!(Rv64MultiplicationChipGpu, [MulOpcode::MUL]);
-        replay_chip!(Rv64MulWChipGpu, [MulWOpcode::MULW]);
-        replay_chip!(
-            Rv64MulHChipGpu,
+            MulHChipGpu,
             [MulHOpcode::MULH, MulHOpcode::MULHSU, MulHOpcode::MULHU]
         );
         replay_chip!(
-            Rv64DivRemChipGpu,
+            DivRemChipGpu,
             [
                 DivRemOpcode::DIV,
                 DivRemOpcode::DIVU,
@@ -457,7 +334,7 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
             ]
         );
         replay_chip!(
-            Rv64DivRemWChipGpu,
+            DivRemWChipGpu,
             [
                 DivRemWOpcode::DIVW,
                 DivRemWOpcode::DIVUW,
@@ -465,18 +342,18 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
                 DivRemWOpcode::REMUW,
             ]
         );
-        replay_chip!(Rv64AddIChipGpu, [BaseAluImmOpcode::ADDI]);
+        replay_chip!(AddIChipGpu, [BaseAluImmOpcode::ADDI]);
         replay_chip!(
-            Rv64ShiftLogicalImmChipGpu,
+            ShiftLogicalImmChipGpu,
             [ShiftImmOpcode::SLLI, ShiftImmOpcode::SRLI]
         );
-        replay_chip!(Rv64ShiftRightArithmeticImmChipGpu, [ShiftImmOpcode::SRAI]);
+        replay_chip!(ShiftRightArithmeticImmChipGpu, [ShiftImmOpcode::SRAI]);
         replay_chip!(
-            Rv64LessThanImmChipGpu,
+            LessThanImmChipGpu,
             [LessThanImmOpcode::SLTI, LessThanImmOpcode::SLTIU]
         );
         replay_chip!(
-            Rv64BitwiseLogicImmChipGpu,
+            BitwiseLogicImmChipGpu,
             [
                 BaseAluImmOpcode::XORI,
                 BaseAluImmOpcode::ORI,
@@ -485,32 +362,22 @@ impl<'a> Rv64ImPreflightGpuTracegen<'a> {
         );
         if let Some(chip) = chip.downcast_ref::<Arc<VariableRangeCheckerChipGPU>>() {
             return Ok(
-                <Arc<VariableRangeCheckerChipGPU> as Chip<(), GpuBackend>>::generate_proving_ctx(
-                    chip,
-                    (),
-                ),
+                <Arc<VariableRangeCheckerChipGPU> as Chip<GpuBackend>>::generate_proving_ctx(chip),
             );
         }
         if let Some(chip) = chip.downcast_ref::<Arc<BitwiseOperationLookupChipGPU<8>>>() {
             return Ok(<Arc<BitwiseOperationLookupChipGPU<8>> as Chip<
-                (),
                 GpuBackend,
-            >>::generate_proving_ctx(chip, ()));
+            >>::generate_proving_ctx(chip));
         }
         if let Some(chip) = chip.downcast_ref::<Arc<RangeTupleCheckerChipGPU<2>>>() {
             return Ok(
-                <Arc<RangeTupleCheckerChipGPU<2>> as Chip<(), GpuBackend>>::generate_proving_ctx(
-                    chip,
-                    (),
-                ),
+                <Arc<RangeTupleCheckerChipGPU<2>> as Chip<GpuBackend>>::generate_proving_ctx(chip),
             );
         }
         if let Some(chip) = chip.downcast_ref::<Arc<Poseidon2PeripheryChipGPU>>() {
             return Ok(
-                <Arc<Poseidon2PeripheryChipGPU> as Chip<(), GpuBackend>>::generate_proving_ctx(
-                    chip,
-                    (),
-                ),
+                <Arc<Poseidon2PeripheryChipGPU> as Chip<GpuBackend>>::generate_proving_ctx(chip),
             );
         }
 
@@ -551,61 +418,60 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
 
         // These calls to next_air are not strictly necessary to construct the chips, but provide a
         // safeguard to ensure that chip construction matches the circuit definition
-        inventory.next_air::<Rv64AddSubAir>()?;
-        let add_sub = Rv64AddSubChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<AddSubAir>()?;
+        let add_sub = AddSubChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(add_sub);
 
-        inventory.next_air::<Rv64BitwiseLogicAir>()?;
-        let bitwise_logic = Rv64BitwiseLogicChipGpu::new(
+        inventory.next_air::<BitwiseLogicAir>()?;
+        let bitwise_logic = BitwiseLogicChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             timestamp_max_bits,
         );
         inventory.add_executor_chip(bitwise_logic);
 
-        inventory.next_air::<Rv64AddSubWAir>()?;
-        let add_sub_w = Rv64AddSubWChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<AddSubWAir>()?;
+        let add_sub_w = AddSubWChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(add_sub_w);
 
-        inventory.next_air::<Rv64LessThanAir>()?;
-        let lt = Rv64LessThanChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<LessThanAir>()?;
+        let lt = LessThanChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(lt);
 
-        inventory.next_air::<Rv64ShiftLogicalAir>()?;
-        let shift_logical = Rv64ShiftLogicalChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<ShiftLogicalAir>()?;
+        let shift_logical = ShiftLogicalChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_logical);
 
-        inventory.next_air::<Rv64ShiftRightArithmeticAir>()?;
+        inventory.next_air::<ShiftRightArithmeticAir>()?;
         let shift_right_arithmetic =
-            Rv64ShiftRightArithmeticChipGpu::new(range_checker.clone(), timestamp_max_bits);
+            ShiftRightArithmeticChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_right_arithmetic);
 
-        inventory.next_air::<Rv64ShiftWLogicalAir>()?;
-        let shift_w_logical =
-            Rv64ShiftWLogicalChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<ShiftWLogicalAir>()?;
+        let shift_w_logical = ShiftWLogicalChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_w_logical);
 
-        inventory.next_air::<Rv64ShiftWRightArithmeticAir>()?;
+        inventory.next_air::<ShiftWRightArithmeticAir>()?;
         let shift_w_right_arithmetic =
-            Rv64ShiftWRightArithmeticChipGpu::new(range_checker.clone(), timestamp_max_bits);
+            ShiftWRightArithmeticChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_w_right_arithmetic);
 
-        inventory.next_air::<Rv64AddIWAir>()?;
-        let addi_w = Rv64AddIWChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<AddIWAir>()?;
+        let addi_w = AddIWChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(addi_w);
 
-        inventory.next_air::<Rv64ShiftWLogicalImmAir>()?;
+        inventory.next_air::<ShiftWLogicalImmAir>()?;
         let shift_w_logical_imm =
-            Rv64ShiftWLogicalImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
+            ShiftWLogicalImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_w_logical_imm);
 
-        inventory.next_air::<Rv64ShiftWRightArithmeticImmAir>()?;
+        inventory.next_air::<ShiftWRightArithmeticImmAir>()?;
         let shift_w_right_arithmetic_imm =
-            Rv64ShiftWRightArithmeticImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
+            ShiftWRightArithmeticImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_w_right_arithmetic_imm);
 
-        inventory.next_air::<Rv64LoadSignExtendByteAir>()?;
-        let load_sign_extend_byte = Rv64LoadSignExtendByteChipGpu::new(
+        inventory.next_air::<LoadSignExtendByteAir>()?;
+        let load_sign_extend_byte = LoadSignExtendByteChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -613,8 +479,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(load_sign_extend_byte);
 
-        inventory.next_air::<Rv64LoadByteAir>()?;
-        let load_byte = Rv64LoadByteChipGpu::new(
+        inventory.next_air::<LoadByteAir>()?;
+        let load_byte = LoadByteChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -622,8 +488,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(load_byte);
 
-        inventory.next_air::<Rv64StoreByteAir>()?;
-        let store_byte = Rv64StoreByteChipGpu::new(
+        inventory.next_air::<StoreByteAir>()?;
+        let store_byte = StoreByteChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -631,8 +497,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(store_byte);
 
-        inventory.next_air::<Rv64LoadSignExtendHalfwordAir>()?;
-        let load_sign_extend_halfword = Rv64LoadSignExtendHalfwordChipGpu::new(
+        inventory.next_air::<LoadSignExtendHalfwordAir>()?;
+        let load_sign_extend_halfword = LoadSignExtendHalfwordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -640,8 +506,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(load_sign_extend_halfword);
 
-        inventory.next_air::<Rv64LoadHalfwordAir>()?;
-        let load_halfword = Rv64LoadHalfwordChipGpu::new(
+        inventory.next_air::<LoadHalfwordAir>()?;
+        let load_halfword = LoadHalfwordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -649,8 +515,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(load_halfword);
 
-        inventory.next_air::<Rv64StoreHalfwordAir>()?;
-        let store_halfword = Rv64StoreHalfwordChipGpu::new(
+        inventory.next_air::<StoreHalfwordAir>()?;
+        let store_halfword = StoreHalfwordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -658,8 +524,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(store_halfword);
 
-        inventory.next_air::<Rv64LoadSignExtendWordAir>()?;
-        let load_sign_extend_word = Rv64LoadSignExtendWordChipGpu::new(
+        inventory.next_air::<LoadSignExtendWordAir>()?;
+        let load_sign_extend_word = LoadSignExtendWordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -667,8 +533,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(load_sign_extend_word);
 
-        inventory.next_air::<Rv64LoadWordAir>()?;
-        let load_word = Rv64LoadWordChipGpu::new(
+        inventory.next_air::<LoadWordAir>()?;
+        let load_word = LoadWordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -676,8 +542,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(load_word);
 
-        inventory.next_air::<Rv64StoreWordAir>()?;
-        let store_word = Rv64StoreWordChipGpu::new(
+        inventory.next_air::<StoreWordAir>()?;
+        let store_word = StoreWordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -685,8 +551,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(store_word);
 
-        inventory.next_air::<Rv64LoadDoublewordAir>()?;
-        let load_doubleword = Rv64LoadDoublewordChipGpu::new(
+        inventory.next_air::<LoadDoublewordAir>()?;
+        let load_doubleword = LoadDoublewordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -694,8 +560,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(load_doubleword);
 
-        inventory.next_air::<Rv64StoreDoublewordAir>()?;
-        let store_doubleword = Rv64StoreDoublewordChipGpu::new(
+        inventory.next_air::<StoreDoublewordAir>()?;
+        let store_doubleword = StoreDoublewordChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             byte_ptr_max_bits,
@@ -703,46 +569,46 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64I> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(store_doubleword);
 
-        inventory.next_air::<Rv64BranchEqualAir>()?;
-        let beq = Rv64BranchEqualChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<BranchEqualAir>()?;
+        let beq = BranchEqualChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(beq);
 
-        inventory.next_air::<Rv64BranchLessThanAir>()?;
-        let blt = Rv64BranchLessThanChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<BranchLessThanAir>()?;
+        let blt = BranchLessThanChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(blt);
 
-        inventory.next_air::<Rv64JalLuiAir>()?;
-        let jal_lui = Rv64JalLuiChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<JalLuiAir>()?;
+        let jal_lui = JalLuiChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(jal_lui);
 
-        inventory.next_air::<Rv64JalrAir>()?;
-        let jalr = Rv64JalrChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<JalrAir>()?;
+        let jalr = JalrChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(jalr);
 
-        inventory.next_air::<Rv64AuipcAir>()?;
-        let auipc = Rv64AuipcChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<AuipcAir>()?;
+        let auipc = AuipcChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(auipc);
 
-        inventory.next_air::<Rv64AddIAir>()?;
-        let addi = Rv64AddIChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<AddIAir>()?;
+        let addi = AddIChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(addi);
 
-        inventory.next_air::<Rv64ShiftLogicalImmAir>()?;
+        inventory.next_air::<ShiftLogicalImmAir>()?;
         let shift_logical_imm =
-            Rv64ShiftLogicalImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
+            ShiftLogicalImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_logical_imm);
 
-        inventory.next_air::<Rv64ShiftRightArithmeticImmAir>()?;
+        inventory.next_air::<ShiftRightArithmeticImmAir>()?;
         let shift_right_arithmetic_imm =
-            Rv64ShiftRightArithmeticImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
+            ShiftRightArithmeticImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(shift_right_arithmetic_imm);
 
-        inventory.next_air::<Rv64LessThanImmAir>()?;
-        let lt_imm = Rv64LessThanImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
+        inventory.next_air::<LessThanImmAir>()?;
+        let lt_imm = LessThanImmChipGpu::new(range_checker.clone(), timestamp_max_bits);
         inventory.add_executor_chip(lt_imm);
 
-        inventory.next_air::<Rv64BitwiseLogicImmAir>()?;
-        let bitwise_logic_imm = Rv64BitwiseLogicImmChipGpu::new(
+        inventory.next_air::<BitwiseLogicImmAir>()?;
+        let bitwise_logic_imm = BitwiseLogicImmChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             timestamp_max_bits,
@@ -789,8 +655,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64M> for Rv64ImGpuProverExt
 
         // These calls to next_air are not strictly necessary to construct the chips, but provide a
         // safeguard to ensure that chip construction matches the circuit definition
-        inventory.next_air::<Rv64MultiplicationAir>()?;
-        let mult = Rv64MultiplicationChipGpu::new(
+        inventory.next_air::<MultiplicationAir>()?;
+        let mult = MultiplicationChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             range_tuple_checker.clone(),
@@ -798,8 +664,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64M> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(mult);
 
-        inventory.next_air::<Rv64MulWAir>()?;
-        let mul_w = Rv64MulWChipGpu::new(
+        inventory.next_air::<MulWAir>()?;
+        let mul_w = MulWChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             range_tuple_checker.clone(),
@@ -807,8 +673,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64M> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(mul_w);
 
-        inventory.next_air::<Rv64MulHAir>()?;
-        let mul_h = Rv64MulHChipGpu::new(
+        inventory.next_air::<MulHAir>()?;
+        let mul_h = MulHChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             range_tuple_checker.clone(),
@@ -816,8 +682,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64M> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(mul_h);
 
-        inventory.next_air::<Rv64DivRemAir>()?;
-        let div_rem = Rv64DivRemChipGpu::new(
+        inventory.next_air::<DivRemAir>()?;
+        let div_rem = DivRemChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             range_tuple_checker.clone(),
@@ -826,8 +692,8 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64M> for Rv64ImGpuProverExt
         );
         inventory.add_executor_chip(div_rem);
 
-        inventory.next_air::<Rv64DivRemWAir>()?;
-        let divrem_w = Rv64DivRemWChipGpu::new(
+        inventory.next_air::<DivRemWAir>()?;
+        let divrem_w = DivRemWChipGpu::new(
             range_checker.clone(),
             bitwise_lu.clone(),
             range_tuple_checker.clone(),
@@ -840,23 +706,31 @@ impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64M> for Rv64ImGpuProverExt
     }
 }
 
-// This implementation is specific to GpuBackend because the lookup chips
-// (VariableRangeCheckerChipGPU, BitwiseOperationLookupChipGPU) are specific to GpuBackend.
 impl VmProverExtension<GpuBabyBearPoseidon2Engine, Rv64Io> for Rv64ImGpuProverExt {
     fn extend_prover(
         &self,
         _: &Rv64Io,
         inventory: &mut ChipInventory<BabyBearPoseidon2Config, GpuBackend>,
     ) -> Result<(), ChipInventoryError> {
-        let byte_ptr_max_bits = to_byte_ptr_bits(inventory.airs().pointer_max_bits());
+        let pointer_max_bits = inventory.airs().pointer_max_bits();
+        let byte_ptr_max_bits = to_byte_ptr_bits(pointer_max_bits);
         let timestamp_max_bits = inventory.timestamp_max_bits();
 
         let range_checker = get_inventory_range_checker(inventory);
-
-        inventory.next_air::<Rv64HintStoreAir>()?;
+        let bitwise_lu = get_or_create_bitwise_op_lookup(inventory)?;
+        inventory.next_air::<HintStoreAir>()?;
         let hint_store =
-            Rv64HintStoreChipGpu::new(range_checker.clone(), byte_ptr_max_bits, timestamp_max_bits);
+            HintStoreChipGpu::new(range_checker.clone(), byte_ptr_max_bits, timestamp_max_bits);
         inventory.add_executor_chip(hint_store);
+
+        inventory.next_air::<RevealAir>()?;
+        let reveal = RevealChipGpu::new(
+            range_checker,
+            bitwise_lu,
+            pointer_max_bits,
+            timestamp_max_bits,
+        );
+        inventory.add_executor_chip(reveal);
 
         Ok(())
     }

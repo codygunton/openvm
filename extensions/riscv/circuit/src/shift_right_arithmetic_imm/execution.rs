@@ -8,13 +8,13 @@ use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_IMM_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{IMM_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::{ShiftImmOpcode, ShiftWImmOpcode};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::ShiftRightArithmeticImmExecutor;
+use super::ShiftRightArithmeticImmCoreExecutor;
 
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
@@ -25,13 +25,13 @@ struct ShiftRightArithmeticImmPreCompute {
 }
 
 impl<const NUM_LIMBS: usize, const LIMB_BITS: usize>
-    ShiftRightArithmeticImmExecutor<NUM_LIMBS, LIMB_BITS>
+    ShiftRightArithmeticImmCoreExecutor<NUM_LIMBS, LIMB_BITS>
 {
     #[inline(always)]
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut ShiftRightArithmeticImmPreCompute,
     ) -> Result<(), StaticProgramError> {
         let Instruction {
@@ -43,25 +43,25 @@ impl<const NUM_LIMBS: usize, const LIMB_BITS: usize>
             e,
             ..
         } = inst;
-        let shamt = c.as_canonical_u32();
+        let shamt = c.as_u32();
         if opcode.local_opcode_idx(self.offset) != ShiftImmOpcode::SRAI as usize
-            || d.as_canonical_u32() != RV64_REGISTER_AS
-            || e.as_canonical_u32() != RV64_IMM_AS
+            || d.as_u32() != REGISTER_AS
+            || e.as_u32() != IMM_AS
             || shamt >= (NUM_LIMBS * LIMB_BITS) as u32
         {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         *data = ShiftRightArithmeticImmPreCompute {
             shamt: shamt as u8,
-            rd_ptr: a.as_canonical_u32() as u8,
-            rs1_ptr: b.as_canonical_u32() as u8,
+            rd_ptr: a.as_u32() as u8,
+            rs1_ptr: b.as_u32() as u8,
         };
         Ok(())
     }
 }
 
 impl<F, const NUM_LIMBS: usize, const LIMB_BITS: usize> InterpreterExecutor<F>
-    for ShiftRightArithmeticImmExecutor<NUM_LIMBS, LIMB_BITS>
+    for ShiftRightArithmeticImmCoreExecutor<NUM_LIMBS, LIMB_BITS>
 where
     F: PrimeField32,
 {
@@ -81,7 +81,7 @@ where
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let data: &mut ShiftRightArithmeticImmPreCompute = data.borrow_mut();
@@ -93,7 +93,7 @@ where
     fn handler<Ctx: ExecutionCtxTrait>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError> {
         let data: &mut ShiftRightArithmeticImmPreCompute = data.borrow_mut();
@@ -103,7 +103,7 @@ where
 }
 
 impl<F, const NUM_LIMBS: usize, const LIMB_BITS: usize> InterpreterMeteredExecutor<F>
-    for ShiftRightArithmeticImmExecutor<NUM_LIMBS, LIMB_BITS>
+    for ShiftRightArithmeticImmCoreExecutor<NUM_LIMBS, LIMB_BITS>
 where
     F: PrimeField32,
 {
@@ -116,7 +116,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let data: &mut E2PreCompute<ShiftRightArithmeticImmPreCompute> = data.borrow_mut();
@@ -130,7 +130,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError> {
         let data: &mut E2PreCompute<ShiftRightArithmeticImmPreCompute> = data.borrow_mut();
@@ -149,15 +149,15 @@ unsafe fn execute_e12_impl<
     pre_compute: &ShiftRightArithmeticImmPreCompute,
     exec_state: &mut VmExecState<GuestMemory, Ctx>,
 ) {
-    let rs1 = exec_state
-        .vm_read_bytes::<RV64_REGISTER_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.rs1_ptr as u32);
+    let rs1 =
+        exec_state.vm_read_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.rs1_ptr as u32);
     let rd = if NUM_LIMBS * LIMB_BITS == 32 {
         ((u32::from_le_bytes(rs1[..4].try_into().unwrap()) as i32) >> pre_compute.shamt) as i64
     } else {
         i64::from_le_bytes(rs1) >> pre_compute.shamt
     }
     .to_le_bytes();
-    exec_state.vm_write_bytes(RV64_REGISTER_AS, pre_compute.rd_ptr as u32, &rd);
+    exec_state.vm_write_bytes(REGISTER_AS, pre_compute.rd_ptr as u32, &rd);
     let pc = exec_state.pc();
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
 }

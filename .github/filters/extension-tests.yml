@@ -17,10 +17,10 @@ shared: &shared
 cuda:
   - ".github/actions/rust-cache-cuda/**"
   - ".github/workflows/extension-tests.cuda.yml"
-  - "scripts/gpu_driver_setup.sh"
 riscv: &riscv
   - *shared
   - "extensions/riscv/**"
+  - "extensions/riscv-adapters/**"
 keccak256:
   - *riscv
   - "extensions/keccak256/**"

@@ -6,7 +6,8 @@
 //! tracer helpers across the call boundary.
 
 use openvm_instructions::{
-    riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES},
+    instruction::Instruction,
+    riscv::{MEMORY_AS, NUM_REGISTERS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode,
 };
 use openvm_keccak256_transpiler::{KeccakfOpcode, XorinOpcode};
@@ -15,11 +16,11 @@ use rvr_openvm_ir::{
 };
 use rvr_openvm_lift::{
     decode_variable, fixed_trace_rows_for_chip, max_main_memory_pages_for_contiguous_range,
-    opcode_air_idx, AirIndex, ExtensionError, RvrExtension, RvrExtensionCtx, RvrInstruction,
+    opcode_air_idx, AirIndex, ExtensionError, RvrExtension, RvrExtensionCtx,
 };
 
 fn decode_reg(value: u32) -> Variable {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
 }
 
 const KECCAK_NUM_ROUNDS: u32 = p3_keccak_air::NUM_ROUNDS as u32;
@@ -49,15 +50,15 @@ impl ExtInstr for KeccakfInstr {
 
     fn emit_c(&self, ctx: &mut dyn ExtEmitCtx) {
         let buf = ctx.read_var(self.buffer_ptr_reg);
-        ctx.reserve_preflight_writes("25u", "25u");
-        let checkpoint = ctx.is_checkpoint_preflight();
-        if checkpoint {
+        ctx.reserve_preflight_timestamp_slots("25u");
+        let is_preflight = ctx.is_preflight();
+        if is_preflight {
             ctx.reserve_replay_values("25u");
-        } else if ctx.counts_checkpoint_residuals() {
+        } else {
             ctx.count_fixed_replay_values(25);
         }
         ctx.emit_call("rvr_ext_keccakf", &["state", &buf]);
-        if checkpoint {
+        if is_preflight {
             ctx.append_replay_memory_u64_range(&buf, "25u");
         }
     }
@@ -97,13 +98,13 @@ impl ExtInstr for XorinInstr {
         let input = ctx.read_var(self.input_ptr_reg);
         let len = ctx.read_var(self.len_reg);
         let words = format!("((uint32_t)(({len} + 7ull) / 8ull))");
-        ctx.reserve_preflight_writes(&words, &format!("{words} * 3u"));
-        let checkpoint = ctx.is_checkpoint_preflight();
-        if checkpoint {
+        ctx.reserve_preflight_timestamp_slots(&format!("{words} * 3u"));
+        let is_preflight = ctx.is_preflight();
+        if is_preflight {
             ctx.reserve_replay_values(&words);
         }
         ctx.emit_checked_call("rvr_ext_xorin", &["state", &buf_ptr, &input, &len]);
-        if !checkpoint {
+        if !is_preflight {
             // Metered execution counts the dynamic postimage only after the
             // checked extension call has succeeded. Other modes ignore this.
             ctx.reserve_replay_values(&words);
@@ -144,11 +145,20 @@ impl KeccakExtension {
 }
 
 impl RvrExtension for KeccakExtension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         let opcode = insn.opcode.as_usize();
+        let is_keccakf = match opcode {
+            opcode if opcode == KeccakfOpcode::KECCAKF.global_opcode_usize() => true,
+            opcode if opcode == XorinOpcode::XORIN.global_opcode_usize() => false,
+            _ => return None,
+        };
 
-        if opcode == KeccakfOpcode::KECCAKF.global_opcode_usize() {
-            let buffer_ptr_reg = decode_reg(insn.a);
+        if insn.d.as_u32() != REGISTER_AS || insn.e.as_u32() != MEMORY_AS {
+            return None;
+        }
+
+        if is_keccakf {
+            let buffer_ptr_reg = decode_reg(insn.a.as_u32());
             return Some(LiftedInstr::Body(InstrAt {
                 pc,
                 instr: Box::new(KeccakfInstr {
@@ -159,22 +169,18 @@ impl RvrExtension for KeccakExtension {
             }));
         }
 
-        if opcode == XorinOpcode::XORIN.global_opcode_usize() {
-            let buffer_ptr_reg = decode_reg(insn.a);
-            let input_ptr_reg = decode_reg(insn.b);
-            let len_reg = decode_reg(insn.c);
-            return Some(LiftedInstr::Body(InstrAt {
-                pc,
-                instr: Box::new(XorinInstr {
-                    buffer_ptr_reg,
-                    input_ptr_reg,
-                    len_reg,
-                }),
-                source_loc: None,
-            }));
-        }
-
-        None
+        let buffer_ptr_reg = decode_reg(insn.a.as_u32());
+        let input_ptr_reg = decode_reg(insn.b.as_u32());
+        let len_reg = decode_reg(insn.c.as_u32());
+        Some(LiftedInstr::Body(InstrAt {
+            pc,
+            instr: Box::new(XorinInstr {
+                buffer_ptr_reg,
+                input_ptr_reg,
+                len_reg,
+            }),
+            source_loc: None,
+        }))
     }
 
     fn c_headers(&self) -> Vec<(&'static str, &'static str)> {
@@ -206,8 +212,8 @@ mod tests {
     struct TestEmitCtx {
         lines: Vec<String>,
         next_tmp: usize,
-        record_checkpoint: bool,
-        count_residuals: bool,
+        record_preflight: bool,
+        count_replay_values: bool,
     }
 
     impl Default for TestEmitCtx {
@@ -215,8 +221,8 @@ mod tests {
             Self {
                 lines: Vec::new(),
                 next_tmp: 0,
-                record_checkpoint: true,
-                count_residuals: true,
+                record_preflight: true,
+                count_replay_values: true,
             }
         }
     }
@@ -224,28 +230,44 @@ mod tests {
     impl TestEmitCtx {
         fn pure() -> Self {
             Self {
-                record_checkpoint: false,
-                count_residuals: false,
+                record_preflight: false,
+                count_replay_values: false,
                 ..Self::default()
             }
         }
 
         fn metered() -> Self {
             Self {
-                record_checkpoint: false,
-                count_residuals: true,
+                record_preflight: false,
+                count_replay_values: true,
                 ..Self::default()
             }
         }
     }
 
-    impl ExtEmitCtx for TestEmitCtx {
-        fn is_checkpoint_preflight(&self) -> bool {
-            self.record_checkpoint
-        }
+    #[test]
+    fn rejects_wrong_address_spaces() {
+        let extension = KeccakExtension::new(None).unwrap();
+        for opcode in [
+            KeccakfOpcode::KECCAKF.global_opcode(),
+            XorinOpcode::XORIN.global_opcode(),
+        ] {
+            let valid = Instruction::from_usize(
+                opcode,
+                [8, 16, 24, REGISTER_AS as usize, MEMORY_AS as usize],
+            );
+            assert!(extension.try_lift(&valid, 0x100).is_some());
 
-        fn counts_checkpoint_residuals(&self) -> bool {
-            self.count_residuals
+            for (d, e) in [(MEMORY_AS, MEMORY_AS), (REGISTER_AS, REGISTER_AS)] {
+                let invalid = Instruction::from_usize(opcode, [8, 16, 24, d as usize, e as usize]);
+                assert!(extension.try_lift(&invalid, 0x100).is_none());
+            }
+        }
+    }
+
+    impl ExtEmitCtx for TestEmitCtx {
+        fn is_preflight(&self) -> bool {
+            self.record_preflight
         }
 
         fn read_var(&mut self, var: Variable) -> String {
@@ -286,20 +308,20 @@ mod tests {
             unreachable!()
         }
 
-        fn reserve_preflight_writes(&mut self, writes: &str, slots: &str) {
-            if self.record_checkpoint {
-                self.lines.push(format!("reserve({writes}, {slots})"));
+        fn reserve_preflight_timestamp_slots(&mut self, slots: &str) {
+            if self.record_preflight {
+                self.lines.push(format!("reserve({slots})"));
             }
         }
 
         fn reserve_replay_values(&mut self, count: &str) {
-            if self.count_residuals {
+            if self.count_replay_values {
                 self.lines.push(format!("reserve_replay({count})"));
             }
         }
 
         fn append_replay_memory_u64_range(&mut self, base: &str, count: &str) {
-            if self.count_residuals {
+            if self.count_replay_values {
                 self.lines.push(format!("append_range({base}, {count})"));
             }
         }
@@ -370,7 +392,7 @@ mod tests {
             ctx.lines,
             [
                 "read(r5)",
-                "reserve(25u, 25u)",
+                "reserve(25u)",
                 "reserve_replay(25u)",
                 "rvr_ext_keccakf(state, r5)",
                 "append_range(r5, 25u)",
@@ -391,7 +413,7 @@ mod tests {
         instruction.emit_c(&mut ctx);
         let words = "((uint32_t)((r7 + 7ull) / 8ull))";
         assert_eq!(ctx.lines[0..3], ["read(r5)", "read(r6)", "read(r7)"]);
-        assert_eq!(ctx.lines[3], format!("reserve({words}, {words} * 3u)"));
+        assert_eq!(ctx.lines[3], format!("reserve({words} * 3u)"));
         assert_eq!(ctx.lines[4], format!("reserve_replay({words})"));
         assert_eq!(ctx.lines[5], "bool tmp0 = rvr_ext_xorin(state, r5, r6, r7)");
         assert_eq!(ctx.lines[6], "if (unlikely(!tmp0)) {");

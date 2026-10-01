@@ -6,15 +6,17 @@ use openvm_circuit::{
     system::memory::MemoryAuxColsFactory,
     utils::next_power_of_two_or_zero,
 };
-use openvm_circuit_primitives::bitwise_op_lookup::SharedBitwiseOperationLookupChip;
+use openvm_circuit_primitives::{
+    bitwise_op_lookup::SharedBitwiseOperationLookupChip, var_range::SharedVariableRangeCheckerChip,
+};
 use openvm_deferral_transpiler::DeferralOpcode;
 use openvm_instructions::{
-    program::DEFAULT_PC_STEP,
-    riscv::{RV64_BYTE_BITS, RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_WORD_NUM_LIMBS},
+    program::{pc_to_idx, DEFAULT_PC_STEP},
+    riscv::{BYTE_BITS, MEMORY_AS, REGISTER_AS, WORD_NUM_LIMBS},
     LocalOpcode, DEFERRAL_AS,
 };
-use openvm_riscv_circuit::adapters::rv64_u16_block_to_bytes;
-use openvm_stark_backend::p3_matrix::dense::RowMajorMatrix;
+use openvm_riscv_circuit::adapters::{add_block_index_range_checks, u16_block_to_bytes};
+use openvm_stark_backend::{p3_matrix::dense::RowMajorMatrix, p3_maybe_rayon::prelude::*};
 use openvm_stark_sdk::config::baby_bear_poseidon2::DIGEST_SIZE;
 
 use super::{accumulator_ptrs, DeferralCallChip};
@@ -81,29 +83,27 @@ pub fn generate_trace_from_postflight<F: VmField>(
     // Validate the complete history before mutating any lookup producer.
     for &step in steps {
         let instruction = postflight.instruction(step);
-        if instruction.d.as_canonical_u32() != RV64_REGISTER_AS
-            || instruction.e.as_canonical_u32() != RV64_MEMORY_AS
-        {
+        if instruction.d.as_u32() != REGISTER_AS || instruction.e.as_u32() != MEMORY_AS {
             return Err(PostflightError::new(
                 "Deferral CALL has invalid address spaces",
             ));
         }
-        let deferral_idx = instruction.c.as_canonical_u32();
+        let deferral_idx = instruction.c.as_u32();
         if deferral_idx as usize >= chip.inner.count_chip.count.len() {
             return Err(PostflightError::new("Deferral CALL index is out of bounds"));
         }
         let from_pc = postflight.pc(step);
         let from_timestamp = postflight.timestamp(step);
-        let rd_ptr = instruction.a.as_canonical_u32();
-        let rs_ptr = instruction.b.as_canonical_u32();
+        let rd_ptr = instruction.a.as_u32();
+        let rs_ptr = instruction.b.as_u32();
         let mut replay = postflight.replay(step);
 
         let rd = replay.read_u16(
-            RV64_REGISTER_AS,
+            REGISTER_AS,
             checked_u16_pointer(rd_ptr, "Deferral CALL destination register")?,
         )?;
         let rs = replay.read_u16(
-            RV64_REGISTER_AS,
+            REGISTER_AS,
             checked_u16_pointer(rs_ptr, "Deferral CALL source register")?,
         )?;
         let rd_val = logged_u32_pointer(rd.value, "Deferral CALL output pointer")?;
@@ -120,10 +120,10 @@ pub fn generate_trace_from_postflight<F: VmField>(
                 "Deferral CALL input commit pointer overflow",
             )?;
             let access = replay.read_u16(
-                RV64_MEMORY_AS,
+                MEMORY_AS,
                 checked_u16_pointer(byte_pointer, "Deferral CALL input commit pointer")?,
             )?;
-            input_commit_bytes.extend(rv64_u16_block_to_bytes(access.value));
+            input_commit_bytes.extend(u16_block_to_bytes(access.value));
             input_commit_accesses.push(access);
         }
         let input_commit: [u8; COMMIT_NUM_BYTES] = input_commit_bytes
@@ -180,10 +180,10 @@ pub fn generate_trace_from_postflight<F: VmField>(
                 "Deferral CALL output key pointer overflow",
             )?;
             let access = replay.write_observed_u16(
-                RV64_MEMORY_AS,
+                MEMORY_AS,
                 checked_u16_pointer(byte_pointer, "Deferral CALL output key pointer")?,
             )?;
-            output_bytes.extend(rv64_u16_block_to_bytes(access.value));
+            output_bytes.extend(u16_block_to_bytes(access.value));
             output_accesses.push(access);
         }
         let output_bytes: [u8; crate::utils::OUTPUT_TOTAL_BYTES] = output_bytes
@@ -278,13 +278,15 @@ pub fn generate_trace_from_postflight<F: VmField>(
     }
 
     let mem_helper = chip.mem_helper.as_borrowed();
-    for (row_idx, replay_row) in replay_rows.into_iter().enumerate() {
-        let row = &mut trace.values[row_idx * width..(row_idx + 1) * width];
-        let (adapter_row, core_row) = row.split_at_mut(adapter_width);
-        let adapter_row: &mut DeferralCallAdapterCols<F> = adapter_row.borrow_mut();
-        fill_call_adapter(&chip.inner.adapter, &mem_helper, adapter_row, &replay_row);
-        fill_call_core(&chip.inner, core_row.borrow_mut(), &replay_row);
-    }
+    trace.values[..replay_rows.len() * width]
+        .par_chunks_exact_mut(width)
+        .zip(replay_rows.par_iter())
+        .for_each(|(row, replay_row)| {
+            let (adapter_row, core_row) = row.split_at_mut(adapter_width);
+            let adapter_row: &mut DeferralCallAdapterCols<F> = adapter_row.borrow_mut();
+            fill_call_adapter(&chip.inner.adapter, &mem_helper, adapter_row, replay_row);
+            fill_call_core(&chip.inner, core_row.borrow_mut(), replay_row);
+        });
     Ok(trace)
 }
 
@@ -294,11 +296,11 @@ fn fill_call_adapter<F: VmField>(
     cols: &mut DeferralCallAdapterCols<F>,
     replay: &DeferralCallReplay<F>,
 ) {
-    debug_assert!(RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS >= filler.address_bits);
-    let limb_shift_bits = RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS - filler.address_bits;
+    debug_assert!(BYTE_BITS * WORD_NUM_LIMBS >= filler.address_bits);
+    let limb_shift_bits = BYTE_BITS * WORD_NUM_LIMBS - filler.address_bits;
     filler.bitwise_lookup_chip.request_range(
-        (replay.rd_val.to_le_bytes()[RV64_WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
-        (replay.rs_val.to_le_bytes()[RV64_WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
+        (replay.rd_val.to_le_bytes()[WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
+        (replay.rs_val.to_le_bytes()[WORD_NUM_LIMBS - 1] as u32) << limb_shift_bits,
     );
     for pointer in [replay.rd_val, replay.rs_val] {
         for bytes in pointer.to_le_bytes().chunks_exact(2) {
@@ -306,6 +308,11 @@ fn fill_call_adapter<F: VmField>(
                 .bitwise_lookup_chip
                 .request_range(bytes[0] as u32, bytes[1] as u32);
         }
+    }
+
+    // Block-index range-check counts for the heap `input`/`output` base pointers.
+    for byte_ptr in [replay.rs_val, replay.rd_val] {
+        add_block_index_range_checks(&filler.range_checker_chip, byte_ptr, filler.address_bits);
     }
 
     for (aux, access) in cols
@@ -368,7 +375,7 @@ fn fill_call_adapter<F: VmField>(
     cols.rs_ptr = F::from_u32(replay.rs_ptr);
     cols.rd_ptr = F::from_u32(replay.rd_ptr);
     cols.from_state.timestamp = F::from_u32(replay.from_timestamp);
-    cols.from_state.pc = F::from_u32(replay.from_pc);
+    cols.from_state.pc = F::from_u32(pc_to_idx(replay.from_pc));
 }
 
 fn fill_call_core<F: VmField>(
@@ -404,8 +411,8 @@ fn fill_call_core<F: VmField>(
             .bitwise_lookup_chip
             .request_range(bytes[0] as u32, bytes[1] as u32);
     }
-    debug_assert!(RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS >= filler.address_bits);
-    let limb_shift_bits = RV64_BYTE_BITS * RV64_WORD_NUM_LIMBS - filler.address_bits;
+    debug_assert!(BYTE_BITS * WORD_NUM_LIMBS >= filler.address_bits);
+    let limb_shift_bits = BYTE_BITS * WORD_NUM_LIMBS - filler.address_bits;
     filler.bitwise_lookup_chip.request_range(
         (replay.output_len[F_NUM_BYTES - 1] as u32) << limb_shift_bits,
         0,
@@ -415,7 +422,7 @@ fn fill_call_core<F: VmField>(
     let output_commit_f = replay.output_commit.map(F::from_u8);
     let input_commit_rcs = input_commit_f
         .chunks_exact(F_NUM_BYTES)
-        .zip(cols.input_commit_lt_aux.iter_mut())
+        .zip(cols.input_commit_canonicity_aux.iter_mut())
         .map(|(bytes, aux)| {
             let x_le = from_fn(|i| bytes[i]);
             CanonicityTraceGen::generate_subrow(&x_le, aux)
@@ -426,7 +433,7 @@ fn fill_call_core<F: VmField>(
     }
     let output_commit_rcs = output_commit_f
         .chunks_exact(F_NUM_BYTES)
-        .zip(cols.output_commit_lt_aux.iter_mut())
+        .zip(cols.output_commit_canonicity_aux.iter_mut())
         .map(|(bytes, aux)| {
             let x_le = from_fn(|i| bytes[i]);
             CanonicityTraceGen::generate_subrow(&x_le, aux)
@@ -458,7 +465,7 @@ pub struct DeferralCallCoreFiller<A, F: VmField> {
     adapter: A,
     count_chip: Arc<DeferralCircuitCountChip>,
     poseidon2_chip: Arc<DeferralPoseidon2Chip<F>>,
-    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<BYTE_BITS>,
     address_bits: usize,
 }
 
@@ -466,6 +473,7 @@ pub struct DeferralCallCoreFiller<A, F: VmField> {
 
 #[derive(Clone, derive_new::new)]
 pub struct DeferralCallAdapterFiller {
-    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+    bitwise_lookup_chip: SharedBitwiseOperationLookupChip<BYTE_BITS>,
+    range_checker_chip: SharedVariableRangeCheckerChip,
     address_bits: usize,
 }

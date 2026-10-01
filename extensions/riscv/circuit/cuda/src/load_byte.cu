@@ -6,8 +6,8 @@ template <typename T> struct LoadByteCoreCols {
     T read_data[BLOCK_FE_WIDTH];
 };
 
-template <typename T> struct Rv64LoadByteCols {
-    Rv64LoadByteAdapterCols<T> adapter;
+template <typename T> struct LoadByteCols {
+    LoadByteAdapterCols<T> adapter;
     LoadByteCoreCols<T> core;
 };
 
@@ -31,10 +31,6 @@ struct LoadByteCore {
         encoder.write_flag_pt(row.slice_from(COL_INDEX(LoadByteCoreCols, selector)), shift);
         COL_WRITE_VALUE(row, LoadByteCoreCols, read_cell_lo_byte, read_cell_bytes[0]);
         COL_WRITE_ARRAY(row, LoadByteCoreCols, read_data, read_data);
-    }
-
-    __device__ void fill_trace_row(RowSlice row, LoadByteRecord record, uint8_t shift) {
-        fill_trace_row(row, record.read_data, shift);
     }
 };
 

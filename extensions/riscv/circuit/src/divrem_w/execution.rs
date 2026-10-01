@@ -8,13 +8,13 @@ use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS, RV64_WORD_NUM_LIMBS},
+    riscv::{REGISTER_AS, REGISTER_NUM_LIMBS, WORD_NUM_LIMBS},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::{DivRemOpcode, DivRemWOpcode};
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::DivRemWExecutor;
+use super::DivRemWCoreExecutor;
 
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
@@ -24,26 +24,26 @@ struct DivRemWPreCompute {
     c: u8,
 }
 
-impl DivRemWExecutor {
+impl DivRemWCoreExecutor {
     #[inline(always)]
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut DivRemWPreCompute,
     ) -> Result<DivRemWOpcode, StaticProgramError> {
         let &Instruction {
             opcode, a, b, c, d, ..
         } = inst;
         let local_opcode = DivRemWOpcode::from_usize(opcode.local_opcode_idx(self.offset));
-        if d.as_canonical_u32() != RV64_REGISTER_AS {
+        if d.as_u32() != REGISTER_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         let pre_compute: &mut DivRemWPreCompute = data.borrow_mut();
         *pre_compute = DivRemWPreCompute {
-            a: a.as_canonical_u32() as u8,
-            b: b.as_canonical_u32() as u8,
-            c: c.as_canonical_u32() as u8,
+            a: a.as_u32() as u8,
+            b: b.as_u32() as u8,
+            c: c.as_u32() as u8,
         };
         Ok(local_opcode)
     }
@@ -60,7 +60,7 @@ macro_rules! dispatch {
     };
 }
 
-impl<F> InterpreterExecutor<F> for DivRemWExecutor
+impl<F> InterpreterExecutor<F> for DivRemWCoreExecutor
 where
     F: PrimeField32,
 {
@@ -78,7 +78,7 @@ where
     fn pre_compute<Ctx: ExecutionCtxTrait>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError> {
         let data: &mut DivRemWPreCompute = data.borrow_mut();
@@ -90,7 +90,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -102,7 +102,7 @@ where
     }
 }
 
-impl<F> InterpreterMeteredExecutor<F> for DivRemWExecutor
+impl<F> InterpreterMeteredExecutor<F> for DivRemWCoreExecutor
 where
     F: PrimeField32,
 {
@@ -115,7 +115,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -132,7 +132,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -150,17 +150,11 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, OP: DivRemWOp>(
     pre_compute: &DivRemWPreCompute,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) {
-    let rs1: [u8; RV64_WORD_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.b as u32);
-    let rs2: [u8; RV64_WORD_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.c as u32);
+    let rs1: [u8; WORD_NUM_LIMBS] = exec_state.vm_read_bytes(REGISTER_AS, pre_compute.b as u32);
+    let rs2: [u8; WORD_NUM_LIMBS] = exec_state.vm_read_bytes(REGISTER_AS, pre_compute.c as u32);
     let result_word = <OP as DivRemWOp>::compute(rs1, rs2);
     let rd = (u32::from_le_bytes(result_word) as i32 as i64 as u64).to_le_bytes();
-    exec_state.vm_write_bytes::<RV64_REGISTER_NUM_LIMBS>(
-        RV64_REGISTER_AS,
-        pre_compute.a as u32,
-        &rd,
-    );
+    exec_state.vm_write_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.a as u32, &rd);
     let pc = exec_state.pc();
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
 }
@@ -192,10 +186,7 @@ unsafe fn execute_e2_impl<CTX: MeteredExecutionCtxTrait, OP: DivRemWOp>(
 }
 
 trait DivRemWOp {
-    fn compute(
-        rs1: [u8; RV64_WORD_NUM_LIMBS],
-        rs2: [u8; RV64_WORD_NUM_LIMBS],
-    ) -> [u8; RV64_WORD_NUM_LIMBS];
+    fn compute(rs1: [u8; WORD_NUM_LIMBS], rs2: [u8; WORD_NUM_LIMBS]) -> [u8; WORD_NUM_LIMBS];
 }
 struct DivwOp;
 struct DivuwOp;
@@ -204,14 +195,11 @@ struct RemuwOp;
 
 impl DivRemWOp for DivwOp {
     #[inline(always)]
-    fn compute(
-        rs1: [u8; RV64_WORD_NUM_LIMBS],
-        rs2: [u8; RV64_WORD_NUM_LIMBS],
-    ) -> [u8; RV64_WORD_NUM_LIMBS] {
+    fn compute(rs1: [u8; WORD_NUM_LIMBS], rs2: [u8; WORD_NUM_LIMBS]) -> [u8; WORD_NUM_LIMBS] {
         let rs1_i32 = i32::from_le_bytes(rs1);
         let rs2_i32 = i32::from_le_bytes(rs2);
         match (rs1_i32, rs2_i32) {
-            (_, 0) => [u8::MAX; RV64_WORD_NUM_LIMBS],
+            (_, 0) => [u8::MAX; WORD_NUM_LIMBS],
             (i32::MIN, -1) => rs1,
             _ => (rs1_i32 / rs2_i32).to_le_bytes(),
         }
@@ -220,12 +208,9 @@ impl DivRemWOp for DivwOp {
 
 impl DivRemWOp for DivuwOp {
     #[inline(always)]
-    fn compute(
-        rs1: [u8; RV64_WORD_NUM_LIMBS],
-        rs2: [u8; RV64_WORD_NUM_LIMBS],
-    ) -> [u8; RV64_WORD_NUM_LIMBS] {
-        if rs2 == [0; RV64_WORD_NUM_LIMBS] {
-            [u8::MAX; RV64_WORD_NUM_LIMBS]
+    fn compute(rs1: [u8; WORD_NUM_LIMBS], rs2: [u8; WORD_NUM_LIMBS]) -> [u8; WORD_NUM_LIMBS] {
+        if rs2 == [0; WORD_NUM_LIMBS] {
+            [u8::MAX; WORD_NUM_LIMBS]
         } else {
             let rs1 = u32::from_le_bytes(rs1);
             let rs2 = u32::from_le_bytes(rs2);
@@ -236,15 +221,12 @@ impl DivRemWOp for DivuwOp {
 
 impl DivRemWOp for RemwOp {
     #[inline(always)]
-    fn compute(
-        rs1: [u8; RV64_WORD_NUM_LIMBS],
-        rs2: [u8; RV64_WORD_NUM_LIMBS],
-    ) -> [u8; RV64_WORD_NUM_LIMBS] {
+    fn compute(rs1: [u8; WORD_NUM_LIMBS], rs2: [u8; WORD_NUM_LIMBS]) -> [u8; WORD_NUM_LIMBS] {
         let rs1_i32 = i32::from_le_bytes(rs1);
         let rs2_i32 = i32::from_le_bytes(rs2);
         match (rs1_i32, rs2_i32) {
             (_, 0) => rs1,
-            (i32::MIN, -1) => [0; RV64_WORD_NUM_LIMBS],
+            (i32::MIN, -1) => [0; WORD_NUM_LIMBS],
             _ => (rs1_i32 % rs2_i32).to_le_bytes(),
         }
     }
@@ -252,11 +234,8 @@ impl DivRemWOp for RemwOp {
 
 impl DivRemWOp for RemuwOp {
     #[inline(always)]
-    fn compute(
-        rs1: [u8; RV64_WORD_NUM_LIMBS],
-        rs2: [u8; RV64_WORD_NUM_LIMBS],
-    ) -> [u8; RV64_WORD_NUM_LIMBS] {
-        if rs2 == [0; RV64_WORD_NUM_LIMBS] {
+    fn compute(rs1: [u8; WORD_NUM_LIMBS], rs2: [u8; WORD_NUM_LIMBS]) -> [u8; WORD_NUM_LIMBS] {
+        if rs2 == [0; WORD_NUM_LIMBS] {
             rs1
         } else {
             let rs1 = u32::from_le_bytes(rs1);

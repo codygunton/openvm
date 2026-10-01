@@ -5,17 +5,16 @@
 //!
 //! Modular arithmetic opcodes are handled separately by the algebra extension.
 
-use openvm_ecc_transpiler::Rv64WeierstrassOpcode::{
+use openvm_ecc_transpiler::WeierstrassOpcode::{
     self, EC_ADD_NE, EC_DOUBLE, SETUP_EC_ADD_NE, SETUP_EC_DOUBLE,
 };
 use openvm_instructions::{
-    riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES},
+    instruction::Instruction,
+    riscv::{MEMORY_AS, NUM_REGISTERS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode,
 };
 use rvr_openvm_ir::{CfgEffect, ExtEmitCtx, ExtInstr, InstrAt, LiftedInstr, Variable};
-use rvr_openvm_lift::{
-    decode_variable, max_main_memory_pages_for_contiguous_range, RvrExtension, RvrInstruction,
-};
+use rvr_openvm_lift::{decode_variable, max_main_memory_pages_for_contiguous_range, RvrExtension};
 use strum::EnumCount;
 
 // An ECC addition can read two independent 96-byte points and write one.
@@ -23,14 +22,14 @@ const ECC_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION: usize =
     3 * max_main_memory_pages_for_contiguous_range(96);
 
 fn decode_reg(value: u32) -> Variable {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
 }
 
 fn emit_pointer_alignment_guard(ctx: &mut dyn ExtEmitCtx, pointers: &[&str]) {
     let pointers = pointers.join(" | ");
     ctx.write_line(&format!(
         "if (unlikely((({pointers}) & {}ull) != 0ull)) {{",
-        RV64_REGISTER_BYTES - 1
+        REGISTER_BYTES - 1
     ));
     ctx.emit_trap();
     ctx.write_line("}");
@@ -100,26 +99,15 @@ impl ExtInstr for EcAddNeInstr {
     }
 
     fn emit_c(&self, ctx: &mut dyn ExtEmitCtx) {
-        let checkpoint = ctx.is_checkpoint_preflight();
-        let count_residuals = ctx.counts_checkpoint_residuals();
-        let (rd, rs1, rs2) = if checkpoint {
-            // Match the VecHeap adapter: source registers precede the destination register.
-            let rs1 = ctx.read_var(self.rs1_reg);
-            let rs2 = ctx.read_var(self.rs2_reg);
-            let rd = ctx.read_var(self.rd_reg);
-            (rd, rs1, rs2)
-        } else {
-            // Preserve the established pure and metered register order.
-            let rd = ctx.read_var(self.rd_reg);
-            let rs1 = ctx.read_var(self.rs1_reg);
-            let rs2 = ctx.read_var(self.rs2_reg);
-            (rd, rs1, rs2)
-        };
+        let is_preflight = ctx.is_preflight();
+        let rs1 = ctx.read_var(self.rs1_reg);
+        let rs2 = ctx.read_var(self.rs2_reg);
+        let rd = ctx.read_var(self.rd_reg);
         emit_pointer_alignment_guard(ctx, &[&rd, &rs1, &rs2]);
         let point_dwords = self.curve.point_dwords();
-        if checkpoint {
+        if is_preflight {
             // Two point reads followed by one point write happen inside the opaque call.
-            ctx.advance_checkpoint_timestamp(3 * point_dwords);
+            ctx.advance_timestamp(3 * point_dwords);
         }
         let setup_prefix = if self.is_setup { "setup_" } else { "" };
         let suffix = self.curve.c_suffix();
@@ -129,12 +117,10 @@ impl ExtInstr for EcAddNeInstr {
         } else {
             ctx.emit_call(&name, &["state", &rd, &rs1, &rs2]);
         }
-        if count_residuals {
-            // Add setup constrains only its modulus input; y1, x2, and y2 remain execution data.
-            // Its postimage is therefore no less authoritative than a regular add postimage.
-            for word in 0..point_dwords {
-                ctx.append_replay_value(&format!("peek_mem_u64(state, {rd} + {}ull)", word * 8));
-            }
+        // Add setup constrains only its modulus input; y1, x2, and y2 remain execution data.
+        // Its postimage is therefore no less authoritative than a regular add postimage.
+        for word in 0..point_dwords {
+            ctx.append_replay_value(&format!("peek_mem_u64(state, {rd} + {}ull)", word * 8));
         }
     }
 
@@ -166,24 +152,14 @@ impl ExtInstr for EcDoubleInstr {
     }
 
     fn emit_c(&self, ctx: &mut dyn ExtEmitCtx) {
-        let checkpoint = ctx.is_checkpoint_preflight();
-        let count_residuals = ctx.counts_checkpoint_residuals();
-        let (rd, rs1) = if checkpoint {
-            // Match the VecHeap adapter: the source register precedes the destination register.
-            let rs1 = ctx.read_var(self.rs1_reg);
-            let rd = ctx.read_var(self.rd_reg);
-            (rd, rs1)
-        } else {
-            // Preserve the established pure and metered register order.
-            let rd = ctx.read_var(self.rd_reg);
-            let rs1 = ctx.read_var(self.rs1_reg);
-            (rd, rs1)
-        };
+        let is_preflight = ctx.is_preflight();
+        let rs1 = ctx.read_var(self.rs1_reg);
+        let rd = ctx.read_var(self.rd_reg);
         emit_pointer_alignment_guard(ctx, &[&rd, &rs1]);
         let point_dwords = self.curve.point_dwords();
-        if checkpoint {
+        if is_preflight {
             // One point read followed by one point write happens inside the opaque call.
-            ctx.advance_checkpoint_timestamp(2 * point_dwords);
+            ctx.advance_timestamp(2 * point_dwords);
         }
         let setup_prefix = if self.is_setup { "setup_" } else { "" };
         let suffix = self.curve.c_suffix();
@@ -193,8 +169,8 @@ impl ExtInstr for EcDoubleInstr {
         } else {
             ctx.emit_call(&name, &["state", &rd, &rs1]);
         }
-        if count_residuals && !self.is_setup {
-            // Regular-operation outputs are the only residuals. Setup replay derives its writes
+        if !self.is_setup {
+            // Regular-operation outputs are the only replay values. Setup replay derives its writes
             // from the timed reads and the configured field-expression program rather than
             // extending the transcript with setup-only values.
             for word in 0..point_dwords {
@@ -260,11 +236,11 @@ impl EccExtension {
 }
 
 impl RvrExtension for EccExtension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         let opcode = insn.opcode.as_usize();
 
-        let ecc_base = Rv64WeierstrassOpcode::CLASS_OFFSET;
-        let ecc_count = Rv64WeierstrassOpcode::COUNT;
+        let ecc_base = WeierstrassOpcode::CLASS_OFFSET;
+        let ecc_count = WeierstrassOpcode::COUNT;
 
         if opcode < ecc_base {
             return None;
@@ -272,16 +248,20 @@ impl RvrExtension for EccExtension {
         let offset = opcode - ecc_base;
         let curve_idx = offset / ecc_count;
         let local_op = offset % ecc_count;
+        let local_opcode = WeierstrassOpcode::from_repr(local_op)?;
+
+        if insn.d.as_u32() != REGISTER_AS || insn.e.as_u32() != MEMORY_AS {
+            return None;
+        }
 
         let curve = self.curves.get(curve_idx)?.curve?;
 
-        let rd_reg = decode_reg(insn.a);
-        let rs1_reg = decode_reg(insn.b);
+        let rd_reg = decode_reg(insn.a.as_u32());
+        let rs1_reg = decode_reg(insn.b.as_u32());
 
-        let local_opcode = Rv64WeierstrassOpcode::from_repr(local_op)?;
         let instr: Box<dyn ExtInstr> = match local_opcode {
             EC_ADD_NE | SETUP_EC_ADD_NE => {
-                let rs2_reg = decode_reg(insn.c);
+                let rs2_reg = decode_reg(insn.c.as_u32());
                 Box::new(EcAddNeInstr {
                     rd_reg,
                     rs1_reg,
@@ -336,15 +316,15 @@ mod tests {
 
     struct TestEmitCtx {
         operations: Vec<String>,
-        checkpoint: bool,
+        preflight: bool,
         next_tmp: usize,
     }
 
     impl TestEmitCtx {
-        fn checkpoint() -> Self {
+        fn preflight() -> Self {
             Self {
                 operations: Vec::new(),
-                checkpoint: true,
+                preflight: true,
                 next_tmp: 0,
             }
         }
@@ -352,15 +332,15 @@ mod tests {
         fn legacy() -> Self {
             Self {
                 operations: Vec::new(),
-                checkpoint: false,
+                preflight: false,
                 next_tmp: 0,
             }
         }
     }
 
     impl ExtEmitCtx for TestEmitCtx {
-        fn is_checkpoint_preflight(&self) -> bool {
-            self.checkpoint
+        fn is_preflight(&self) -> bool {
+            self.preflight
         }
 
         fn read_var(&mut self, var: Variable) -> String {
@@ -373,12 +353,8 @@ mod tests {
             unreachable!()
         }
 
-        fn advance_timestamp(&mut self, _slots: u32) {
-            unreachable!()
-        }
-
-        fn advance_checkpoint_timestamp(&mut self, slots: u32) {
-            self.operations.push(format!("checkpoint_slots({slots})"));
+        fn advance_timestamp(&mut self, slots: u32) {
+            self.operations.push(format!("timestamp_slots({slots})"));
         }
 
         fn write_var(&mut self, _var: Variable, _val: &str) {
@@ -405,12 +381,14 @@ mod tests {
             unreachable!()
         }
 
-        fn reserve_preflight_writes(&mut self, _writes: &str, _slots: &str) {
+        fn reserve_preflight_timestamp_slots(&mut self, _slots: &str) {
             unreachable!()
         }
 
         fn append_replay_value(&mut self, value: &str) {
-            self.operations.push(format!("residual({value})"));
+            if self.preflight {
+                self.operations.push(format!("replay_value({value})"));
+            }
         }
 
         fn emit_call(&mut self, name: &str, args: &[&str]) {
@@ -465,25 +443,44 @@ mod tests {
         }
     }
 
-    fn expected_residuals(rd: &str, point_dwords: u32) -> Vec<String> {
+    fn expected_replay_values(rd: &str, point_dwords: u32) -> Vec<String> {
         (0..point_dwords)
-            .map(|word| format!("residual(peek_mem_u64(state, {rd} + {}ull))", word * 8))
+            .map(|word| format!("replay_value(peek_mem_u64(state, {rd} + {}ull))", word * 8))
             .collect()
     }
 
     #[test]
     fn ignores_opcodes_outside_configured_curves() {
         let extension = EccExtension::new(vec![0]);
-        let opcode = VmOpcode::from_usize(
-            Rv64WeierstrassOpcode::CLASS_OFFSET + Rv64WeierstrassOpcode::COUNT,
-        );
-        let insn = RvrInstruction::from_canonical(opcode, [0; 7], u32::MAX);
+        let opcode =
+            VmOpcode::from_usize(WeierstrassOpcode::CLASS_OFFSET + WeierstrassOpcode::COUNT);
+        let insn = Instruction::from_usize(opcode, []);
 
         assert!(extension.try_lift(&insn, 0x100).is_none());
     }
 
     #[test]
-    fn add_checkpoint_matches_schedule_and_minimal_residuals() {
+    fn rejects_wrong_address_spaces() {
+        let extension = EccExtension::new(vec![0]);
+        for opcode in [EC_ADD_NE, EC_DOUBLE, SETUP_EC_ADD_NE, SETUP_EC_DOUBLE] {
+            let valid = Instruction::from_usize(
+                opcode.global_opcode(),
+                [8, 16, 24, REGISTER_AS as usize, MEMORY_AS as usize],
+            );
+            assert!(extension.try_lift(&valid, 0x100).is_some());
+
+            for (d, e) in [(MEMORY_AS, MEMORY_AS), (REGISTER_AS, REGISTER_AS)] {
+                let invalid = Instruction::from_usize(
+                    opcode.global_opcode(),
+                    [8, 16, 24, d as usize, e as usize],
+                );
+                assert!(extension.try_lift(&invalid, 0x100).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn add_preflight_matches_schedule_and_minimal_replay_values() {
         for (curve, point_dwords) in [(KnownCurve::K256, 8), (KnownCurve::Bls12381, 12)] {
             for is_setup in [false, true] {
                 let instruction = EcAddNeInstr {
@@ -495,8 +492,8 @@ mod tests {
                 };
                 assert!(instruction.supports_preflight());
 
-                let mut checkpoint = TestEmitCtx::checkpoint();
-                instruction.emit_c(&mut checkpoint);
+                let mut preflight = TestEmitCtx::preflight();
+                instruction.emit_c(&mut preflight);
                 let mut expected = vec![
                     "read(r2)".to_string(),
                     "read(r3)".to_string(),
@@ -504,7 +501,7 @@ mod tests {
                     "if (unlikely(((r1 | r2 | r3) & 7ull) != 0ull)) {".to_string(),
                     "trap".to_string(),
                     "}".to_string(),
-                    format!("checkpoint_slots({})", 3 * point_dwords),
+                    format!("timestamp_slots({})", 3 * point_dwords),
                 ];
                 let name = format!(
                     "rvr_ext_{}ec_add_ne_{}",
@@ -521,14 +518,14 @@ mod tests {
                 } else {
                     expected.push(format!("{name}(state, r1, r2, r3)"));
                 }
-                expected.extend(expected_residuals("r1", point_dwords));
-                assert_eq!(checkpoint.operations, expected);
+                expected.extend(expected_replay_values("r1", point_dwords));
+                assert_eq!(preflight.operations, expected);
             }
         }
     }
 
     #[test]
-    fn double_checkpoint_matches_schedule_and_minimal_residuals() {
+    fn double_preflight_matches_schedule_and_minimal_replay_values() {
         for (curve, point_dwords) in [(KnownCurve::P256, 8), (KnownCurve::Bls12381, 12)] {
             for is_setup in [false, true] {
                 let instruction = EcDoubleInstr {
@@ -539,15 +536,15 @@ mod tests {
                 };
                 assert!(instruction.supports_preflight());
 
-                let mut checkpoint = TestEmitCtx::checkpoint();
-                instruction.emit_c(&mut checkpoint);
+                let mut preflight = TestEmitCtx::preflight();
+                instruction.emit_c(&mut preflight);
                 let mut expected = vec![
                     "read(r2)".to_string(),
                     "read(r1)".to_string(),
                     "if (unlikely(((r1 | r2) & 7ull) != 0ull)) {".to_string(),
                     "trap".to_string(),
                     "}".to_string(),
-                    format!("checkpoint_slots({})", 2 * point_dwords),
+                    format!("timestamp_slots({})", 2 * point_dwords),
                 ];
                 let name = format!(
                     "rvr_ext_{}ec_double_{}",
@@ -565,15 +562,15 @@ mod tests {
                     expected.push(format!("{name}(state, r1, r2)"));
                 }
                 if !is_setup {
-                    expected.extend(expected_residuals("r1", point_dwords));
+                    expected.extend(expected_replay_values("r1", point_dwords));
                 }
-                assert_eq!(checkpoint.operations, expected);
+                assert_eq!(preflight.operations, expected);
             }
         }
     }
 
     #[test]
-    fn legacy_emission_preserves_destination_first_order_without_checkpoint_data() {
+    fn execution_modes_use_air_operand_order_without_preflight_data() {
         let add = EcAddNeInstr {
             rd_reg: Variable::new(1),
             rs1_reg: Variable::new(2),
@@ -586,9 +583,9 @@ mod tests {
         assert_eq!(
             legacy.operations,
             [
-                "read(r1)",
                 "read(r2)",
                 "read(r3)",
+                "read(r1)",
                 "if (unlikely(((r1 | r2 | r3) & 7ull) != 0ull)) {",
                 "trap",
                 "}",
@@ -607,8 +604,8 @@ mod tests {
         assert_eq!(
             legacy.operations,
             [
-                "read(r1)",
                 "read(r2)",
+                "read(r1)",
                 "if (unlikely(((r1 | r2) & 7ull) != 0ull)) {",
                 "trap",
                 "}",

@@ -2,31 +2,27 @@ use std::{any::Any, collections::BTreeMap};
 
 use openvm_algebra_circuit::AlgebraPreflightGpuTracegen;
 use openvm_bigint_circuit::Int256PreflightGpuTracegen;
+#[cfg(feature = "rvr")]
+use openvm_circuit::arch::rvr::PreflightExecution;
 use openvm_circuit::arch::{
     cuda::postflight::{
         GpuPostflightError, GpuPostflightPlan, GpuPostflightProgram, GpuPostflightTranscript,
     },
     instructions::program::Program,
-    prepare_gpu_postflight, GenerationError, Postflight, PostflightTracegen, PreflightOutput,
-    VirtualMachine,
-};
-#[cfg(feature = "rvr")]
-use openvm_circuit::arch::{
-    rvr::cuda::{CheckpointReplayProgram, PostflightAccessRegistry},
-    PreflightExecution,
+    prepare_gpu_postflight, GenerationError, PostflightTracegen, PreflightOutput, VirtualMachine,
 };
 use openvm_cuda_backend::{BabyBearPoseidon2GpuEngine, GpuBackend};
 use openvm_deferral_circuit::DeferralPreflightGpuTracegen;
 use openvm_ecc_circuit::WeierstrassPreflightGpuTracegen;
 use openvm_keccak256_circuit::Keccak256PreflightGpuTracegen;
+#[cfg(feature = "rvr")]
+use openvm_riscv_circuit::preflight::{PostflightAccessRegistry, PreflightReplayProgram};
 use openvm_riscv_circuit::Rv64ImPreflightGpuTracegen;
 use openvm_sha2_circuit::Sha2PreflightGpuTracegen;
 use openvm_stark_backend::{
-    p3_field::PrimeField32,
     prover::{AirProvingContext, ProvingContext},
     StarkEngine,
 };
-use openvm_stark_sdk::p3_baby_bear::BabyBear;
 
 use crate::{SdkVmConfig, SdkVmGpuBuilder};
 
@@ -54,16 +50,11 @@ impl SdkVmGpuBuilder {
     /// Uploads the immutable program used by interpreter preflight postflight
     /// and trace generation.
     #[cfg(not(feature = "rvr"))]
-    pub(crate) fn upload_preflight_program<F: PrimeField32>(
+    pub(crate) fn upload_preflight_program(
         vm: &VirtualMachine<BabyBearPoseidon2GpuEngine, Self>,
-        program: &Program<F>,
+        program: &Program,
     ) -> Result<GpuPostflightProgram, GpuPostflightError> {
-        let config = vm.config().to_inner();
-        validate_preflight_config(
-            config.modular.is_some(),
-            config.fp2.is_some(),
-            config.ecc.is_some(),
-        )?;
+        validate_preflight_config(vm.config())?;
         GpuPostflightProgram::upload(
             program,
             &vm.config().as_ref().memory_config,
@@ -74,16 +65,12 @@ impl SdkVmGpuBuilder {
     /// Uploads one immutable program together with all postflight access
     /// schedules enabled by this SDK configuration.
     #[cfg(feature = "rvr")]
-    pub(crate) fn upload_preflight_program<F: PrimeField32>(
+    pub(crate) fn upload_preflight_program(
         vm: &VirtualMachine<BabyBearPoseidon2GpuEngine, Self>,
-        program: &Program<F>,
-    ) -> Result<CheckpointReplayProgram, GpuPostflightError> {
+        program: &Program,
+    ) -> Result<PreflightReplayProgram, GpuPostflightError> {
+        validate_preflight_config(vm.config())?;
         let config = vm.config().to_inner();
-        validate_preflight_config(
-            config.modular.is_some(),
-            config.fp2.is_some(),
-            config.ecc.is_some(),
-        )?;
         let mut registry = PostflightAccessRegistry::default();
         if config.keccak.is_some() {
             Keccak256PreflightGpuTracegen::register_postflight_access_schedules(&mut registry)?;
@@ -111,9 +98,7 @@ impl SdkVmGpuBuilder {
         if config.deferral.is_some() {
             DeferralPreflightGpuTracegen::register_postflight_access_schedules(&mut registry)?;
         }
-        let native = Rv64ImPreflightGpuTracegen::postflight_opcode_bases();
-        registry.validate_no_native_collisions(native)?;
-        CheckpointReplayProgram::upload_with_postflight_access_registry(
+        PreflightReplayProgram::upload_with_postflight_access_registry(
             program,
             &vm.config().as_ref().memory_config,
             &registry,
@@ -126,21 +111,16 @@ impl SdkVmGpuBuilder {
     /// retired-instruction boundary.
     ///
     /// This layer deliberately does not guess executor buffer limits. The
-    /// segment's metered instruction and residual counts must be used when
+    /// segment's metered instruction and replay-value counts must be used when
     /// constructing `PreflightLimits`.
     #[cfg(feature = "rvr")]
     pub(crate) fn postflight(
         vm: &VirtualMachine<BabyBearPoseidon2GpuEngine, Self>,
-        program: &CheckpointReplayProgram,
+        program: &PreflightReplayProgram,
         execution: &PreflightExecution,
         num_insns: u32,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError> {
-        let result = vm.postflight(
-            program,
-            execution,
-            num_insns,
-            Rv64ImPreflightGpuTracegen::postflight_opcode_bases(),
-        );
+        let result = Rv64ImPreflightGpuTracegen::postflight(vm, program, execution, num_insns);
         #[cfg(feature = "metrics")]
         if let Ok((_, replay_plan)) = &result {
             vm.emit_preflight_opcode_counts(replay_plan);
@@ -174,16 +154,16 @@ impl PostflightTracegen<BabyBearPoseidon2GpuEngine> for SdkVmGpuBuilder {
 
     fn prepare_postflight(
         vm: &VirtualMachine<BabyBearPoseidon2GpuEngine, Self>,
-        program: &Program<BabyBear>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
         prepare_gpu_postflight(vm, program)
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<BabyBearPoseidon2GpuEngine, Self>,
+        _host_program: &Program,
         program: &Self::Prepared,
         output: &PreflightOutput,
-        _postflight: &Postflight<'_, BabyBear>,
     ) -> Result<ProvingContext<GpuBackend>, GenerationError> {
         let (transcript, replay_plan) = vm
             .postflight_history(program, output)
@@ -200,11 +180,7 @@ impl<'a> SdkPreflightGpuTracegen<'a> {
         replay_plan: &'a GpuPostflightPlan,
         max_trace_height: usize,
     ) -> Result<Self, GpuPostflightError> {
-        validate_preflight_config(
-            config.modular.is_some(),
-            config.fp2.is_some(),
-            config.ecc.is_some(),
-        )?;
+        validate_preflight_config(config)?;
         let keccak = config
             .keccak
             .as_ref()
@@ -302,14 +278,13 @@ impl<'a> SdkPreflightGpuTracegen<'a> {
             self.transcript,
             self.replay_plan,
             self,
-            |tracegen, insertion_idx, chip| tracegen.generate_for_chip(insertion_idx, chip),
+            SdkPreflightGpuTracegen::generate_for_chip,
             SdkPreflightGpuTracegen::finish,
         )
     }
 
     fn generate_for_chip(
         &mut self,
-        insertion_idx: usize,
         chip: &dyn Any,
     ) -> Result<AirProvingContext<GpuBackend>, GenerationError> {
         if let Some(tracegen) = &mut self.deferral {
@@ -342,9 +317,7 @@ impl<'a> SdkPreflightGpuTracegen<'a> {
                 return Ok(ctx);
             }
         }
-        self.rv64
-            .generate_for_chip(insertion_idx, chip)
-            .map_err(extension_error)
+        self.rv64.generate_for_chip(chip).map_err(extension_error)
     }
 
     fn finish(self) -> Result<(), GenerationError> {
@@ -374,17 +347,13 @@ fn extension_error(error: GpuPostflightError) -> GenerationError {
     GenerationError::ExtensionTracegen(error.to_string())
 }
 
-fn validate_preflight_config(
-    has_modular: bool,
-    has_fp2: bool,
-    has_ecc: bool,
-) -> Result<(), GpuPostflightError> {
-    if !has_modular && has_fp2 {
+fn validate_preflight_config(config: &SdkVmConfig) -> Result<(), GpuPostflightError> {
+    if config.modular.is_none() && config.fp2.is_some() {
         return Err(GpuPostflightError::InvalidAccessSchedule(
             "Fp2 preflight replay requires the Modular extension".to_string(),
         ));
     }
-    if !has_modular && has_ecc {
+    if config.modular.is_none() && config.ecc.is_some() {
         return Err(GpuPostflightError::InvalidAccessSchedule(
             "Weierstrass preflight replay requires the Modular extension".to_string(),
         ));
@@ -448,29 +417,30 @@ impl OpcodeOwnership {
 mod tests {
     #[cfg(feature = "rvr")]
     use openvm_circuit::arch::{
-        MemoryConfig, PreflightEndpoint, PreflightLimits, SystemConfig, VmExecutor,
+        rvr::{PreflightEndpoint, PreflightLimits},
+        MemoryConfig, SystemConfig, VmExecutor,
     };
+    #[cfg(feature = "rvr")]
+    use openvm_cuda_backend::prelude::F;
     #[cfg(feature = "rvr")]
     use openvm_instructions::{
         exe::VmExe,
         instruction::Instruction,
         program::Program,
-        riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+        riscv::{MEMORY_AS, REGISTER_AS},
         PUBLIC_VALUES_AS,
     };
     use openvm_instructions::{LocalOpcode, SystemOpcode};
     #[cfg(feature = "rvr")]
     use openvm_stark_backend::SystemParams;
-    #[cfg(feature = "rvr")]
-    use openvm_stark_sdk::p3_baby_bear::BabyBear;
 
     use super::*;
 
     #[cfg(feature = "rvr")]
     fn small_system_config() -> SystemConfig {
         let mut address_spaces = MemoryConfig::empty_address_space_configs(5);
-        address_spaces[RV64_REGISTER_AS as usize].num_cells = 1 << 12;
-        address_spaces[RV64_MEMORY_AS as usize].num_cells = 1 << 22;
+        address_spaces[REGISTER_AS as usize].num_cells = 1 << 12;
+        address_spaces[MEMORY_AS as usize].num_cells = 1 << 22;
         address_spaces[PUBLIC_VALUES_AS as usize].num_cells = 1 << 12;
         SystemConfig::new(3, MemoryConfig::new(2, address_spaces, 29, 29, 17), 32)
     }
@@ -478,14 +448,14 @@ mod tests {
     #[cfg(feature = "rvr")]
     #[test]
     fn standard_sdk_inventory_proves_from_record_free_preflight() {
-        let program = Program::from_instructions(&[Instruction::<BabyBear>::from_usize(
+        let program = Program::from_instructions(&[Instruction::from_usize(
             SystemOpcode::TERMINATE.global_opcode(),
             [0; 7],
         )]);
         let exe = VmExe::new(program.clone());
         let mut config = SdkVmConfig::standard();
         config.system.config = small_system_config();
-        let executor = VmExecutor::new(config.clone()).unwrap();
+        let executor = VmExecutor::<F, _>::new(config.clone()).unwrap();
         let preflight = executor.preflight_instance(&exe).unwrap();
         let state = preflight.create_initial_vm_state(Vec::<Vec<u8>>::new());
 

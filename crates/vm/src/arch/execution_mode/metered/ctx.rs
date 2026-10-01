@@ -2,8 +2,10 @@ use itertools::Itertools;
 use openvm_instructions::{
     exe::SparseMemoryImage,
     metering::SEGMENT_CHECK_INSNS,
-    riscv::{RV64_IMM_AS, RV64_REGISTER_AS},
+    riscv::{IMM_AS, REGISTER_AS},
 };
+#[cfg(feature = "metrics")]
+use openvm_stark_backend::interaction::BusIndex;
 use openvm_stark_backend::memory_metering::ProvingMemoryConfig;
 use serde::{Deserialize, Serialize};
 
@@ -39,9 +41,14 @@ pub struct MeteredCtx {
 pub struct MeteredCtxInputs<'a> {
     pub constant_trace_heights: &'a [Option<usize>],
     pub air_names: &'a [String],
+    #[cfg(feature = "metrics")]
+    pub bus_names: &'a [String],
+    #[cfg(feature = "metrics")]
+    pub bus_interactions: &'a [Vec<(BusIndex, usize)>],
     pub widths: &'a [usize],
     pub interactions: &'a [usize],
     pub need_rot: &'a [bool],
+    pub constraint_eval_buffers: &'a [usize],
     pub segmentation_limits: SegmentationLimits,
 }
 
@@ -69,9 +76,17 @@ impl MeteredCtx {
             inputs.widths.to_vec(),
             inputs.interactions.to_vec(),
             inputs.need_rot.to_vec(),
+            inputs.constraint_eval_buffers.to_vec(),
             inputs.segmentation_limits,
             memory_config,
         );
+        #[cfg(feature = "metrics")]
+        let segmentation_config = {
+            let mut config = segmentation_config;
+            config
+                .set_bus_interactions(inputs.bus_names.to_vec(), inputs.bus_interactions.to_vec());
+            config
+        };
         let initial_trace_heights = trace_heights.clone();
         let mut memory_ctx = MemoryCtx::new(config);
         memory_ctx.add_register_merkle_heights();
@@ -240,7 +255,7 @@ impl ExecutionCtxTrait for MeteredCtx {
     #[inline(always)]
     fn on_memory_operation(&mut self, address_space: u32, ptr: u32, size: u32) {
         debug_assert!(
-            address_space != RV64_IMM_AS,
+            address_space != IMM_AS,
             "address space must not be immediate"
         );
         debug_assert!(size > 0, "size must be greater than 0, got {size}");
@@ -250,7 +265,7 @@ impl ExecutionCtxTrait for MeteredCtx {
         );
 
         // Handle merkle tree updates
-        if address_space != RV64_REGISTER_AS {
+        if address_space != REGISTER_AS {
             self.memory_ctx
                 .update_boundary_merkle_heights(address_space, ptr, size);
         }

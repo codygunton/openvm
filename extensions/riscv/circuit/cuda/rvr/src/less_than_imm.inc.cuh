@@ -59,8 +59,8 @@ __global__ void less_than_imm_replay_tracegen(
     uint32_t encoded_imm = instruction.words[3];
     if (instruction.words[0] != expected_opcode ||
         instruction.words[4] != register_address_space ||
-        instruction.words[5] != immediate_address_space || rd_ptr == 0 || (rd_ptr & 1) != 0 ||
-        (rs1_ptr & 1) != 0) {
+        instruction.words[5] != immediate_address_space || rd_ptr == 0 || !replay_canonical_register_pointer(rd_ptr) ||
+        !replay_canonical_register_pointer(rs1_ptr)) {
         preflight_set_error(error, 44);
         return;
     }
@@ -90,10 +90,8 @@ __global__ void less_than_imm_replay_tracegen(
     }
     uint16_t rs1[BLOCK_FE_WIDTH];
     uint16_t logged_rd[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(read.value, rs1) || !replay_u16_block(write.value, logged_rd)) {
-        preflight_set_error(error, 48);
-        return;
-    }
+    replay_u16_block(read.value, rs1);
+    replay_u16_block(write.value, logged_rd);
     uint16_t imm[BLOCK_FE_WIDTH];
     imm[0] = static_cast<uint16_t>(imm_low11 + imm_sign * 0xf800);
 #pragma unroll
@@ -121,7 +119,7 @@ __global__ void less_than_imm_replay_tracegen(
     }
 
     auto checker = VariableRangeChecker(range_checker, range_checker_num_bins);
-    auto adapter = Rv64BaseAluImmU16Adapter(checker, timestamp_max_bits);
+    auto adapter = BaseAluImmU16Adapter(checker, timestamp_max_bits);
     adapter.fill_trace_row(
         row,
         from.pc,
@@ -132,7 +130,7 @@ __global__ void less_than_imm_replay_tracegen(
         write_previous.timestamp,
         write_previous.value
     );
-    auto core = Rv64LessThanImmCore(checker);
+    auto core = LessThanImmCore<BLOCK_FE_WIDTH, U16_BITS>(checker);
     core.fill_trace_row(
         row.slice_from(COL_INDEX(LessThanImmCols, core)),
         rs1,
@@ -177,7 +175,7 @@ extern "C" int _less_than_imm_replay_tracegen(
     assert(num_sltiu_steps <= steps.len() - sltiu_step_start);
     assert(num_slti_steps <= SIZE_MAX - num_sltiu_steps);
     assert(height >= num_slti_steps + num_sltiu_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     less_than_imm_replay_tracegen<<<grid, block, 0, stream>>>(
         trace,
         height,

@@ -2,6 +2,7 @@
 #include "primitives/constants.h"
 #include "primitives/histogram.cuh"
 #include "primitives/trace_access.h"
+#include "riscv-adapters/pointer_conv.cuh"
 #include "riscv-adapters/vec_heap.cuh"
 #include "arch/rvr/replay.cuh"
 #include "system/memory/params.cuh"
@@ -13,10 +14,10 @@ using namespace program;
 using openvm::U16_BITS;
 
 template <typename T, size_t NUM_READS, size_t BLOCKS_PER_READ>
-struct Rv64IsEqualModU16AdapterCols {
+struct IsEqualModU16AdapterCols {
     ExecutionState<T> from_state;
     T rs_ptr[NUM_READS];
-    T rs_val[NUM_READS][RV64_PTR_U16_LIMBS];
+    T rs_val[NUM_READS][PTR_U16_LIMBS];
     MemoryReadAuxCols<T> rs_read_aux[NUM_READS];
     MemoryReadAuxCols<T> heap_read_aux[NUM_READS][BLOCKS_PER_READ];
     T rd_ptr;
@@ -121,7 +122,7 @@ __global__ void modular_is_eq_replay_tracegen(
     uint32_t pointer_max_bits,
     uint32_t timestamp_max_bits
 ) {
-    using AdapterCols = Rv64IsEqualModU16AdapterCols<uint8_t, 2, BLOCKS>;
+    using AdapterCols = IsEqualModU16AdapterCols<uint8_t, 2, BLOCKS>;
     using CoreCols = ModularIsEqualCoreCols<uint8_t, LIMBS>;
     using WriteAuxCols = MemoryWriteAuxCols<uint8_t, BLOCK_FE_WIDTH>;
     constexpr size_t ADAPTER_WIDTH = sizeof(AdapterCols);
@@ -288,14 +289,15 @@ __global__ void modular_is_eq_replay_tracegen(
     VariableRangeChecker range_checker(range_checker_counts, range_checker_bins);
     MemoryAuxColsFactory memory_aux(range_checker, timestamp_max_bits);
 
-    row[offsetof(AdapterCols, from_state) + offsetof(ExecutionState<uint8_t>, pc)] = Fp(from.pc);
+    row[offsetof(AdapterCols, from_state) + offsetof(ExecutionState<uint8_t>, pc)] =
+        Fp(::program::pc_to_idx(from.pc));
     row[offsetof(AdapterCols, from_state) + offsetof(ExecutionState<uint8_t>, timestamp)] =
         Fp(from.timestamp);
     for (size_t read = 0; read < 2; read++) {
         row[offsetof(AdapterCols, rs_ptr) + read] = Fp(rs_ptr[read]);
-        row[offsetof(AdapterCols, rs_val) + read * RV64_PTR_U16_LIMBS] =
+        row[offsetof(AdapterCols, rs_val) + read * PTR_U16_LIMBS] =
             Fp(static_cast<uint16_t>(rs_val[read]));
-        row[offsetof(AdapterCols, rs_val) + read * RV64_PTR_U16_LIMBS + 1] =
+        row[offsetof(AdapterCols, rs_val) + read * PTR_U16_LIMBS + 1] =
             Fp(static_cast<uint16_t>(rs_val[read] >> U16_BITS));
         memory_aux.fill(
             row.slice_from(offsetof(AdapterCols, rs_read_aux) +
@@ -303,12 +305,8 @@ __global__ void modular_is_eq_replay_tracegen(
             rs_prev_timestamp[read],
             from.timestamp + static_cast<uint32_t>(read)
         );
-        range_checker.add_count(
-            ptr_bound_from_high_u16(
-                static_cast<uint16_t>(rs_val[read] >> U16_BITS), pointer_max_bits
-            ),
-            U16_BITS
-        );
+        // Block-index range-check counts. Mirrors the host filler in algebra's trace.rs.
+        add_block_index_range_checks(range_checker, rs_val[read], pointer_max_bits);
         for (size_t block = 0; block < BLOCKS; block++) {
             size_t aux_index = read * BLOCKS + block;
             memory_aux.fill(
@@ -396,7 +394,7 @@ static int launch_modular_is_eq_replay(
     uint32_t timestamp_max_bits,
     cudaStream_t stream
 ) {
-    using AdapterCols = Rv64IsEqualModU16AdapterCols<uint8_t, 2, BLOCKS>;
+    using AdapterCols = IsEqualModU16AdapterCols<uint8_t, 2, BLOCKS>;
     using CoreCols = ModularIsEqualCoreCols<uint8_t, LIMBS>;
     if (width != sizeof(AdapterCols) + sizeof(CoreCols)) return 1;
     auto [grid, block] = kernel_launch_params(height, 256);

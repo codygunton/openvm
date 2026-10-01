@@ -28,10 +28,10 @@ pub use openvm_circuit::{self, arch::ExecutionOutcome};
 use openvm_circuit::{
     arch::{
         execution_mode::Segment, instructions::exe::VmExe, ContinuationProverBuilder, Executor,
-        InitFileGenerator, MeteredExecutor, VirtualMachineError, VmBuilder, VmExecutionConfig,
-        VmExecutor, U16_CELL_SIZE,
+        InitFileGenerator, MeteredExecutor, SystemConfig, VirtualMachine, VirtualMachineError,
+        VmBuilder, VmExecutionConfig, VmExecutor, VmState,
     },
-    system::memory::merkle::public_values::extract_public_values,
+    system::memory::{merkle::public_values::extract_public_values, online::GuestMemory},
 };
 use openvm_continuations::CommitBytes;
 use openvm_sdk_config::{SdkVmConfig, SdkVmCpuBuilder, TranspilerConfig};
@@ -44,11 +44,7 @@ use openvm_static_verifier::StaticVerifierShape;
 use openvm_transpiler::{
     elf::Elf, openvm_platform::memory::MEM_SIZE, transpiler::Transpiler, FromElf,
 };
-use openvm_verify_stark_host::{
-    verify_vm_stark_proof_decoded,
-    vk::{VerificationBaseline, VmStarkVerifyingKey},
-    VmStarkProof,
-};
+use openvm_verify_stark_host::{verify_vm_stark_proof_decoded, vk::VmStarkVerifyingKey};
 pub use types::{ExecutableFormat, ExecutableInput};
 
 #[cfg(feature = "rvr")]
@@ -56,8 +52,10 @@ use crate::compiled::load_metered_artifact_metadata;
 use crate::{
     config::{AggregationConfig, AggregationSystemParams, AggregationTreeConfig},
     keygen::{AggPrefixProvingKey, AggProvingKey, SdkCachedProvingKey},
-    prover::{AggProver, AppProver, DeferralAggProver, DeferralHookCommits, StarkProver},
-    types::AppExecutionCommit,
+    prover::{
+        vm::new_local_vm, AggProver, AppProver, DeferralAggProver, DeferralHookCommits, StarkProver,
+    },
+    types::{AppExecutionCommit, VmBaseline},
 };
 #[cfg(feature = "evm-prove")]
 use crate::{halo2_params::CacheHalo2ParamsReader, keygen::Halo2ProvingKey, prover::Halo2Prover};
@@ -80,6 +78,7 @@ cfg_if::cfg_if! {
 }
 
 pub use openvm_stark_sdk::config::baby_bear_poseidon2::{BabyBearPoseidon2Config as SC, F};
+pub use openvm_verify_stark_host::{vk::VerificationBaseline, VmStarkProof};
 
 pub mod builder;
 pub mod compiled;
@@ -88,6 +87,8 @@ pub mod fs;
 #[cfg(feature = "evm-prove")]
 pub mod halo2_params;
 pub mod keygen;
+#[cfg(feature = "certified-verifier")]
+pub use openvm_certified_verifier as certified_verifier;
 pub mod prover;
 #[cfg(feature = "evm-verify")]
 mod solidity;
@@ -101,8 +102,12 @@ mod error;
 mod stdin;
 #[cfg(feature = "rvr")]
 pub use compiled::CompiledExePureWithInstretTracking;
-pub use compiled::{CompiledExeMetered, CompiledExeMeteredCost, CompiledExePure};
+pub use compiled::{
+    CompiledExeMetered, CompiledExeMeteredCost, CompiledExePreflight, CompiledExePure,
+    PreflightOutput,
+};
 pub use error::SdkError;
+pub use openvm_sdk_config::SegmentProver;
 pub use stdin::*;
 
 pub const OPENVM_VERSION: &str = concat!(
@@ -160,7 +165,7 @@ where
     #[getset(get = "pub")]
     app_vm_builder: VB,
 
-    transpiler: Option<Transpiler<F>>,
+    transpiler: Option<Transpiler>,
 
     /// The `executor` may be used to construct different types of interpreters, given the program,
     /// for more specific execution purposes. By default, it is recommended to use the
@@ -235,13 +240,10 @@ where
     /// Creates SDK with a standard configuration that includes a set of default VM extensions
     /// loaded.
     ///
-    /// **Note**: To use this configuration, your `openvm.toml` must match, including the order of
-    /// the moduli and elliptic curve parameters of the respective extensions:
-    /// The `app_vm_config` field of your `openvm.toml` must exactly match the following:
-    ///
-    /// ```toml
-    #[doc = include_str!("../../sdk-config/src/openvm_standard.toml")]
-    /// ```
+    /// **Note**: To use this configuration, your `openvm.toml` must match
+    /// [`SdkVmConfig::standard`], including the order of the moduli and elliptic curve parameters
+    /// of the respective extensions. See the `openvm-sdk-config` crate documentation for the
+    /// corresponding TOML.
     pub fn standard(app_params: SystemParams, agg_params: AggregationSystemParams) -> Self {
         GenericSdk::new(AppConfig::standard(app_params), agg_params).unwrap()
     }
@@ -270,7 +272,7 @@ where
     ) -> Result<Self, SdkError>
     where
         VB: Default,
-        VB::VmConfig: TranspilerConfig<F>,
+        VB::VmConfig: TranspilerConfig,
     {
         Self::builder()
             .app_config(app_config)
@@ -400,11 +402,11 @@ where
         let elf_path =
             find_unique_executable(pkg_dir, target_dir, target_filter).map_err(SdkError::Other)?;
         let data = read(&elf_path)?;
-        Elf::decode(&data, MEM_SIZE as u32).map_err(SdkError::Other)
+        Elf::decode(&data, MEM_SIZE as u64).map_err(SdkError::Other)
     }
 
     /// Transpiler for transpiling RISC-V ELF to OpenVM executable.
-    pub fn transpiler(&self) -> Result<&Transpiler<F>, SdkError> {
+    pub fn transpiler(&self) -> Result<&Transpiler, SdkError> {
         self.transpiler
             .as_ref()
             .ok_or(SdkError::TranspilerNotAvailable)
@@ -414,7 +416,7 @@ where
     pub fn convert_to_exe(
         &self,
         executable: impl Into<ExecutableFormat>,
-    ) -> Result<Arc<VmExe<F>>, SdkError> {
+    ) -> Result<Arc<VmExe>, SdkError> {
         let executable = executable.into();
         let exe = match executable {
             ExecutableFormat::Elf(elf) => {
@@ -440,7 +442,7 @@ where
             }),
             ExecutableInput::ElfFile(path) => {
                 let bytes = read(&path)?;
-                let elf = Elf::decode(&bytes, MEM_SIZE as u32)?;
+                let elf = Elf::decode(&bytes, MEM_SIZE as u64)?;
                 Ok(CompileInput {
                     executable: ExecutableFormat::Elf(elf),
                     #[cfg(feature = "rvr")]
@@ -459,7 +461,7 @@ where
     }
 
     #[cfg(feature = "rvr")]
-    fn guest_debug_map(&self, elf_path: &Path, exe: &VmExe<F>) -> Result<GuestDebugMap, SdkError> {
+    fn guest_debug_map(&self, elf_path: &Path, exe: &VmExe) -> Result<GuestDebugMap, SdkError> {
         let pcs = exe
             .program
             .instructions_and_debug_infos
@@ -483,6 +485,11 @@ where
     VB: ContinuationProverBuilder<E> + Clone,
     <VB::VmConfig as VmExecutionConfig<F>>::Executor: Executor<F> + MeteredExecutor<F> + 'static,
 {
+    fn app_vm(&self) -> Result<VirtualMachine<E, VB>, SdkError> {
+        let app_pk = self.app_pk();
+        new_local_vm(self.app_vm_builder.clone(), &app_pk.app_vm_pk).map_err(SdkError::from)
+    }
+
     /// Compile `app_exe` and execute it, returning the user public values as bytes.
     pub fn compile_and_execute(
         &self,
@@ -589,10 +596,68 @@ where
             .map_err(VirtualMachineError::from)?
             .memory;
         let public_values = extract_public_values(
-            self.executor.config.as_ref().num_public_values * U16_CELL_SIZE,
+            self.executor.config.as_ref().num_public_values,
             &final_memory.memory,
         );
         Ok(public_values)
+    }
+
+    /// Compile `app_exe` for bounded preflight execution.
+    #[tracing::instrument(name = "sdk.compile_preflight", level = "info", skip_all)]
+    pub fn compile_preflight(
+        &self,
+        app_exe: impl Into<ExecutableInput>,
+    ) -> Result<CompiledExePreflight<'_>, SdkError> {
+        let input = self.compile_input(app_exe)?;
+        let exe = self.convert_to_exe(input.executable)?;
+        #[cfg(feature = "rvr")]
+        {
+            let guest_debug_map = input
+                .elf_path
+                .as_deref()
+                .map(|elf_path| self.guest_debug_map(elf_path, &exe))
+                .transpose()?;
+            self.executor
+                .preflight_instance_with_debug_map(&exe, guest_debug_map.as_ref())
+                .map(CompiledExePreflight::new)
+                .map_err(VirtualMachineError::from)
+                .map_err(SdkError::from)
+        }
+        #[cfg(not(feature = "rvr"))]
+        self.executor
+            .preflight_instance(&exe)
+            .map(CompiledExePreflight::new)
+            .map_err(VirtualMachineError::from)
+            .map_err(SdkError::from)
+    }
+
+    /// Run preflight for exactly one metered segment from `state`.
+    #[tracing::instrument(name = "sdk.execute_preflight", level = "info", skip_all)]
+    pub fn execute_preflight(
+        &self,
+        compiled: &CompiledExePreflight<'_>,
+        state: VmState<GuestMemory>,
+        segment: &Segment,
+    ) -> Result<PreflightOutput, SdkError> {
+        compiled
+            .execute_segment(state, segment)
+            .map_err(VirtualMachineError::from)
+            .map_err(SdkError::from)
+    }
+
+    /// Load a previously saved preflight-mode artifact.
+    #[cfg(feature = "rvr")]
+    pub fn load_compiled_preflight(
+        &self,
+        lib_path: &Path,
+        app_exe: impl Into<ExecutableFormat>,
+    ) -> Result<CompiledExePreflight<'_>, SdkError> {
+        let exe = self.convert_to_exe(app_exe)?;
+        self.executor
+            .load_preflight_instance(lib_path, &exe)
+            .map(CompiledExePreflight::new)
+            .map_err(VirtualMachineError::from)
+            .map_err(SdkError::from)
     }
 
     /// Executes with segmentation for proof generation.
@@ -614,10 +679,8 @@ where
         app_exe: impl Into<ExecutableInput>,
     ) -> Result<CompiledExeMetered<'_>, SdkError> {
         let input = self.compile_input(app_exe)?;
-        let app_prover = self.app_prover(input.executable)?;
-
-        let vm = app_prover.vm();
-        let exe = app_prover.exe();
+        let exe = self.convert_to_exe(input.executable)?;
+        let vm = self.app_vm()?;
 
         let ctx = vm.build_metered_ctx(&exe);
         let executor_idx_to_air_idx = vm.executor_idx_to_air_idx();
@@ -689,7 +752,7 @@ where
             .execute_metered(inputs, compiled.ctx.clone())
             .map_err(VirtualMachineError::from)?;
         let public_values = extract_public_values(
-            self.executor.config.as_ref().num_public_values * U16_CELL_SIZE,
+            self.executor.config.as_ref().num_public_values,
             &final_state.memory.memory,
         );
 
@@ -714,10 +777,8 @@ where
         app_exe: impl Into<ExecutableInput>,
     ) -> Result<CompiledExeMeteredCost<'_>, SdkError> {
         let input = self.compile_input(app_exe)?;
-        let app_prover = self.app_prover(input.executable)?;
-
-        let vm = app_prover.vm();
-        let exe = app_prover.exe();
+        let exe = self.convert_to_exe(input.executable)?;
+        let vm = self.app_vm()?;
 
         let ctx = vm.build_metered_cost_ctx();
         let executor_idx_to_air_idx = vm.executor_idx_to_air_idx();
@@ -753,9 +814,8 @@ where
         lib_path: &Path,
         app_exe: impl Into<ExecutableFormat>,
     ) -> Result<CompiledExeMeteredCost<'_>, SdkError> {
-        let app_prover = self.app_prover(app_exe)?;
-        let vm = app_prover.vm();
-        let exe = app_prover.exe();
+        let exe = self.convert_to_exe(app_exe)?;
+        let vm = self.app_vm()?;
 
         let ctx = vm.build_metered_cost_ctx();
         let executor_idx_to_air_idx = vm.executor_idx_to_air_idx();
@@ -781,7 +841,7 @@ where
         let cost = ctx.cost;
 
         let public_values = extract_public_values(
-            self.executor.config.as_ref().num_public_values * U16_CELL_SIZE,
+            self.executor.config.as_ref().num_public_values,
             &final_state.memory.memory,
         );
 
@@ -1100,6 +1160,23 @@ where
         })
     }
 
+    /// Returns the [VmBaseline] that STARK proofs generated by this Sdk are verified against:
+    /// the executable-independent subset of the [VerificationBaseline], derived from this Sdk's
+    /// config and keys. The app and aggregation proving keys are generated if not already cached.
+    pub fn vm_baseline(&self) -> VmBaseline {
+        let system_config: &SystemConfig = self.app_config.app_vm_config.as_ref();
+        let agg_prover = self.agg_prover();
+        VmBaseline {
+            memory_dimensions: system_config.memory_config.memory_dimensions(),
+            num_user_pvs: system_config.num_public_values,
+            app_vk_commit: agg_prover.leaf_prover.get_vk_commit(false),
+            leaf_vk_commit: agg_prover.internal_for_leaf_prover.get_vk_commit(false),
+            internal_for_leaf_vk_commit: agg_prover.internal_recursive_prover.get_vk_commit(false),
+            internal_recursive_vk_commit: agg_prover.internal_recursive_prover.get_vk_commit(true),
+            expected_def_hook_commit: self.deferral_setup.hook_commit(),
+        }
+    }
+
     // ======================== Verification Methods ========================
 
     /// Verifies aggregate STARK proof of VM execution.
@@ -1117,6 +1194,23 @@ where
         };
         verify_vm_stark_proof_decoded(&vk, proof)?;
         Ok(())
+    }
+
+    /// Returns an error because the certified Swirl verifier is not available for RV64.
+    ///
+    /// The current Lean formalization covers only the removed canonical RV32 pipeline. Treating
+    /// its verifier as an RV64 verifier would be unsound. Use [`verify_proof`](Self::verify_proof)
+    /// for RV64 proofs until an RV64 formalization and extracted verifier are available.
+    #[cfg(feature = "certified-verifier")]
+    pub fn verify_proof_with_certified_verifier(
+        verified_baseline: &VerificationBaseline,
+        proof: &VmStarkProof,
+    ) -> Result<(), SdkError> {
+        let _ = (verified_baseline, proof);
+        Err(SdkError::Other(eyre::eyre!(
+            "the certified verifier is unavailable for RV64: the current Lean formalization \
+             covers only the removed canonical RV32 pipeline"
+        )))
     }
 
     #[cfg(feature = "evm-verify")]

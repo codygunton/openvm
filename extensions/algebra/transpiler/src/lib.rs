@@ -4,11 +4,11 @@ use openvm_algebra_guest::{
 };
 use openvm_decoder::instruction_formats::RType;
 use openvm_instructions::{
-    instruction::Instruction, riscv::RV64_REGISTER_NUM_LIMBS, LocalOpcode, PhantomDiscriminant,
-    VmOpcode,
+    instruction::{Instruction, InstructionOperand},
+    riscv::REGISTER_NUM_LIMBS,
+    LocalOpcode, PhantomDiscriminant, VmOpcode,
 };
 use openvm_instructions_derive::LocalOpcode;
-use openvm_stark_backend::p3_field::PrimeField32;
 use openvm_transpiler::{util::from_r_type, TranspilerExtension, TranspilerOutput};
 use strum::{EnumCount, EnumIter, FromRepr};
 
@@ -18,7 +18,7 @@ use strum::{EnumCount, EnumIter, FromRepr};
 #[opcode_offset = 0x500]
 #[repr(usize)]
 #[allow(non_camel_case_types)]
-pub enum Rv64ModularArithmeticOpcode {
+pub enum ModularArithmeticOpcode {
     ADD,
     SUB,
     SETUP_ADDSUB,
@@ -57,8 +57,8 @@ pub struct ModularTranspilerExtension;
 #[derive(Default)]
 pub struct Fp2TranspilerExtension;
 
-impl<F: PrimeField32> TranspilerExtension<F> for ModularTranspilerExtension {
-    fn process_custom(&self, instruction_stream: &[u32]) -> Option<TranspilerOutput<F>> {
+impl TranspilerExtension for ModularTranspilerExtension {
+    fn process_custom(&self, instruction_stream: &[u32]) -> Option<TranspilerOutput> {
         if instruction_stream.is_empty() {
             return None;
         }
@@ -78,34 +78,34 @@ impl<F: PrimeField32> TranspilerExtension<F> for ModularTranspilerExtension {
             let base_funct7 =
                 (dec_insn.funct7 as u8) % ModArithBaseFunct7::MODULAR_ARITHMETIC_MAX_KINDS;
             assert!(
-                Rv64ModularArithmeticOpcode::COUNT
+                ModularArithmeticOpcode::COUNT
                     <= ModArithBaseFunct7::MODULAR_ARITHMETIC_MAX_KINDS as usize
             );
             let mod_idx = ((dec_insn.funct7 as u8)
                 / ModArithBaseFunct7::MODULAR_ARITHMETIC_MAX_KINDS)
                 as usize;
-            let mod_idx_shift = mod_idx * Rv64ModularArithmeticOpcode::COUNT;
+            let mod_idx_shift = mod_idx * ModularArithmeticOpcode::COUNT;
             if base_funct7 == ModArithBaseFunct7::SetupMod as u8 {
                 let local_opcode = match dec_insn.rs2 {
-                    0 => Rv64ModularArithmeticOpcode::SETUP_ADDSUB,
-                    1 => Rv64ModularArithmeticOpcode::SETUP_MULDIV,
-                    2 => Rv64ModularArithmeticOpcode::SETUP_ISEQ,
+                    0 => ModularArithmeticOpcode::SETUP_ADDSUB,
+                    1 => ModularArithmeticOpcode::SETUP_MULDIV,
+                    2 => ModularArithmeticOpcode::SETUP_ISEQ,
                     _ => panic!("invalid opcode"),
                 };
-                if local_opcode == Rv64ModularArithmeticOpcode::SETUP_ISEQ && dec_insn.rd == 0 {
+                if local_opcode == ModularArithmeticOpcode::SETUP_ISEQ && dec_insn.rd == 0 {
                     panic!("SETUP_ISEQ is not valid for rd = x0");
                 } else {
                     Some(Instruction::new(
                         VmOpcode::from_usize(
                             local_opcode.global_opcode().as_usize() + mod_idx_shift,
                         ),
-                        F::from_usize(RV64_REGISTER_NUM_LIMBS * dec_insn.rd),
-                        F::from_usize(RV64_REGISTER_NUM_LIMBS * dec_insn.rs1),
-                        F::ZERO, // rs2 = 0
-                        F::ONE,  // d_as = 1
-                        F::TWO,  // e_as = 2
-                        F::ZERO,
-                        F::ZERO,
+                        InstructionOperand::from_usize(REGISTER_NUM_LIMBS * dec_insn.rd),
+                        InstructionOperand::from_usize(REGISTER_NUM_LIMBS * dec_insn.rs1),
+                        InstructionOperand::ZERO, // rs2 = 0
+                        InstructionOperand::ONE,  // d_as = 1
+                        InstructionOperand::TWO,  // e_as = 2
+                        InstructionOperand::ZERO,
+                        InstructionOperand::ZERO,
                     ))
                 }
             } else if base_funct7 == ModArithBaseFunct7::HintNonQr as u8 {
@@ -114,8 +114,8 @@ impl<F: PrimeField32> TranspilerExtension<F> for ModularTranspilerExtension {
                 assert_eq!(dec_insn.rs2, 0);
                 Some(Instruction::phantom(
                     PhantomDiscriminant(ModularPhantom::HintNonQr as u16),
-                    F::ZERO,
-                    F::ZERO,
+                    InstructionOperand::ZERO,
+                    InstructionOperand::ZERO,
                     mod_idx as u16,
                 ))
             } else if base_funct7 == ModArithBaseFunct7::HintSqrt as u8 {
@@ -123,31 +123,31 @@ impl<F: PrimeField32> TranspilerExtension<F> for ModularTranspilerExtension {
                 assert_eq!(dec_insn.rs2, 0);
                 Some(Instruction::phantom(
                     PhantomDiscriminant(ModularPhantom::HintSqrt as u16),
-                    F::from_usize(RV64_REGISTER_NUM_LIMBS * dec_insn.rs1),
-                    F::ZERO,
+                    InstructionOperand::from_usize(REGISTER_NUM_LIMBS * dec_insn.rs1),
+                    InstructionOperand::ZERO,
                     mod_idx as u16,
                 ))
             } else {
                 let global_opcode = match ModArithBaseFunct7::from_repr(base_funct7) {
                     Some(ModArithBaseFunct7::AddMod) => {
-                        Rv64ModularArithmeticOpcode::ADD as usize
-                            + Rv64ModularArithmeticOpcode::CLASS_OFFSET
+                        ModularArithmeticOpcode::ADD as usize
+                            + ModularArithmeticOpcode::CLASS_OFFSET
                     }
                     Some(ModArithBaseFunct7::SubMod) => {
-                        Rv64ModularArithmeticOpcode::SUB as usize
-                            + Rv64ModularArithmeticOpcode::CLASS_OFFSET
+                        ModularArithmeticOpcode::SUB as usize
+                            + ModularArithmeticOpcode::CLASS_OFFSET
                     }
                     Some(ModArithBaseFunct7::MulMod) => {
-                        Rv64ModularArithmeticOpcode::MUL as usize
-                            + Rv64ModularArithmeticOpcode::CLASS_OFFSET
+                        ModularArithmeticOpcode::MUL as usize
+                            + ModularArithmeticOpcode::CLASS_OFFSET
                     }
                     Some(ModArithBaseFunct7::DivMod) => {
-                        Rv64ModularArithmeticOpcode::DIV as usize
-                            + Rv64ModularArithmeticOpcode::CLASS_OFFSET
+                        ModularArithmeticOpcode::DIV as usize
+                            + ModularArithmeticOpcode::CLASS_OFFSET
                     }
                     Some(ModArithBaseFunct7::IsEqMod) => {
-                        Rv64ModularArithmeticOpcode::IS_EQ as usize
-                            + Rv64ModularArithmeticOpcode::CLASS_OFFSET
+                        ModularArithmeticOpcode::IS_EQ as usize
+                            + ModularArithmeticOpcode::CLASS_OFFSET
                     }
                     _ => unimplemented!(),
                 };
@@ -163,8 +163,8 @@ impl<F: PrimeField32> TranspilerExtension<F> for ModularTranspilerExtension {
     }
 }
 
-impl<F: PrimeField32> TranspilerExtension<F> for Fp2TranspilerExtension {
-    fn process_custom(&self, instruction_stream: &[u32]) -> Option<TranspilerOutput<F>> {
+impl TranspilerExtension for Fp2TranspilerExtension {
+    fn process_custom(&self, instruction_stream: &[u32]) -> Option<TranspilerOutput> {
         if instruction_stream.is_empty() {
             return None;
         }
@@ -201,13 +201,13 @@ impl<F: PrimeField32> TranspilerExtension<F> for Fp2TranspilerExtension {
                     VmOpcode::from_usize(
                         local_opcode.global_opcode().as_usize() + complex_idx_shift,
                     ),
-                    F::from_usize(RV64_REGISTER_NUM_LIMBS * dec_insn.rd),
-                    F::from_usize(RV64_REGISTER_NUM_LIMBS * dec_insn.rs1),
-                    F::ZERO, // rs2 = 0
-                    F::ONE,  // d_as = 1
-                    F::TWO,  // e_as = 2
-                    F::ZERO,
-                    F::ZERO,
+                    InstructionOperand::from_usize(REGISTER_NUM_LIMBS * dec_insn.rd),
+                    InstructionOperand::from_usize(REGISTER_NUM_LIMBS * dec_insn.rs1),
+                    InstructionOperand::ZERO, // rs2 = 0
+                    InstructionOperand::ONE,  // d_as = 1
+                    InstructionOperand::TWO,  // e_as = 2
+                    InstructionOperand::ZERO,
+                    InstructionOperand::ZERO,
                 ))
             } else {
                 let global_opcode = match ComplexExtFieldBaseFunct7::from_repr(base_funct7) {

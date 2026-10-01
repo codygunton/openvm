@@ -12,33 +12,21 @@
 
 #include "openvm_state.h"
 
-static __attribute__((always_inline)) inline bool
-trace_reserve_memory_writes(RvState* restrict state [[maybe_unused]],
-                            uint32_t writes [[maybe_unused]],
-                            uint32_t slots [[maybe_unused]]) {
-  return true;
-}
-
-static __attribute__((always_inline)) inline bool
-trace_write_other_block_u64(
-    RvState* restrict state [[maybe_unused]],
-    uint32_t address_space [[maybe_unused]], uint32_t pointer [[maybe_unused]],
-    uint64_t value [[maybe_unused]], uint64_t previous_value [[maybe_unused]]) {
-  return true;
-}
-
 static __attribute__((always_inline)) inline void
-trace_timestamp(RvState* restrict state [[maybe_unused]]) {}
+trace_write_public_values_u64(
+    RvState* restrict state [[maybe_unused]], uint32_t pointer [[maybe_unused]]) {}
 
 /* The metering state checks the lengths of these fixed-capacity page buffers,
  * but Clang cannot prove those bounds. */
 #pragma clang unsafe_buffer_usage begin
 
 static constexpr uint32_t NO_LAST_PAGE = UINT32_MAX;
-static constexpr uint32_t TRACER_BYTES_PER_LEAF =
-    1u << TRACER_BYTE_SPACE_PTRS_PER_LEAF_BITS;
-static constexpr uint32_t TRACER_LEAF_BYTE_OFFSET_MASK =
-    TRACER_BYTES_PER_LEAF - 1u;
+/* Number of bytes in one Merkle leaf of the main-memory address space. */
+static constexpr uint32_t TRACER_MEMORY_LEAF_BYTES =
+    1u << TRACER_MEMORY_LEAF_BYTE_BITS;
+/* Mask for the byte offset within one main-memory Merkle leaf. */
+static constexpr uint32_t TRACER_MEMORY_LEAF_BYTE_MASK =
+    TRACER_MEMORY_LEAF_BYTES - 1u;
 
 static_assert(
     TRACER_MEM_PAGE_BUF_CAP >=
@@ -61,12 +49,22 @@ typedef struct PageTouch {
   uint64_t leaf_mask;
 } PageTouch;
 
+/* Direct SP-relative accesses use a separate pending page so alternating
+ * access patterns do not repeatedly evict the default pending page. */
+typedef enum TraceMemoryCache {
+  TRACE_MEMORY_CACHE_DEFAULT,
+  TRACE_MEMORY_CACHE_SP_RELATIVE,
+  TRACE_MEMORY_CACHE_COUNT,
+} TraceMemoryCache;
+
 /* One page buffer per address space stores local page ids and leaf masks.
  * AS_REGISTER pages are handled entirely on the Rust side at init. */
 typedef struct TraceMemory {
-  uint32_t last_mem_page;
+  uint32_t last_page[TRACE_MEMORY_CACHE_COUNT];
   uint32_t mem_page_buf_len;
-  uint64_t last_mem_leaf_mask;
+  /* Align last_leaf_mask and make the padding explicit. */
+  uint32_t _padding;
+  uint64_t last_leaf_mask[TRACE_MEMORY_CACHE_COUNT];
   PageTouch* mem_page_buf;
 } TraceMemory;
 
@@ -74,22 +72,25 @@ typedef struct TraceMemory {
 
 /* Valid VM pointers fit in uint32_t. Check full RV64 operands before calling
  * these helpers. */
-static __attribute__((always_inline)) inline uint32_t byte_addr_to_local_leaf(
+static __attribute__((always_inline)) inline uint32_t cell_pointer_to_local_leaf(
     uint64_t ptr) {
-  return (uint32_t)(ptr >> TRACER_BYTE_SPACE_PTRS_PER_LEAF_BITS);
+  return (uint32_t)(ptr >> TRACER_CELLS_PER_LEAF_BITS);
 }
 
 static __attribute__((always_inline)) inline uint32_t
-deferral_addr_to_local_leaf(uint64_t ptr) {
-  return (uint32_t)(ptr >> TRACER_DEFERRAL_PTRS_PER_LEAF_BITS);
+memory_byte_pointer_to_local_leaf(uint64_t ptr) {
+  return (uint32_t)(ptr >> TRACER_MEMORY_LEAF_BYTE_BITS);
 }
 
 static __attribute__((always_inline)) inline uint32_t addr_to_local_leaf(
     uint32_t addr_space, uint64_t ptr) {
-  if (likely(addr_space == AS_MEMORY || addr_space == AS_PUBLIC_VALUES)) {
-    return byte_addr_to_local_leaf(ptr);
+  if (likely(addr_space == AS_MEMORY)) {
+    return memory_byte_pointer_to_local_leaf(ptr);
   }
-  return deferral_addr_to_local_leaf(ptr);
+  if (addr_space == AS_PUBLIC_VALUES || addr_space == AS_DEFERRAL) {
+    return cell_pointer_to_local_leaf(ptr);
+  }
+  __builtin_trap();
 }
 
 static __attribute__((always_inline)) inline uint64_t leaf_mask(uint32_t leaf) {
@@ -130,6 +131,35 @@ static __attribute__((always_inline)) inline void append_page_touch_range(
     uint32_t end = last_leaf < page_last_leaf ? last_leaf : page_last_leaf;
     append_page_touch(buf, len, page, leaf_mask_range(start, end));
   }
+}
+
+/* AS_PUBLIC_VALUES and AS_DEFERRAL are not on the main-memory hot path. Grow
+ * their Rust-owned buffers before an append that would exceed capacity. */
+static __attribute__((always_inline)) inline void
+ensure_resizable_page_buffer_capacity(MeteringState* metering,
+                                      uint32_t addr_space, uint32_t len,
+                                      uint32_t cap,
+                                      uint32_t additional_entries) {
+  if (unlikely(len > cap || additional_entries > cap - len)) {
+    metering->on_page_buffer_resize(metering, addr_space,
+                                    additional_entries);
+  }
+}
+
+static __attribute__((always_inline)) inline void
+ensure_pv_page_buffer_capacity(MeteringState* metering,
+                               uint32_t additional_entries) {
+  ensure_resizable_page_buffer_capacity(
+      metering, AS_PUBLIC_VALUES, metering->pv_page_buf_len,
+      metering->pv_page_buf_cap, additional_entries);
+}
+
+static __attribute__((always_inline)) inline void
+ensure_deferral_page_buffer_capacity(MeteringState* metering,
+                                     uint32_t additional_entries) {
+  ensure_resizable_page_buffer_capacity(
+      metering, AS_DEFERRAL, metering->deferral_page_buf_len,
+      metering->deferral_page_buf_cap, additional_entries);
 }
 
 /* No bounds check — see MEM_PAGE_BUF_CAP in metered.rs. */
@@ -174,29 +204,37 @@ static __attribute__((always_inline)) inline void record_mem_page_range(
   metering->last_mem_page = last_page;
 }
 
-/* No bounds check — see PV_PAGE_BUF_CAP in metered.rs. */
 static __attribute__((always_inline)) inline void record_pv_page(
     MeteringState* metering, uint32_t page, uint64_t leaf_mask) {
+  ensure_pv_page_buffer_capacity(metering, 1u);
   append_page_touch(metering->pv_page_buf, &metering->pv_page_buf_len, page,
                     leaf_mask);
 }
 
 static __attribute__((always_inline)) inline void record_pv_page_range(
     MeteringState* metering, uint32_t first_leaf, uint32_t last_leaf) {
+  uint32_t additional_entries =
+      (last_leaf >> TRACER_PAGE_BITS) -
+      (first_leaf >> TRACER_PAGE_BITS) + 1u;
+  ensure_pv_page_buffer_capacity(metering, additional_entries);
   uint32_t len = metering->pv_page_buf_len;
   append_page_touch_range(metering->pv_page_buf, &len, first_leaf, last_leaf);
   metering->pv_page_buf_len = len;
 }
 
-/* No bounds check — see DEFERRAL_PAGE_BUF_CAP in metered.rs. */
 static __attribute__((always_inline)) inline void record_deferral_page(
     MeteringState* metering, uint32_t page, uint64_t leaf_mask) {
+  ensure_deferral_page_buffer_capacity(metering, 1u);
   append_page_touch(metering->deferral_page_buf,
                     &metering->deferral_page_buf_len, page, leaf_mask);
 }
 
 static __attribute__((always_inline)) inline void record_deferral_page_range(
     MeteringState* metering, uint32_t first_leaf, uint32_t last_leaf) {
+  uint32_t additional_entries =
+      (last_leaf >> TRACER_PAGE_BITS) -
+      (first_leaf >> TRACER_PAGE_BITS) + 1u;
+  ensure_deferral_page_buffer_capacity(metering, additional_entries);
   uint32_t len = metering->deferral_page_buf_len;
   append_page_touch_range(metering->deferral_page_buf, &len, first_leaf,
                           last_leaf);
@@ -204,7 +242,7 @@ static __attribute__((always_inline)) inline void record_deferral_page_range(
 }
 
 /* Record a single page access. `addr_space` is a compile-time constant at
- * every direct call site in generated C, so the branches below fold away. */
+ * direct generated-C call sites, so the branches below fold away. */
 static __attribute__((always_inline)) inline void record_page(
     MeteringState* metering, uint32_t addr_space, uint64_t ptr, uint32_t size) {
   uint32_t first_leaf = addr_to_local_leaf(addr_space, ptr);
@@ -226,6 +264,7 @@ static __attribute__((always_inline)) inline void record_page(
       record_pv_page_range(metering, first_leaf, last_leaf);
     }
   } else {
+    /* addr_to_local_leaf rejected unsupported address spaces above. */
     if (first_page == last_page) {
       record_deferral_page(metering, first_page,
                            leaf_mask_range(first_leaf, last_leaf));
@@ -247,6 +286,7 @@ static __attribute__((always_inline)) inline void record_page_range(
   } else if (addr_space == AS_PUBLIC_VALUES) {
     record_pv_page_range(metering, first_leaf, last_leaf);
   } else {
+    /* addr_to_local_leaf rejected unsupported address spaces above. */
     record_deferral_page_range(metering, first_leaf, last_leaf);
   }
 }
@@ -256,92 +296,121 @@ static __attribute__((always_inline)) inline void record_page_range(
 static __attribute__((always_inline)) inline TraceMemory trace_memory_setup(
     MeteringState* restrict metering) {
   TraceMemory memory = {
-      .last_mem_page = NO_LAST_PAGE,
+      .last_page = {NO_LAST_PAGE, NO_LAST_PAGE},
       .mem_page_buf_len = metering->mem_page_buf_len,
-      .last_mem_leaf_mask = 0,
+      ._padding = 0,
+      .last_leaf_mask = {0, 0},
       .mem_page_buf = metering->mem_page_buf,
   };
   return memory;
 }
 
-static __attribute__((always_inline)) inline void trace_memory_drain(
-    TraceMemory* restrict memory) {
-  if (memory->last_mem_page == NO_LAST_PAGE ||
-      memory->last_mem_leaf_mask == 0) {
-    memory->last_mem_page = NO_LAST_PAGE;
-    memory->last_mem_leaf_mask = 0;
+static __attribute__((always_inline)) inline void trace_memory_drain_impl(
+    TraceMemory* restrict memory, TraceMemoryCache cache) {
+  if (memory->last_page[cache] == NO_LAST_PAGE ||
+      memory->last_leaf_mask[cache] == 0) {
+    memory->last_page[cache] = NO_LAST_PAGE;
+    memory->last_leaf_mask[cache] = 0;
     return;
   }
   append_page_touch(memory->mem_page_buf, &memory->mem_page_buf_len,
-                    memory->last_mem_page, memory->last_mem_leaf_mask);
-  memory->last_mem_page = NO_LAST_PAGE;
-  memory->last_mem_leaf_mask = 0;
+                    memory->last_page[cache], memory->last_leaf_mask[cache]);
+  memory->last_page[cache] = NO_LAST_PAGE;
+  memory->last_leaf_mask[cache] = 0;
 }
 
 static __attribute__((always_inline)) inline void trace_memory_flush(
     MeteringState* restrict metering, TraceMemory* restrict memory) {
-  trace_memory_drain(memory);
-  metering->last_mem_page = memory->last_mem_page;
+  trace_memory_drain_impl(memory, TRACE_MEMORY_CACHE_DEFAULT);
+  trace_memory_drain_impl(memory, TRACE_MEMORY_CACHE_SP_RELATIVE);
+  metering->last_mem_page = NO_LAST_PAGE;
   metering->mem_page_buf_len = memory->mem_page_buf_len;
 }
 
 static __attribute__((always_inline)) inline void trace_memory_reload(
     MeteringState* restrict metering, TraceMemory* restrict memory) {
-  memory->last_mem_page = NO_LAST_PAGE;
+  memory->last_page[TRACE_MEMORY_CACHE_DEFAULT] = NO_LAST_PAGE;
+  memory->last_page[TRACE_MEMORY_CACHE_SP_RELATIVE] = NO_LAST_PAGE;
   memory->mem_page_buf_len = metering->mem_page_buf_len;
-  memory->last_mem_leaf_mask = 0;
+  memory->last_leaf_mask[TRACE_MEMORY_CACHE_DEFAULT] = 0;
+  memory->last_leaf_mask[TRACE_MEMORY_CACHE_SP_RELATIVE] = 0;
   memory->mem_page_buf = metering->mem_page_buf;
 }
 
-static __attribute__((always_inline)) inline void trace_memory_access_page(
-    TraceMemory* restrict memory, uint32_t page, uint64_t leaf_mask) {
+static __attribute__((always_inline)) inline void trace_memory_access_page_impl(
+    TraceMemory* restrict memory, TraceMemoryCache cache, uint32_t page,
+    uint64_t leaf_mask) {
   /* Keep one pending AS_MEMORY page in registers for the current generated
    * block. Consecutive accesses to that page merge by OR-ing leaf masks. */
-  if (likely(page == memory->last_mem_page)) {
-    memory->last_mem_leaf_mask |= leaf_mask;
+  if (likely(page == memory->last_page[cache])) {
+    memory->last_leaf_mask[cache] |= leaf_mask;
     return;
   }
-  trace_memory_drain(memory);
-  memory->last_mem_page = page;
-  memory->last_mem_leaf_mask = leaf_mask;
+  trace_memory_drain_impl(memory, cache);
+  memory->last_page[cache] = page;
+  memory->last_leaf_mask[cache] = leaf_mask;
+}
+
+static __attribute__((always_inline)) inline void trace_memory_access_leaf_impl(
+    TraceMemory* restrict memory, TraceMemoryCache cache, uint64_t addr) {
+  uint32_t leaf = memory_byte_pointer_to_local_leaf(addr);
+  trace_memory_access_page_impl(memory, cache, leaf >> TRACER_PAGE_BITS,
+                                leaf_mask(leaf));
 }
 
 static __attribute__((always_inline)) inline void trace_memory_access_leaf(
     TraceMemory* restrict memory, uint64_t addr) {
-  uint32_t leaf = byte_addr_to_local_leaf(addr);
-  trace_memory_access_page(memory, leaf >> TRACER_PAGE_BITS, leaf_mask(leaf));
+  trace_memory_access_leaf_impl(memory, TRACE_MEMORY_CACHE_DEFAULT, addr);
+}
+
+static __attribute__((always_inline)) inline void trace_sp_memory_access_leaf(
+    TraceMemory* restrict memory, uint64_t addr) {
+  trace_memory_access_leaf_impl(memory, TRACE_MEMORY_CACHE_SP_RELATIVE, addr);
 }
 
 /* Record every memory leaf overlapped by [addr, addr + size). Generated
  * accesses are no wider than one leaf, so at most two leaves are touched. */
-static __attribute__((always_inline)) inline void trace_memory_access_span(
-    TraceMemory* restrict memory, uint64_t addr, uint32_t size) {
-  assume(size != 0u && size <= TRACER_BYTES_PER_LEAF);
+static __attribute__((always_inline)) inline void trace_memory_access_span_impl(
+    TraceMemory* restrict memory, TraceMemoryCache cache, uint64_t addr,
+    uint32_t size) {
+  assume(size != 0u && size <= TRACER_MEMORY_LEAF_BYTES);
   assume((size & (size - 1u)) == 0u);
   if (likely((addr & (size - 1u)) == 0u)) {
-    trace_memory_access_leaf(memory, addr);
+    trace_memory_access_leaf_impl(memory, cache, addr);
     return;
   }
 
-  uint32_t leaf_offset = addr & TRACER_LEAF_BYTE_OFFSET_MASK;
-  uint32_t bytes_until_next_leaf = TRACER_BYTES_PER_LEAF - leaf_offset;
+  uint32_t leaf_offset = addr & TRACER_MEMORY_LEAF_BYTE_MASK;
+  uint32_t bytes_until_next_leaf = TRACER_MEMORY_LEAF_BYTES - leaf_offset;
   if (likely(size <= bytes_until_next_leaf)) {
-    trace_memory_access_leaf(memory, addr);
+    trace_memory_access_leaf_impl(memory, cache, addr);
     return;
   }
 
-  uint32_t first_leaf = byte_addr_to_local_leaf(addr);
+  uint32_t first_leaf = memory_byte_pointer_to_local_leaf(addr);
   uint32_t last_leaf = first_leaf + 1u;
   uint32_t first_page = first_leaf >> TRACER_PAGE_BITS;
   uint32_t last_page = last_leaf >> TRACER_PAGE_BITS;
   uint64_t first_mask = leaf_mask(first_leaf);
   uint64_t last_mask = leaf_mask(last_leaf);
   if (likely(first_page == last_page)) {
-    trace_memory_access_page(memory, first_page, first_mask | last_mask);
+    trace_memory_access_page_impl(memory, cache, first_page,
+                                  first_mask | last_mask);
   } else {
-    trace_memory_access_page(memory, first_page, first_mask);
-    trace_memory_access_page(memory, last_page, last_mask);
+    trace_memory_access_page_impl(memory, cache, first_page, first_mask);
+    trace_memory_access_page_impl(memory, cache, last_page, last_mask);
   }
+}
+
+static __attribute__((always_inline)) inline void trace_memory_access_span(
+    TraceMemory* restrict memory, uint64_t addr, uint32_t size) {
+  trace_memory_access_span_impl(memory, TRACE_MEMORY_CACHE_DEFAULT, addr, size);
+}
+
+static __attribute__((always_inline)) inline void trace_sp_memory_access_span(
+    TraceMemory* restrict memory, uint64_t addr, uint32_t size) {
+  trace_memory_access_span_impl(memory, TRACE_MEMORY_CACHE_SP_RELATIVE, addr,
+                                size);
 }
 
 /* Extension range access includes page accounting in metered mode. */
@@ -371,7 +440,7 @@ static __attribute__((always_inline)) inline void write_mem_u64_range(
 /* Peeking at a value does not create a VM memory access. */
 static __attribute__((always_inline)) inline uint64_t peek_mem_u64(
     RvState* restrict state, uint64_t addr) {
-  return read_mem_u64(state->memory, addr);
+  return read_mem_u64(state->memory, addr, 0);
 }
 
 static __attribute__((always_inline)) inline void peek_mem_u64_range(

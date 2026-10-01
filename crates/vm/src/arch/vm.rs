@@ -11,18 +11,20 @@
 use std::any::Any;
 #[cfg(feature = "metrics")]
 use std::collections::BTreeMap;
+#[cfg(feature = "rvr")]
+use std::path::Path;
 use std::{any::TypeId, borrow::Borrow, collections::VecDeque, sync::Arc};
 
 use getset::{Getters, MutGetters, Setters, WithSetters};
 use itertools::Itertools;
 use openvm_circuit::system::program::trace::compute_exe_commit;
 use openvm_cpu_backend::CpuBackend;
+#[cfg(all(feature = "cuda", feature = "metrics"))]
+use openvm_cuda_backend::prelude::F as CudaField;
 #[cfg(feature = "cuda")]
 use openvm_cuda_backend::{BabyBearPoseidon2GpuEngine, GpuBackend};
 #[cfg(feature = "cuda")]
 use openvm_cuda_common::memory_manager::MemTracker;
-#[cfg(all(feature = "cuda", feature = "rvr"))]
-use openvm_instructions::riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS};
 #[cfg(all(feature = "cuda", feature = "metrics"))]
 use openvm_instructions::VmOpcode;
 use openvm_instructions::{
@@ -32,6 +34,8 @@ use openvm_instructions::{
 };
 #[cfg(feature = "metrics")]
 use openvm_instructions::{LocalOpcode, SystemOpcode};
+#[cfg(feature = "perf-metrics")]
+use openvm_instructions::{PhantomDiscriminant, SysPhantom};
 #[cfg(feature = "cuda")]
 use openvm_stark_backend::prover::AirProvingContext;
 #[cfg(any(debug_assertions, feature = "test-utils", feature = "stark-debug"))]
@@ -58,14 +62,11 @@ use tracing::{info_span, instrument};
 
 #[cfg(feature = "cuda")]
 use super::cuda::postflight::{
-    GpuPostflightError, GpuPostflightPlan, GpuPostflightProgram, GpuPostflightTranscript,
+    GpuPostflightBoundary, GpuPostflightContext, GpuPostflightError, GpuPostflightPlan,
+    GpuPostflightProgram, GpuPostflightTranscript,
 };
 #[cfg(any(not(feature = "rvr"), feature = "test-utils"))]
 use super::execution_mode::PreflightCtx;
-#[cfg(all(feature = "cuda", feature = "rvr"))]
-use super::rvr::cuda::{CheckpointReplayProgram, PostflightOpcodeBases};
-#[cfg(all(feature = "cuda", feature = "rvr"))]
-use super::rvr::PreflightExecution;
 #[cfg(feature = "rvr")]
 use super::rvr::{
     bridge::map_rvr_compile_error, build_pc_to_chip, compile, compile::compile_preflight,
@@ -79,19 +80,20 @@ use super::rvr::{
 use super::ExecutionState;
 #[cfg(feature = "metrics")]
 use super::InterpreterExecutor;
+#[cfg(feature = "perf-metrics")]
+use super::PreflightProgramEvent;
 use super::{
     execution_mode::{
         ExecutionCtx, MeteredCostCtx, MeteredCtx, MeteredCtxInputs, Segment, SegmentationLimits,
     },
     hasher::poseidon2::vm_poseidon2_hasher,
     hint_stream::HintStream,
-    interpreter::InterpretedInstance,
-    interpreter_preflight::PreflightInterpretedInstance,
+    interpreter::{InterpretedInstance, PreflightInterpretedInstance},
     new_rng_seed, AirInventoryError, ChipInventoryError, ExecutionError, Executor,
     ExecutorInventory, ExecutorInventoryError, MemoryConfig, MeteredExecutor, Postflight,
-    PreflightOutput, StaticProgramError, SystemConfig, VmBuilder, VmChipComplex, VmCircuitConfig,
-    VmExecutionConfig, VmState, BOUNDARY_AIR_ID, CONNECTOR_AIR_ID, MERKLE_AIR_ID, PROGRAM_AIR_ID,
-    PROGRAM_CACHED_TRACE_INDEX,
+    PostflightProgramIndex, PreflightOutput, StaticProgramError, SystemConfig, VmBuilder,
+    VmChipComplex, VmCircuitConfig, VmExecutionConfig, VmState, BOUNDARY_AIR_ID, CONNECTOR_AIR_ID,
+    MERKLE_AIR_ID, PROGRAM_AIR_ID, PROGRAM_CACHED_TRACE_INDEX,
 };
 #[cfg(feature = "cuda")]
 use crate::system::cuda::SystemChipInventoryGPU;
@@ -112,16 +114,32 @@ use crate::{
     },
 };
 
+#[cfg(all(feature = "rvr", feature = "test-utils"))]
+mod testing;
+
 /// Canonical field bound for VM execution/circuit code.
 pub const BABYBEAR_S_BOX_DEGREE: u64 = 7;
 
 pub trait VmField: PrimeField32 + InjectiveMonomial<BABYBEAR_S_BOX_DEGREE> {}
 impl<T> VmField for T where T: PrimeField32 + InjectiveMonomial<BABYBEAR_S_BOX_DEGREE> {}
 
+#[cfg(feature = "cuda")]
+fn with_gpu_memory_metrics<T, E>(
+    name: &'static str,
+    f: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    let memory = MemTracker::start_and_reset_peak(name);
+    let result = f();
+    memory.emit_metrics();
+    result
+}
+
 #[derive(Error, Debug)]
 pub enum GenerationError {
     #[error("extension trace generation failed: {0}")]
     ExtensionTracegen(String),
+    #[error("VM prover cannot be reused after an incomplete or failed proving session")]
+    ProverPoisoned,
     #[error("proof generation failed: {0}")]
     Proving(String),
     #[error("trace height for air_idx={air_idx} must be fixed to {expected}, actual={actual}")]
@@ -154,16 +172,21 @@ pub enum GenerationError {
 pub trait PostflightTracegen<E: StarkEngine>: VmBuilder<E> {
     type Prepared;
 
+    /// Prepares fixed-program data. CPU preparation indexes `program`; GPU preparation uses `vm`
+    /// to upload it.
     fn prepare_postflight(
         vm: &VirtualMachine<E, Self>,
-        program: &Program<Val<E::SC>>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError>;
 
+    /// Builds one segment's proving context. CPU trace generation reads instructions from
+    /// `host_program`; GPU implementations receive it through this shared trait but read the
+    /// uploaded `prepared` program instead.
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<E, Self>,
+        host_program: &Program,
         prepared: &Self::Prepared,
         output: &PreflightOutput,
-        postflight: &Postflight<'_, Val<E::SC>>,
     ) -> Result<ProvingContext<E::PB>, GenerationError>;
 }
 
@@ -173,27 +196,44 @@ where
     E: StarkEngine<SC = SC, PB = CpuBackend<SC>>,
     Val<SC>: VmField,
     VB: VmBuilder<E, SystemChipInventory = SystemChipInventory<SC>>,
+    <VB::VmConfig as VmExecutionConfig<Val<SC>>>::Executor: Executor<Val<SC>>,
 {
-    type Prepared = ();
+    type Prepared = PostflightProgramIndex;
 
     fn prepare_postflight(
         _vm: &VirtualMachine<E, Self>,
-        _program: &Program<Val<E::SC>>,
+        program: &Program,
     ) -> Result<Self::Prepared, GenerationError> {
-        Ok(())
+        PostflightProgramIndex::new(program)
+            .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
     }
 
     fn generate_proving_ctx(
         vm: &mut VirtualMachine<E, Self>,
-        _prepared: &Self::Prepared,
-        _output: &PreflightOutput,
-        postflight: &Postflight<'_, Val<SC>>,
+        host_program: &Program,
+        prepared: &Self::Prepared,
+        output: &PreflightOutput,
     ) -> Result<ProvingContext<E::PB>, GenerationError> {
         begin_preflight_tracegen_session(&mut vm.preflight_tracegen_poisoned)?;
-        let result = vm
-            .chip_complex
-            .generate_proving_ctx_from_postflight(postflight)
-            .and_then(|ctx| vm.validate_proving_ctx(ctx));
+        let postflight = Postflight::new_prepared(
+            host_program,
+            prepared,
+            &output.history,
+            &vm.config().as_ref().memory_config,
+            output.exit_code,
+        )
+        .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?;
+        #[cfg(feature = "metrics")]
+        crate::metrics::emit_opcode_counts(
+            &output.state.metrics,
+            vm.postflight_opcode_counts(&postflight),
+        );
+        let result = {
+            let _span = info_span!("trace_gen").entered();
+            vm.chip_complex
+                .generate_proving_ctx_from_postflight(&postflight)
+                .and_then(|ctx| vm.validate_proving_ctx(ctx))
+        };
         if result.is_ok() {
             vm.preflight_tracegen_poisoned = false;
         }
@@ -204,7 +244,7 @@ where
 #[cfg(feature = "cuda")]
 pub fn prepare_gpu_postflight<VB>(
     vm: &VirtualMachine<BabyBearPoseidon2GpuEngine, VB>,
-    program: &Program<BabyBear>,
+    program: &Program,
 ) -> Result<GpuPostflightProgram, GenerationError>
 where
     VB: VmBuilder<BabyBearPoseidon2GpuEngine>,
@@ -325,25 +365,12 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn preflight_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, PreflightCtx>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_preflight", backend = "interpreter").entered();
-        InterpretedInstance::new(&self.inventory, exe)
-    }
-
-    /// Builds the interpreter preflight backend for differential tests.
-    #[cfg(all(feature = "rvr", feature = "test-utils"))]
-    #[doc(hidden)]
-    pub fn test_preflight_interpreter_instance(
-        &self,
-        exe: &VmExe<F>,
-    ) -> Result<InterpretedInstance<'_, PreflightCtx>, StaticProgramError> {
-        #[cfg(feature = "metrics")]
-        let _compilation_span =
-            tracing::info_span!("compile_preflight", backend = "interpreter").entered();
-        InterpretedInstance::new(&self.inventory, exe)
+        InterpretedInstance::new::<F, _>(&self.inventory, exe)
     }
 
     /// Creates an instance of the interpreter specialized for pure execution, without metering, of
@@ -353,28 +380,23 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, ExecutionCtx>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_pure", backend = "interpreter").entered();
-        InterpretedInstance::new(&self.inventory, exe)
+        InterpretedInstance::new::<F, _>(&self.inventory, exe)
     }
 
     #[cfg(feature = "rvr")]
     pub fn interpreter_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, ExecutionCtx>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_pure", backend = "interpreter").entered();
-        InterpretedInstance::new(&self.inventory, exe)
-    }
-
-    #[cfg(feature = "rvr")]
-    pub fn instance(&self, exe: &VmExe<F>) -> Result<RvrPureInstance<'_>, StaticProgramError> {
-        self.instance_with_debug_map(exe, None)
+        InterpretedInstance::new::<F, _>(&self.inventory, exe)
     }
 }
 
@@ -396,9 +418,13 @@ where
     VC: VmExecutionConfig<F>,
     VC::Executor: Executor<F>,
 {
+    pub fn instance(&self, exe: &VmExe) -> Result<RvrPureInstance<'_>, StaticProgramError> {
+        self.instance_with_debug_map(exe, None)
+    }
+
     pub fn instance_with_debug_map(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         guest_debug_map: Option<&GuestDebugMap>,
     ) -> Result<RvrPureInstance<'_>, StaticProgramError> {
         #[cfg(feature = "metrics")]
@@ -417,7 +443,7 @@ where
     /// Compile a pure RVR instance with instret tracking and block-boundary suspension.
     pub fn instret_tracking_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         guest_debug_map: Option<&GuestDebugMap>,
     ) -> Result<RvrPureWithInstretTrackingInstance<'_>, StaticProgramError> {
         #[cfg(feature = "metrics")]
@@ -438,14 +464,41 @@ where
     /// The compact transcript is the serial input to record-free GPU replay.
     pub fn preflight_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
+    ) -> Result<PreflightInstance<'_>, StaticProgramError> {
+        self.preflight_instance_with_debug_map(exe, None)
+    }
+
+    pub fn preflight_instance_with_debug_map(
+        &self,
+        exe: &VmExe,
+        guest_debug_map: Option<&GuestDebugMap>,
     ) -> Result<PreflightInstance<'_>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_preflight", backend = "compiled").entered();
         let extensions = self.build_rvr_extensions(None);
-        let compiled =
-            compile_preflight(exe, extensions.lifters(), None).map_err(map_rvr_compile_error)?;
+        let compiled = compile_preflight(exe, extensions.lifters(), guest_debug_map)
+            .map_err(map_rvr_compile_error)?;
+        Ok(PreflightInstance::new(
+            self.inventory.config(),
+            RvrInitialImage::from(exe),
+            compiled,
+            extensions.into_runtime_hooks(),
+        ))
+    }
+
+    /// Load a previously saved preflight artifact.
+    pub fn load_preflight_instance(
+        &self,
+        lib_path: &Path,
+        exe: &VmExe,
+    ) -> Result<PreflightInstance<'_>, StaticProgramError> {
+        let extensions = self.build_rvr_extensions(None);
+        let compiled = load_compiled_from_path(lib_path).map_err(map_rvr_compile_error)?;
+        compiled
+            .require_execution_kind(&[RvrExecutionKind::Preflight])
+            .map_err(map_rvr_compile_error)?;
         Ok(PreflightInstance::new(
             self.inventory.config(),
             RvrInitialImage::from(exe),
@@ -457,8 +510,8 @@ where
     /// Load a previously saved unlimited-pure artifact.
     pub fn load_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<F>,
+        lib_path: &Path,
+        exe: &VmExe,
     ) -> Result<RvrPureInstance<'_>, StaticProgramError> {
         let extensions = self.build_rvr_extensions(None);
         let compiled = load_compiled_from_path(lib_path).map_err(map_rvr_compile_error)?;
@@ -476,8 +529,8 @@ where
     /// Load a previously saved pure artifact with instret tracking.
     pub fn load_instret_tracking_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<F>,
+        lib_path: &Path,
+        exe: &VmExe,
     ) -> Result<RvrPureWithInstretTrackingInstance<'_>, StaticProgramError> {
         let extensions = self.build_rvr_extensions(None);
         let compiled = load_compiled_from_path(lib_path).map_err(map_rvr_compile_error)?;
@@ -503,25 +556,25 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn metered_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
     ) -> Result<InterpretedInstance<'_, MeteredCtx>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_metered", backend = "interpreter").entered();
-        InterpretedInstance::new_metered(&self.inventory, exe, executor_idx_to_air_idx)
+        InterpretedInstance::new_metered::<F, _>(&self.inventory, exe, executor_idx_to_air_idx)
     }
 
     #[cfg(feature = "rvr")]
     pub fn metered_interpreter_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
     ) -> Result<InterpretedInstance<'_, MeteredCtx>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_metered", backend = "interpreter").entered();
-        InterpretedInstance::new_metered(&self.inventory, exe, executor_idx_to_air_idx)
+        InterpretedInstance::new_metered::<F, _>(&self.inventory, exe, executor_idx_to_air_idx)
     }
 
     /// Creates an instance of the interpreter specialized for cost metering execution of the given
@@ -529,25 +582,25 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn metered_cost_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
     ) -> Result<InterpretedInstance<'_, MeteredCostCtx>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_metered_cost", backend = "interpreter").entered();
-        InterpretedInstance::new_metered(&self.inventory, exe, executor_idx_to_air_idx)
+        InterpretedInstance::new_metered::<F, _>(&self.inventory, exe, executor_idx_to_air_idx)
     }
 
     #[cfg(feature = "rvr")]
     pub fn metered_cost_interpreter_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
     ) -> Result<InterpretedInstance<'_, MeteredCostCtx>, StaticProgramError> {
         #[cfg(feature = "metrics")]
         let _compilation_span =
             tracing::info_span!("compile_metered_cost", backend = "interpreter").entered();
-        InterpretedInstance::new_metered(&self.inventory, exe, executor_idx_to_air_idx)
+        InterpretedInstance::new_metered::<F, _>(&self.inventory, exe, executor_idx_to_air_idx)
     }
 }
 
@@ -560,7 +613,7 @@ where
 {
     pub fn metered_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
         num_airs: usize,
     ) -> Result<RvrMeteredInstance<'_>, StaticProgramError> {
@@ -569,7 +622,7 @@ where
 
     pub fn metered_instance_with_debug_map(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
         num_airs: usize,
         guest_debug_map: Option<&GuestDebugMap>,
@@ -584,6 +637,7 @@ where
                 .map_err(map_rvr_compile_error)?,
             chip_widths: None,
         };
+        let uses_deferral_address_space = extensions.lifters().uses_deferral_address_space();
         let compiled = compile_metered(exe, extensions.lifters(), &chips, guest_debug_map)
             .map_err(map_rvr_compile_error)?;
         let runtime_hooks = extensions.into_runtime_hooks();
@@ -593,12 +647,13 @@ where
             RvrInitialImage::from(exe),
             runtime_hooks,
             compiled,
+            uses_deferral_address_space,
         ))
     }
 
     pub fn metered_segment_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
         num_airs: usize,
         guest_debug_map: Option<&GuestDebugMap>,
@@ -613,6 +668,7 @@ where
                 .map_err(map_rvr_compile_error)?,
             chip_widths: None,
         };
+        let uses_deferral_address_space = extensions.lifters().uses_deferral_address_space();
         let compiled =
             compile_metered_segment_boundary(exe, extensions.lifters(), &chips, guest_debug_map)
                 .map_err(map_rvr_compile_error)?;
@@ -623,12 +679,13 @@ where
             RvrInitialImage::from(exe),
             runtime_hooks,
             compiled,
+            uses_deferral_address_space,
         ))
     }
 
     pub fn metered_cost_instance(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
         widths: &[usize],
     ) -> Result<RvrMeteredCostInstance<'_>, StaticProgramError> {
@@ -640,13 +697,13 @@ where
     /// `executor_idx_to_air_idx`.
     pub fn load_metered_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<F>,
+        lib_path: &Path,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
     ) -> Result<RvrMeteredInstance<'_>, StaticProgramError> {
-        let runtime_hooks = self
-            .build_rvr_extensions(Some(executor_idx_to_air_idx))
-            .into_runtime_hooks();
+        let extensions = self.build_rvr_extensions(Some(executor_idx_to_air_idx));
+        let uses_deferral_address_space = extensions.lifters().uses_deferral_address_space();
+        let runtime_hooks = extensions.into_runtime_hooks();
         let compiled = load_compiled_from_path(lib_path).map_err(map_rvr_compile_error)?;
         compiled
             .require_execution_kind(&[RvrExecutionKind::Metered])
@@ -657,6 +714,7 @@ where
             RvrInitialImage::from(exe),
             runtime_hooks,
             compiled,
+            uses_deferral_address_space,
         ))
     }
 
@@ -665,13 +723,13 @@ where
     /// `executor_idx_to_air_idx`.
     pub fn load_metered_segment_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<F>,
+        lib_path: &Path,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
     ) -> Result<RvrMeteredSegmentInstance<'_>, StaticProgramError> {
-        let runtime_hooks = self
-            .build_rvr_extensions(Some(executor_idx_to_air_idx))
-            .into_runtime_hooks();
+        let extensions = self.build_rvr_extensions(Some(executor_idx_to_air_idx));
+        let uses_deferral_address_space = extensions.lifters().uses_deferral_address_space();
+        let runtime_hooks = extensions.into_runtime_hooks();
         let compiled = load_compiled_from_path(lib_path).map_err(map_rvr_compile_error)?;
         compiled
             .require_execution_kind(&[RvrExecutionKind::MeteredSegment])
@@ -682,6 +740,7 @@ where
             RvrInitialImage::from(exe),
             runtime_hooks,
             compiled,
+            uses_deferral_address_space,
         ))
     }
 
@@ -690,8 +749,8 @@ where
     /// `executor_idx_to_air_idx`, and `widths`.
     pub fn load_metered_cost_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<F>,
+        lib_path: &Path,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
         widths: &[usize],
     ) -> Result<RvrMeteredCostInstance<'_>, StaticProgramError> {
@@ -713,7 +772,7 @@ where
 
     pub fn metered_cost_instance_with_debug_map(
         &self,
-        exe: &VmExe<F>,
+        exe: &VmExe,
         executor_idx_to_air_idx: &[usize],
         widths: &[usize],
         guest_debug_map: Option<&GuestDebugMap>,
@@ -756,8 +815,8 @@ pub enum VmVerificationError<SC: StarkProtocolConfig> {
         actual: [u32; VM_DIGEST_WIDTH],
     },
 
-    #[error("initial pc mismatch (initial: {initial}, prev_final: {prev_final})")]
-    InitialPcMismatch { initial: u32, prev_final: u32 },
+    #[error("initial pc index mismatch (initial: {initial}, prev_final: {prev_final})")]
+    InitialPcIdxMismatch { initial: u32, prev_final: u32 },
 
     #[error("initial memory root mismatch")]
     InitialMemoryRootMismatch,
@@ -804,9 +863,7 @@ pub enum VirtualMachineError {
 
 fn begin_preflight_tracegen_session(poisoned: &mut bool) -> Result<(), GenerationError> {
     if *poisoned {
-        return Err(GenerationError::ExtensionTracegen(
-            "VM is poisoned by an incomplete or failed preflight tracegen session".to_string(),
-        ));
+        return Err(GenerationError::ProverPoisoned);
     }
     *poisoned = true;
     Ok(())
@@ -882,7 +939,7 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn preflight_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, PreflightCtx>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -894,7 +951,7 @@ where
     #[cfg(feature = "rvr")]
     pub fn preflight_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<PreflightInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -907,7 +964,7 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, ExecutionCtx>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -917,10 +974,7 @@ where
     }
 
     #[cfg(feature = "rvr")]
-    pub fn instance(
-        &self,
-        exe: &VmExe<Val<E::SC>>,
-    ) -> Result<RvrPureInstance<'_>, StaticProgramError>
+    pub fn instance(&self, exe: &VmExe) -> Result<RvrPureInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
         <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>>,
@@ -932,7 +986,7 @@ where
     #[cfg(feature = "rvr")]
     pub fn interpreter_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, ExecutionCtx>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -944,7 +998,7 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn metered_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, MeteredCtx>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -958,7 +1012,7 @@ where
     #[cfg(feature = "rvr")]
     pub fn metered_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<RvrMeteredInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -972,7 +1026,7 @@ where
     #[cfg(feature = "rvr")]
     pub fn metered_segment_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<RvrMeteredSegmentInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -990,8 +1044,8 @@ where
     #[cfg(feature = "rvr")]
     pub fn load_metered_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<Val<E::SC>>,
+        lib_path: &Path,
+        exe: &VmExe,
     ) -> Result<RvrMeteredInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -1005,8 +1059,8 @@ where
     #[cfg(feature = "rvr")]
     pub fn load_metered_segment_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<Val<E::SC>>,
+        lib_path: &Path,
+        exe: &VmExe,
     ) -> Result<RvrMeteredSegmentInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -1020,7 +1074,7 @@ where
     #[cfg(feature = "rvr")]
     pub fn metered_interpreter_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, MeteredCtx>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -1034,7 +1088,7 @@ where
     #[cfg(not(feature = "rvr"))]
     pub fn metered_cost_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<InterpretedInstance<'_, MeteredCostCtx>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -1048,7 +1102,7 @@ where
     #[cfg(feature = "rvr")]
     pub fn metered_cost_instance(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<RvrMeteredCostInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -1072,8 +1126,8 @@ where
     #[cfg(feature = "rvr")]
     pub fn load_metered_cost_instance(
         &self,
-        lib_path: &std::path::Path,
-        exe: &VmExe<Val<E::SC>>,
+        lib_path: &Path,
+        exe: &VmExe,
     ) -> Result<RvrMeteredCostInstance<'_>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -1090,9 +1144,10 @@ where
             .load_metered_cost_instance(lib_path, exe, &executor_idx_to_air_idx, &widths)
     }
 
+    /// Builds the interpreter preflight instance for `exe`.
     pub fn preflight_interpreter(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
     ) -> Result<PreflightInterpreter<Val<E::SC>, VB::VmConfig>, StaticProgramError>
     where
         Val<E::SC>: PrimeField32,
@@ -1101,68 +1156,13 @@ where
         PreflightInterpretedInstance::new(exe, self.executor.inventory.clone())
     }
 
-    /// Runs append-only preflight execution until termination using the interpreter.
-    #[instrument(name = "execute_preflight", skip_all)]
-    pub fn execute_preflight(
-        &self,
-        interpreter: &PreflightInterpreter<Val<E::SC>, VB::VmConfig>,
-        state: VmState<GuestMemory>,
-    ) -> Result<PreflightOutput, ExecutionError>
-    where
-        Val<E::SC>: PrimeField32,
-        <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>> + 'static,
-    {
-        interpreter.execute_preflight_from_state(state, None)
-    }
-
-    /// Preflight execution for exactly `num_insns` instructions from the given state.
-    ///
-    /// Returns an error if execution terminates before the requested boundary.
-    #[instrument(name = "execute_preflight", skip_all)]
-    pub fn execute_preflight_for(
-        &self,
-        interpreter: &PreflightInterpreter<Val<E::SC>, VB::VmConfig>,
-        state: VmState<GuestMemory>,
-        num_insns: u64,
-    ) -> Result<PreflightOutput, ExecutionError>
-    where
-        Val<E::SC>: PrimeField32,
-        <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>> + 'static,
-    {
-        interpreter.execute_preflight_from_state(state, Some(num_insns))
-    }
-
-    /// Proves exactly `num_insns` instructions from `state`.
-    ///
-    /// The final memory is returned only when this segment terminates successfully.
-    pub fn prove_segment(
-        &mut self,
-        interpreter: &PreflightInterpreter<Val<E::SC>, VB::VmConfig>,
-        program: &Program<Val<E::SC>>,
-        state: VmState<GuestMemory>,
-        num_insns: u64,
-    ) -> Result<(Proof<E::SC>, Option<GuestMemory>), VirtualMachineError>
-    where
-        Val<E::SC>: VmField,
-        <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>> + 'static,
-        VB: PostflightTracegen<E>,
-    {
-        let prepared = VB::prepare_postflight(self, program)?;
-        let (proof, output) =
-            self.prove_segment_inner(interpreter, program, &prepared, state, num_insns, |_| {})?;
-        let final_memory =
-            (output.exit_code == Some(ExitCode::Success as u32)).then_some(output.state.memory);
-        Ok((proof, final_memory))
-    }
-
     fn prove_segment_inner(
         &mut self,
         interpreter: &PreflightInterpreter<Val<E::SC>, VB::VmConfig>,
-        program: &Program<Val<E::SC>>,
+        program: &Program,
         prepared: &VB::Prepared,
         state: VmState<GuestMemory>,
-        num_insns: u64,
-        modify_ctx: impl FnOnce(&mut ProvingContext<E::PB>),
+        segment: &Segment,
     ) -> Result<(Proof<E::SC>, PreflightOutput), VirtualMachineError>
     where
         Val<E::SC>: VmField,
@@ -1170,26 +1170,18 @@ where
         VB: PostflightTracegen<E>,
     {
         self.transport_init_memory_to_device(&state.memory);
-        let mut output = self.execute_preflight_for(interpreter, state, num_insns)?;
-        let postflight = Postflight::new(
-            program,
-            &output.history,
-            &self.config().as_ref().memory_config,
-            output.exit_code,
-        )
-        .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?;
-        #[cfg(feature = "metrics")]
-        crate::metrics::emit_opcode_counts(
-            &output.state.metrics,
-            self.postflight_opcode_counts(&postflight),
-        );
-        output
-            .state
-            .memory
-            .memory
-            .extend_touched_pages_from_touched(postflight.touched_memory());
-        let mut ctx = self.generate_proving_ctx(prepared, &output, &postflight)?;
-        modify_ctx(&mut ctx);
+        let output = interpreter.execute_segment(state, segment)?;
+        #[cfg(feature = "perf-metrics")]
+        let mut output = output;
+        let ctx = self.generate_proving_ctx(program, prepared, &output)?;
+        #[cfg(feature = "perf-metrics")]
+        info_span!("guest_profile").in_scope(|| {
+            self.emit_guest_instruction_metrics(
+                program,
+                &output.history.program,
+                &mut output.state.metrics,
+            )
+        })?;
         let proof = self
             .engine
             .prove(self.pk(), ctx)
@@ -1202,7 +1194,7 @@ where
     #[instrument(name = "vm.create_initial_state", level = "debug", skip_all)]
     pub fn create_initial_state(
         &self,
-        exe: &VmExe<Val<E::SC>>,
+        exe: &VmExe,
         inputs: impl Into<Streams>,
     ) -> VmState<GuestMemory> {
         #[allow(unused_mut)]
@@ -1232,17 +1224,16 @@ where
         state
     }
 
-    #[instrument(name = "trace_gen", skip_all)]
     pub(crate) fn generate_proving_ctx(
         &mut self,
+        program: &Program,
         prepared: &VB::Prepared,
         output: &PreflightOutput,
-        postflight: &Postflight<'_, Val<E::SC>>,
     ) -> Result<ProvingContext<E::PB>, GenerationError>
     where
         VB: PostflightTracegen<E>,
     {
-        VB::generate_proving_ctx(self, prepared, output, postflight)
+        VB::generate_proving_ctx(self, program, prepared, output)
     }
 
     fn validate_proving_ctx(
@@ -1313,10 +1304,10 @@ where
     /// Returns the cached program trace.
     /// Note that [`load_program`](Self::load_program) must be called separately to load the cached
     /// program trace into the VM itself.
-    pub fn commit_program_on_device(
-        &self,
-        program: &Program<Val<E::SC>>,
-    ) -> CommittedTraceData<E::PB> {
+    pub fn commit_program_on_device(&self, program: &Program) -> CommittedTraceData<E::PB>
+    where
+        Val<E::SC>: PrimeField32,
+    {
         let rm_trace = generate_cached_trace(program);
         let cm_trace = ColMajorMatrix::from_row_major(&rm_trace);
         let d_trace = self.engine.device().transport_matrix_to_device(&cm_trace);
@@ -1385,20 +1376,119 @@ where
             .collect()
     }
 
+    #[cfg(feature = "perf-metrics")]
+    fn emit_guest_instruction_metrics(
+        &self,
+        program: &Program,
+        program_log: &[PreflightProgramEvent],
+        metrics: &mut crate::metrics::VmMetrics,
+    ) -> Result<(), GenerationError>
+    where
+        Val<E::SC>: PrimeField32,
+        <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>>,
+    {
+        for pair in program_log.windows(2) {
+            let [current, next] = pair else {
+                unreachable!("windows(2) always returns two elements")
+            };
+            let Some(program_offset) = current.pc.checked_sub(program.pc_base) else {
+                return Err(GenerationError::ExtensionTracegen(format!(
+                    "guest metric PC {:#x} precedes program base {:#x}",
+                    current.pc, program.pc_base
+                )));
+            };
+            if !program_offset.is_multiple_of(openvm_instructions::program::DEFAULT_PC_STEP) {
+                return Err(GenerationError::ExtensionTracegen(format!(
+                    "guest metric PC {:#x} is not instruction-aligned",
+                    current.pc
+                )));
+            }
+            let program_index =
+                program_offset as usize / openvm_instructions::program::DEFAULT_PC_STEP as usize;
+            let Some((instruction, _)) = program.get_instruction_and_debug_info(program_index)
+            else {
+                return Err(GenerationError::ExtensionTracegen(format!(
+                    "guest metric PC {:#x} does not resolve to an instruction",
+                    current.pc
+                )));
+            };
+            if instruction.opcode == SystemOpcode::TERMINATE.global_opcode() {
+                continue;
+            }
+
+            let executor_idx = *self
+                .executor
+                .inventory
+                .instruction_lookup
+                .get(&instruction.opcode)
+                .ok_or_else(|| {
+                    GenerationError::ExtensionTracegen(format!(
+                        "guest metric opcode {} has no executor",
+                        instruction.opcode.as_usize()
+                    ))
+                })?;
+            let executor = self
+                .executor
+                .inventory
+                .executors
+                .get(executor_idx as usize)
+                .ok_or_else(|| {
+                    GenerationError::ExtensionTracegen(format!(
+                        "guest metric executor index {executor_idx} is out of bounds"
+                    ))
+                })?;
+            let debug_info = metrics.debug_infos.get(current.pc);
+
+            let system_phantom = if instruction.opcode == SystemOpcode::PHANTOM.global_opcode() {
+                let phantom = PhantomDiscriminant(instruction.c.as_u32() as u16);
+                SysPhantom::from_repr(phantom.0)
+            } else {
+                None
+            };
+
+            metrics.record_replayed_instruction(
+                executor.get_opcode_name(instruction.opcode.as_usize()),
+                debug_info.as_ref().map(|info| info.dsl_instruction.clone()),
+                system_phantom,
+                next.pc,
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "cuda", feature = "perf-metrics"))]
+    pub fn emit_gpu_guest_instruction_metrics(
+        &self,
+        program: &Program,
+        transcript: &GpuPostflightTranscript,
+        metrics: &mut crate::metrics::VmMetrics,
+    ) -> Result<(), GenerationError>
+    where
+        Val<E::SC>: PrimeField32,
+        <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>>,
+    {
+        let _span = info_span!("guest_profile").entered();
+        let program_log = transcript
+            .copy_program_log()
+            .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?;
+        self.emit_guest_instruction_metrics(program, &program_log, metrics)
+    }
+
     /// Convenience method to construct a [MeteredCtx] using data from the stored proving key.
-    pub fn build_metered_ctx(&self, exe: &VmExe<Val<E::SC>>) -> MeteredCtx
+    pub fn build_metered_ctx(&self, exe: &VmExe) -> MeteredCtx
     where
         Val<E::SC>: PrimeField32,
     {
         let program_len = exe.program.num_defined_instructions();
 
-        let (mut constant_trace_heights, air_names, widths, interactions, need_rot): (
-            Vec<_>,
-            Vec<_>,
-            Vec<_>,
-            Vec<_>,
-            Vec<_>,
-        ) = self
+        let (
+            mut constant_trace_heights,
+            air_names,
+            widths,
+            interactions,
+            need_rot,
+            constraint_eval_buffers,
+        ): (Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>) = self
             .pk
             .per_air
             .iter()
@@ -1408,15 +1498,40 @@ where
                 let width = pk.vk.params.width.total_width();
                 let num_interactions = pk.vk.symbolic_constraints.interactions.len();
                 let need_rot = pk.vk.params.need_rot;
+                let constraint_eval_buffer = E::PB::constraint_eval_buffer_size(pk);
                 (
                     constant_trace_height,
                     air_names,
                     width,
                     num_interactions,
                     need_rot,
+                    constraint_eval_buffer,
                 )
             })
             .multiunzip();
+
+        #[cfg(feature = "metrics")]
+        let bus_names = self
+            .chip_complex
+            .inventory
+            .airs()
+            .bus_names()
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect::<Vec<_>>();
+        #[cfg(feature = "metrics")]
+        let bus_interactions = self
+            .pk
+            .per_air
+            .iter()
+            .map(|pk| {
+                let mut by_bus = BTreeMap::new();
+                for interaction in &pk.vk.symbolic_constraints.interactions {
+                    *by_bus.entry(interaction.bus_index).or_insert(0) += 1;
+                }
+                by_bus.into_iter().collect()
+            })
+            .collect::<Vec<_>>();
 
         // Program trace is the same for all segments
         constant_trace_heights[PROGRAM_AIR_ID] = Some(program_len);
@@ -1445,9 +1560,14 @@ where
             MeteredCtxInputs {
                 constant_trace_heights: &constant_trace_heights,
                 air_names: &air_names,
+                #[cfg(feature = "metrics")]
+                bus_names: &bus_names,
+                #[cfg(feature = "metrics")]
+                bus_interactions: &bus_interactions,
                 widths: &widths,
                 interactions: &interactions,
                 need_rot: &need_rot,
+                constraint_eval_buffers: &constraint_eval_buffers,
                 segmentation_limits: SegmentationLimits {
                     max_trace_height_bits: log_stacked_height,
                     max_memory: self.config().as_ref().segmentation_max_memory,
@@ -1489,119 +1609,54 @@ where
     }
 }
 
-#[cfg(all(feature = "cuda", feature = "rvr"))]
-impl<VB> VirtualMachine<BabyBearPoseidon2GpuEngine, VB>
-where
-    VB: VmBuilder<BabyBearPoseidon2GpuEngine, SystemChipInventory = SystemChipInventoryGPU>,
-{
-    /// Expands one compact preflight execution against the segment's
-    /// already-uploaded immutable memory image into the read-only replay data
-    /// consumed by system and instruction trace generation.
-    #[doc(hidden)]
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(name = "postflight", skip_all)]
-    pub fn postflight(
-        &self,
-        program: &CheckpointReplayProgram,
-        execution: &PreflightExecution,
-        num_insns: u32,
-        opcodes: PostflightOpcodeBases,
-    ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError> {
-        let memory = MemTracker::start_and_reset_peak("postflight");
-        let result = (|| {
-            let system = &self.chip_complex.system;
-            program.program().validate_system_inputs(
-                &system.program.device_ctx,
-                &system.memory_inventory.device_ctx,
-                &system.memory_inventory.initial_memory,
-            )?;
-            let initial_memory = &system.memory_inventory.initial_memory;
-            let initial_registers =
-                initial_memory
-                    .get(RV64_REGISTER_AS as usize)
-                    .ok_or_else(|| {
-                        GpuPostflightError::InvalidTranscript(
-                            "initial register image was not transported to the GPU".to_string(),
-                        )
-                    })?;
-            let initial_main_memory =
-                initial_memory.get(RV64_MEMORY_AS as usize).ok_or_else(|| {
-                    GpuPostflightError::InvalidTranscript(
-                        "initial main-memory image was not transported to the GPU".to_string(),
-                    )
-                })?;
-            // The table contains device pointers only. Chronology reads the
-            // already-uploaded segment-start images without copying their bytes.
-            let initial_memory_images = initial_memory
-                .iter()
-                .map(|image| image.view())
-                .collect::<Vec<_>>();
-            program.postflight(
-                execution,
-                num_insns,
-                initial_registers.view(),
-                initial_main_memory.view(),
-                &initial_memory_images,
-                opcodes,
-            )
-        })();
-        memory.emit_metrics();
-        result
-    }
-}
-
 #[cfg(feature = "cuda")]
 impl<VB> VirtualMachine<BabyBearPoseidon2GpuEngine, VB>
 where
     VB: VmBuilder<BabyBearPoseidon2GpuEngine, SystemChipInventory = SystemChipInventoryGPU>,
 {
+    /// Validates and borrows the fixed GPU program and segment-start memory for postflight.
+    pub fn gpu_postflight_context<'a>(
+        &'a self,
+        program: &'a GpuPostflightProgram,
+    ) -> Result<GpuPostflightContext<'a>, GpuPostflightError> {
+        let system = &self.chip_complex.system;
+        GpuPostflightContext::new(
+            program,
+            &system.program.device_ctx,
+            &system.memory_inventory.device_ctx,
+            &system.memory_inventory.initial_memory,
+        )
+    }
+
     /// Derives the standard GPU replay indexes from history produced by
     /// interpreter preflight.
-    #[doc(hidden)]
-    #[instrument(name = "postflight", skip_all)]
     pub fn postflight_history(
         &self,
         program: &GpuPostflightProgram,
         output: &PreflightOutput,
     ) -> Result<(GpuPostflightTranscript, GpuPostflightPlan), GpuPostflightError> {
-        let memory = MemTracker::start_and_reset_peak("postflight");
-        let result = (|| {
-            let system = &self.chip_complex.system;
-            program.validate_system_inputs(
-                &system.program.device_ctx,
-                &system.memory_inventory.device_ctx,
-                &system.memory_inventory.initial_memory,
-            )?;
-            let initial_memory = &system.memory_inventory.initial_memory;
-            let initial_memory_images = initial_memory
-                .iter()
-                .map(|image| image.view())
-                .collect::<Vec<_>>();
-            let from = output.history.program.first().ok_or_else(|| {
-                GpuPostflightError::InvalidTranscript(
-                    "preflight history must contain a program event".to_string(),
-                )
-            })?;
-            let to = output.history.program.last().unwrap();
-            program.upload_history(
-                &output.history,
-                (
-                    ExecutionState::new(from.pc, from.timestamp),
-                    ExecutionState::new(to.pc, to.timestamp),
-                    output.exit_code,
-                ),
-                &initial_memory_images,
+        let context = self.gpu_postflight_context(program)?;
+        let from = output.history.program.first().ok_or_else(|| {
+            GpuPostflightError::InvalidTranscript(
+                "preflight history must contain a program event".to_string(),
             )
-        })();
-        memory.emit_metrics();
-        result
+        })?;
+        let to = output.history.program.last().unwrap();
+        context.upload_history(
+            &output.history,
+            GpuPostflightBoundary::new(
+                ExecutionState::new(from.pc, from.timestamp),
+                ExecutionState::new(to.pc, to.timestamp),
+                output.exit_code,
+            ),
+        )
     }
 
     #[cfg(feature = "metrics")]
     #[doc(hidden)]
     pub fn emit_preflight_opcode_counts(&self, replay_plan: &GpuPostflightPlan)
     where
-        <VB::VmConfig as VmExecutionConfig<BabyBear>>::Executor: Executor<BabyBear>,
+        <VB::VmConfig as VmExecutionConfig<CudaField>>::Executor: Executor<CudaField>,
     {
         let executor_idx_to_air_idx = self.chip_complex.inventory.executor_idx_to_air_idx();
         for opcode in replay_plan.executed_opcodes() {
@@ -1645,7 +1700,6 @@ where
         producer: P,
         mut generate_extension: impl FnMut(
             &mut P,
-            usize,
             &dyn Any,
         )
             -> Result<AirProvingContext<GpuBackend>, GenerationError>,
@@ -1657,22 +1711,20 @@ where
         // phase-wide high-water mark. The allocator's logical peak is the
         // source of truth for live buffers; reserved pool pages are reported
         // separately and may remain mapped after a correct drop.
-        let memory = MemTracker::start_and_reset_peak("tracegen");
         let mut producer = producer;
-        let result = (|| {
+        let result = with_gpu_memory_metrics("tracegen", || {
             let ctx = self.chip_complex.generate_proving_ctx_from_postflight(
                 program,
                 transcript,
                 replay_plan,
-                |insertion_idx, chip| generate_extension(&mut producer, insertion_idx, chip),
+                |chip| generate_extension(&mut producer, chip),
             );
 
             // Every system and extension kernel above uses raw views borrowed from
-            // `transcript` and `replay_plan`. Synchronize the common stream even
-            // when trace generation failed, so this safe API never returns while
-            // those owners are still in use.
-            let replay_sync = transcript.synchronize();
-            if replay_sync.is_ok() {
+            // `transcript` and `replay_plan`. The error read fences their common
+            // stream, with an explicit synchronization fallback if that copy fails.
+            let replay_error = transcript.finish_replay();
+            if replay_error.is_ok() {
                 // The boundary trace kernel has completed on this stream. Its
                 // merged input records are not part of the proving context;
                 // the trace and Poseidon2 outputs own separate buffers.
@@ -1682,13 +1734,10 @@ where
                     .boundary
                     .release_records();
             }
-            let replay_sync =
-                replay_sync.map_err(|error| GenerationError::ExtensionTracegen(error.to_string()));
+            let replay_error =
+                replay_error.map_err(|error| GenerationError::ExtensionTracegen(error.to_string()));
             let ctx = ctx?;
-            replay_sync?;
-            let replay_error = transcript
-                .error_code()
-                .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))?;
+            let replay_error = replay_error?;
             if replay_error != 0 {
                 return Err(GenerationError::ExtensionTracegen(format!(
                     "preflight GPU trace generation rejected transcript with code {replay_error}"
@@ -1697,8 +1746,7 @@ where
             let ctx = self.validate_proving_ctx(ctx)?;
             finish(producer)?;
             Ok(ctx)
-        })();
-        memory.emit_metrics();
+        });
         if result.is_ok() {
             self.preflight_tracegen_poisoned = false;
         }
@@ -1709,8 +1757,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        begin_preflight_tracegen_session, SystemConfig, VirtualMachine, CONNECTOR_AIR_ID,
-        PROGRAM_AIR_ID,
+        begin_preflight_tracegen_session, GenerationError, SystemConfig, VirtualMachine,
+        CONNECTOR_AIR_ID, PROGRAM_AIR_ID,
     };
     use crate::{system::SystemCpuBuilder, utils::test_cpu_engine};
 
@@ -1720,7 +1768,7 @@ mod tests {
         begin_preflight_tracegen_session(&mut poisoned).unwrap();
         // A late coverage failure deliberately does not complete the session.
         let retry = begin_preflight_tracegen_session(&mut poisoned).unwrap_err();
-        assert!(retry.to_string().contains("poisoned"));
+        assert!(matches!(retry, GenerationError::ProverPoisoned));
     }
 
     #[test]
@@ -1749,15 +1797,6 @@ pub struct ContinuationVmProof<SC: StarkProtocolConfig> {
     pub user_public_values: UserPublicValuesProof<{ VM_DIGEST_WIDTH }, Val<SC>>,
 }
 
-/// Backend-specific continuation proving driver.
-pub type ContinuationProverFn<E, VB> = Box<
-    dyn FnMut(
-            &mut VmInstance<E, VB>,
-            Streams,
-        ) -> Result<ContinuationVmProof<<E as StarkEngine>::SC>, VirtualMachineError>
-        + Send,
->;
-
 /// Prover for a specific exe in a specific continuation VM using a specific Stark config.
 pub trait ContinuationVmProver<SC: StarkProtocolConfig> {
     fn prove(
@@ -1768,10 +1807,49 @@ pub trait ContinuationVmProver<SC: StarkProtocolConfig> {
 
 /// Constructs the continuation proving driver for a VM builder.
 ///
-/// Builders explicitly choose their proving path. The CPU SDK uses the generic interpreter and
-/// postflight trace generator, while the GPU SDK uses its preflight driver.
+/// Builders explicitly choose their proving path. A prepared continuation is tied to the exact
+/// fixed-program [`VmInstance`] passed to [`Self::prepare_continuation`]. Implementations must not
+/// reuse it with another instance.
 pub trait ContinuationProverBuilder<E: StarkEngine>: VmBuilder<E> {
-    fn continuation_prover() -> ContinuationProverFn<E, Self>;
+    type PreparedContinuation;
+
+    fn prepare_continuation(
+        instance: &VmInstance<E, Self>,
+    ) -> Result<Self::PreparedContinuation, VirtualMachineError>;
+
+    fn prove_continuation(
+        prepared: &mut Self::PreparedContinuation,
+        instance: &mut VmInstance<E, Self>,
+        input: Streams,
+    ) -> Result<ContinuationVmProof<E::SC>, VirtualMachineError>;
+}
+
+impl<SC, E, VB> ContinuationProverBuilder<E> for VB
+where
+    SC: StarkProtocolConfig,
+    E: StarkEngine<SC = SC, PB = CpuBackend<SC>>,
+    Val<SC>: VmField,
+    VB: VmBuilder<E, SystemChipInventory = SystemChipInventory<SC>> + PostflightTracegen<E>,
+    <VB::VmConfig as VmExecutionConfig<Val<SC>>>::Executor:
+        Executor<Val<SC>> + MeteredExecutor<Val<SC>> + 'static,
+{
+    type PreparedContinuation = (PreflightInterpreter<Val<SC>, VB::VmConfig>, VB::Prepared);
+
+    fn prepare_continuation(
+        instance: &VmInstance<E, Self>,
+    ) -> Result<Self::PreparedContinuation, VirtualMachineError> {
+        let preflight = instance.vm.preflight_interpreter(instance.exe())?;
+        let prepared = VB::prepare_postflight(&instance.vm, &instance.exe().program)?;
+        Ok((preflight, prepared))
+    }
+
+    fn prove_continuation(
+        (preflight, prepared): &mut Self::PreparedContinuation,
+        instance: &mut VmInstance<E, Self>,
+        input: Streams,
+    ) -> Result<ContinuationVmProof<SC>, VirtualMachineError> {
+        instance.prove_continuations(preflight, prepared, input)
+    }
 }
 
 /// Virtual machine prover instance for a fixed VM config and a fixed program. For use in proving a
@@ -1786,11 +1864,10 @@ where
     VB: VmBuilder<E>,
 {
     pub vm: VirtualMachine<E, VB>,
-    pub interpreter: Option<PreflightInterpreter<Val<E::SC>, VB::VmConfig>>,
     #[getset(get = "pub")]
     program_commitment: <E::PB as ProverBackend>::Commitment,
     #[getset(get = "pub")]
-    exe: Arc<VmExe<Val<E::SC>>>,
+    exe: Arc<VmExe>,
     #[getset(get = "pub", get_mut = "pub")]
     state: Option<VmState<GuestMemory>>,
 }
@@ -1802,7 +1879,7 @@ where
 {
     pub fn new(
         mut vm: VirtualMachine<E, VB>,
-        exe: Arc<VmExe<Val<E::SC>>>,
+        exe: Arc<VmExe>,
         cached_program_trace: CommittedTraceData<E::PB>,
     ) -> Result<Self, StaticProgramError> {
         let program_commitment = cached_program_trace.commitment;
@@ -1810,7 +1887,6 @@ where
         let state = vm.create_initial_state(&exe, vec![]);
         Ok(Self {
             vm,
-            interpreter: None,
             program_commitment,
             exe,
             state: Some(state),
@@ -1830,14 +1906,74 @@ where
     }
 }
 
+/// Fixed-program prover for independently scheduled segments using immutable preflight history.
+///
+/// The prover owns the VM used to prepare its interpreter, so compiled program
+/// data cannot be paired with another executable or proving key.
+pub struct SegmentProver<E, VB>
+where
+    E: StarkEngine,
+    VB: VmBuilder<E> + PostflightTracegen<E>,
+    Val<E::SC>: PrimeField32,
+    <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>> + 'static,
+{
+    preflight: PreflightInterpreter<Val<E::SC>, VB::VmConfig>,
+    prepared: VB::Prepared,
+    exe: Arc<VmExe>,
+    instance: VmInstance<E, VB>,
+}
+
+impl<E, VB> SegmentProver<E, VB>
+where
+    E: StarkEngine,
+    VB: VmBuilder<E> + PostflightTracegen<E>,
+    Val<E::SC>: VmField,
+    <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor: Executor<Val<E::SC>> + 'static,
+{
+    pub fn new(instance: VmInstance<E, VB>) -> Result<Self, VirtualMachineError> {
+        let preflight = instance.vm.preflight_interpreter(instance.exe())?;
+        let exe = Arc::clone(instance.exe());
+        let prepared = VB::prepare_postflight(&instance.vm, &exe.program)?;
+        Ok(Self {
+            preflight,
+            prepared,
+            exe,
+            instance,
+        })
+    }
+
+    /// Proves one segment from an arbitrary segment-start state.
+    ///
+    /// Final memory is returned only when the segment terminates successfully.
+    pub fn prove(
+        &mut self,
+        state: VmState<GuestMemory>,
+        segment: &Segment,
+    ) -> Result<(Proof<E::SC>, Option<GuestMemory>), VirtualMachineError> {
+        let (proof, output) = self.instance.vm.prove_segment_inner(
+            &self.preflight,
+            &self.exe.program,
+            &self.prepared,
+            state,
+            segment,
+        )?;
+        let final_memory =
+            (output.exit_code == Some(ExitCode::Success as u32)).then_some(output.state.memory);
+        Ok((proof, final_memory))
+    }
+
+    pub fn vm(&self) -> &VirtualMachine<E, VB> {
+        &self.instance.vm
+    }
+}
+
 impl<E, VB> ContinuationVmProver<E::SC> for VmInstance<E, VB>
 where
     E: StarkEngine,
     Val<E::SC>: VmField,
-    VB: VmBuilder<E>,
+    VB: VmBuilder<E> + PostflightTracegen<E>,
     <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor:
         Executor<Val<E::SC>> + MeteredExecutor<Val<E::SC>> + 'static,
-    VB: PostflightTracegen<E>,
 {
     /// First performs metered execution to determine segments. Then sequentially proves each
     /// segment. The proof for each segment uses the specified [ProverBackend], but the proof for
@@ -1846,7 +1982,9 @@ where
         &mut self,
         input: impl Into<Streams>,
     ) -> Result<ContinuationVmProof<E::SC>, VirtualMachineError> {
-        self.prove_continuations(input, |_, _| {})
+        let preflight = self.vm.preflight_interpreter(&self.exe)?;
+        let prepared = VB::prepare_postflight(&self.vm, &self.exe.program)?;
+        self.prove_continuations(&preflight, &prepared, input.into())
     }
 }
 
@@ -1859,47 +1997,33 @@ where
         Executor<Val<E::SC>> + MeteredExecutor<Val<E::SC>> + 'static,
     VB: PostflightTracegen<E>,
 {
-    /// For internal use to resize trace matrices before proving.
-    ///
-    /// The closure `modify_ctx(seg_idx, &mut ctx)` is called sequentially for each segment.
     pub(crate) fn prove_continuations(
         &mut self,
-        input: impl Into<Streams>,
-        mut modify_ctx: impl FnMut(usize, &mut ProvingContext<E::PB>),
+        preflight: &PreflightInterpreter<Val<E::SC>, VB::VmConfig>,
+        prepared: &VB::Prepared,
+        input: Streams,
     ) -> Result<ContinuationVmProof<E::SC>, VirtualMachineError> {
-        let input = input.into();
-        self.reset_state(input.clone());
-        if self.interpreter.is_none() {
-            self.interpreter = Some(self.vm.preflight_interpreter(&self.exe)?);
+        if self.state.is_none() {
+            return Err(GenerationError::ProverPoisoned.into());
         }
-        let interpreter = self
-            .interpreter
-            .as_ref()
-            .expect("preflight interpreter was initialized above");
+        self.reset_state(input.clone());
         let vm = &mut self.vm;
         let metered_ctx = vm.build_metered_ctx(&self.exe);
         let metered_instance = vm.metered_instance(&self.exe)?;
         let (segments, _) = metered_instance.execute_metered(input, metered_ctx)?;
-        let prepared = VB::prepare_postflight(vm, &self.exe.program)?;
         let mut proofs = Vec::with_capacity(segments.len());
         let mut state = self.state.take();
         for (seg_idx, segment) in segments.into_iter().enumerate() {
             let _segment_span = info_span!("prove_segment", segment = seg_idx).entered();
             // We need a separate span so the metric label includes "segment" from _segment_span
             let _prove_span = info_span!("total_proof").entered();
-            let Segment {
-                num_insns,
-                trace_heights: _,
-                ..
-            } = segment;
             let from_state = Option::take(&mut state).unwrap();
             let (proof, output) = vm.prove_segment_inner(
-                interpreter,
+                preflight,
                 &self.exe.program,
-                &prepared,
+                prepared,
                 from_state,
-                num_insns,
-                |ctx| modify_ctx(seg_idx, ctx),
+                &segment,
             )?;
             proofs.push(proof);
             state = Some(output.state);
@@ -1965,8 +2089,8 @@ where
         return Err(VmVerificationError::ProofNotFound);
     }
     let mut prev_final_memory_root = None;
-    let mut prev_final_pc = None;
-    let mut start_pc = None;
+    let mut prev_final_pc_idx = None;
+    let mut start_pc_idx = None;
     let mut initial_memory_root = None;
     let mut program_commit = None;
 
@@ -2005,17 +2129,17 @@ where
                 let pvs: &VmConnectorPvs<_> = pvs.as_slice().borrow();
 
                 if i != 0 {
-                    // Check initial pc matches the previous final pc.
-                    if pvs.initial_pc != prev_final_pc.unwrap() {
-                        return Err(VmVerificationError::InitialPcMismatch {
-                            initial: pvs.initial_pc.as_canonical_u32(),
-                            prev_final: prev_final_pc.unwrap().as_canonical_u32(),
+                    // Check the initial PC index against the previous final PC index.
+                    if pvs.initial_pc_idx != prev_final_pc_idx.unwrap() {
+                        return Err(VmVerificationError::InitialPcIdxMismatch {
+                            initial: pvs.initial_pc_idx.as_canonical_u32(),
+                            prev_final: prev_final_pc_idx.unwrap().as_canonical_u32(),
                         });
                     }
                 } else {
-                    start_pc = Some(pvs.initial_pc);
+                    start_pc_idx = Some(pvs.initial_pc_idx);
                 }
-                prev_final_pc = Some(pvs.final_pc);
+                prev_final_pc_idx = Some(pvs.final_pc_idx);
 
                 let expected_is_terminate = i == proofs.len() - 1;
                 if pvs.is_terminate != PrimeCharacteristicRing::from_bool(expected_is_terminate) {
@@ -2093,7 +2217,7 @@ where
         &vm_poseidon2_hasher(),
         &program_commit.unwrap().into(),
         initial_memory_root.as_ref().unwrap(),
-        start_pc.unwrap(),
+        start_pc_idx.unwrap(),
     );
     Ok(VerifiedExecutionPayload {
         exe_commit,

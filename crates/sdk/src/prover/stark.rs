@@ -4,7 +4,7 @@ use eyre::Result;
 use openvm_circuit::{
     arch::{
         hasher::poseidon2::vm_poseidon2_hasher, instructions::exe::VmExe,
-        ContinuationProverBuilder, Executor, MeteredExecutor, VmBuilder, VmExecutionConfig,
+        ContinuationProverBuilder, Executor, MeteredExecutor, VmExecutionConfig,
     },
     system::memory::merkle::MerkleTree,
 };
@@ -27,7 +27,7 @@ use crate::{
 pub struct StarkProver<E, VB>
 where
     E: StarkEngine,
-    VB: VmBuilder<E>,
+    VB: ContinuationProverBuilder<E>,
 {
     pub app_prover: AppProver<E, VB>,
     pub agg_prover: Arc<AggProver>,
@@ -43,7 +43,7 @@ where
     pub fn new(
         vm_builder: VB,
         app_vm_pk: &VmProvingKey<VB::VmConfig>,
-        app_exe: Arc<VmExe<Val<SC>>>,
+        app_exe: Arc<VmExe>,
         agg_prover: Arc<AggProver>,
         deferral_setup: DeferralSetup,
     ) -> Result<Self> {

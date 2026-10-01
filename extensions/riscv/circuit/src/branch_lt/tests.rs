@@ -4,7 +4,9 @@ use std::{array, borrow::BorrowMut};
 
 use openvm_circuit::{
     arch::{
-        testing::{memory::gen_register_pointer, TestBuilder, TestChipHarness, VmChipTestBuilder},
+        testing::{
+            memory::gen_distinct_register_pointers, TestBuilder, TestChipHarness, VmChipTestBuilder,
+        },
         ExecutionBridge, BLOCK_FE_WIDTH,
     },
     system::memory::{offline_checker::MemoryBridge, SharedMemoryHelper},
@@ -13,7 +15,11 @@ use openvm_circuit::{
 use openvm_circuit_primitives::var_range::SharedVariableRangeCheckerChip;
 #[cfg(all(feature = "cuda", feature = "rvr"))]
 use openvm_circuit_primitives::var_range::VariableRangeCheckerChip;
-use openvm_instructions::{instruction::Instruction, program::PC_BITS, LocalOpcode};
+use openvm_instructions::{
+    instruction::Instruction,
+    program::{DEFAULT_PC_STEP, MAX_ALLOWED_PC},
+    LocalOpcode,
+};
 use openvm_riscv_transpiler::BranchLessThanOpcode;
 use openvm_stark_backend::{
     p3_air::BaseAir,
@@ -29,30 +35,25 @@ use rand::{rngs::StdRng, Rng};
 use test_case::test_case;
 #[cfg(all(feature = "cuda", feature = "rvr"))]
 use {
-    crate::Rv64BranchLessThanChipGpu,
+    crate::BranchLessThanChipGpu,
     openvm_circuit::arch::testing::{GpuChipTestBuilder, GpuTestChipHarness},
 };
 
-use super::{run_cmp, trace::generate_trace_from_postflight, Rv64BranchLessThanChip};
+use super::{run_cmp, trace::generate_trace_from_postflight, BranchLessThanChip};
 use crate::{
     adapters::{
-        rv64_bytes_to_u16_block, rv64_u16_block_to_bytes, Rv64BranchAdapterAir,
-        RV64_REGISTER_NUM_LIMBS, RV_B_TYPE_IMM_BITS, U16_BITS,
+        bytes_to_u16_block, u16_block_to_bytes, BranchAdapterAir, REGISTER_NUM_LIMBS,
+        RV_B_TYPE_IMM_BITS, U16_BITS,
     },
     branch_lt::BranchLessThanCoreCols,
-    test_utils::{rv64_marker_bytes_to_u16_marker, rv64_msb_byte_prank_to_u16_limb},
-    BranchLessThanCoreAir, BranchLessThanFiller, Rv64BranchLessThanAir, Rv64BranchLessThanExecutor,
+    test_utils::{marker_bytes_to_u16_marker, msb_byte_prank_to_u16_limb},
+    BranchLessThanAir, BranchLessThanCoreAir, BranchLessThanExecutor, BranchLessThanFiller,
 };
 
 type F = BabyBear;
 const MAX_INS_CAPACITY: usize = 128;
 const ABS_MAX_IMM: i32 = 1 << (RV_B_TYPE_IMM_BITS - 1);
-type Harness = TestChipHarness<
-    F,
-    Rv64BranchLessThanExecutor,
-    Rv64BranchLessThanAir,
-    Rv64BranchLessThanChip<F>,
->;
+type Harness = TestChipHarness<F, BranchLessThanExecutor, BranchLessThanAir, BranchLessThanChip<F>>;
 
 fn create_harness_fields(
     memory_bridge: MemoryBridge,
@@ -60,19 +61,17 @@ fn create_harness_fields(
     range_checker_chip: SharedVariableRangeCheckerChip,
     memory_helper: SharedMemoryHelper<F>,
 ) -> (
-    Rv64BranchLessThanAir,
-    Rv64BranchLessThanExecutor,
-    Rv64BranchLessThanChip<F>,
+    BranchLessThanAir,
+    BranchLessThanExecutor,
+    BranchLessThanChip<F>,
 ) {
-    let air = Rv64BranchLessThanAir::new(
-        Rv64BranchAdapterAir::new(execution_bridge, memory_bridge),
+    let air = BranchLessThanAir::new(
+        BranchAdapterAir::new(execution_bridge, memory_bridge),
         BranchLessThanCoreAir::new(range_checker_chip.bus(), BranchLessThanOpcode::CLASS_OFFSET),
     );
-    let executor = Rv64BranchLessThanExecutor::new(BranchLessThanOpcode::CLASS_OFFSET);
-    let chip = Rv64BranchLessThanChip::new(
-        BranchLessThanFiller::new(range_checker_chip, BranchLessThanOpcode::CLASS_OFFSET),
-        memory_helper,
-    );
+    let executor = BranchLessThanExecutor::new(BranchLessThanOpcode::CLASS_OFFSET);
+    let chip =
+        BranchLessThanChip::new(BranchLessThanFiller::new(range_checker_chip), memory_helper);
     (air, executor, chip)
 }
 
@@ -97,7 +96,7 @@ fn create_harness(tester: &mut VmChipTestBuilder<F>) -> Harness {
 fn set_and_execute<E: openvm_circuit::arch::Executor<F> + Clone>(
     tester: &mut impl TestBuilder<F>,
     executor: &mut E,
-    preflight: &mut openvm_circuit::arch::testing::TestPreflight<F>,
+    preflight: &mut openvm_circuit::arch::testing::TestPreflight,
     rng: &mut StdRng,
     opcode: BranchLessThanOpcode,
     a: Option<[u16; BLOCK_FE_WIDTH]>,
@@ -111,17 +110,22 @@ fn set_and_execute<E: openvm_circuit::arch::Executor<F> + Clone>(
         array::from_fn(|_| rng.random_range(0..=u16::MAX))
     });
 
-    let imm = imm.unwrap_or(rng.random_range((-ABS_MAX_IMM)..ABS_MAX_IMM));
-    let rs1 = gen_register_pointer(rng, RV64_REGISTER_NUM_LIMBS);
-    let mut rs2 = gen_register_pointer(rng, RV64_REGISTER_NUM_LIMBS);
-    while rs2 == rs1 {
-        rs2 = gen_register_pointer(rng, RV64_REGISTER_NUM_LIMBS);
-    }
-    let a_bytes: [F; RV64_REGISTER_NUM_LIMBS] = rv64_u16_block_to_bytes(a).map(F::from_u8);
-    let b_bytes: [F; RV64_REGISTER_NUM_LIMBS] = rv64_u16_block_to_bytes(b).map(F::from_u8);
-    tester.write_bytes::<RV64_REGISTER_NUM_LIMBS>(1, rs1, a_bytes);
-    tester.write_bytes::<RV64_REGISTER_NUM_LIMBS>(1, rs2, b_bytes);
+    // Branch offsets are DEFAULT_PC_STEP-aligned byte offsets.
+    let imm = imm.unwrap_or(
+        rng.random_range(
+            (-ABS_MAX_IMM / DEFAULT_PC_STEP as i32)..(ABS_MAX_IMM / DEFAULT_PC_STEP as i32),
+        ) * DEFAULT_PC_STEP as i32,
+    );
+    let [rs1, rs2] = gen_distinct_register_pointers(rng, REGISTER_NUM_LIMBS);
+    let a_bytes: [F; REGISTER_NUM_LIMBS] = u16_block_to_bytes(a).map(F::from_u8);
+    let b_bytes: [F; REGISTER_NUM_LIMBS] = u16_block_to_bytes(b).map(F::from_u8);
+    tester.write_bytes::<REGISTER_NUM_LIMBS>(1, rs1, a_bytes);
+    tester.write_bytes::<REGISTER_NUM_LIMBS>(1, rs2, b_bytes);
 
+    // An aligned byte pc over the full 32-bit range, keeping the taken target in bounds.
+    let lo = (-imm).max(0) as u32 / DEFAULT_PC_STEP;
+    let hi = (MAX_ALLOWED_PC - DEFAULT_PC_STEP - imm.max(0) as u32) / DEFAULT_PC_STEP;
+    let initial_pc = rng.random_range(lo..=hi) * DEFAULT_PC_STEP;
     tester.execute_with_pc(
         executor,
         preflight,
@@ -133,14 +137,14 @@ fn set_and_execute<E: openvm_circuit::arch::Executor<F> + Clone>(
             1,
             1,
         ),
-        rng.random_range(imm.unsigned_abs()..(1 << (PC_BITS - 1))),
+        initial_pc,
     );
 
     let (cmp_result, _, _, _) =
         run_cmp::<BLOCK_FE_WIDTH, U16_BITS>(opcode.local_usize() as u8, &a, &b);
-    let from_pc = tester.last_from_pc().as_canonical_u32() as i32;
-    let to_pc = tester.last_to_pc().as_canonical_u32() as i32;
-    let pc_inc = if cmp_result { imm } else { 4 };
+    let from_pc = tester.last_from_pc() as i64;
+    let to_pc = tester.last_to_pc() as i64;
+    let pc_inc = if cmp_result { imm as i64 } else { 4 };
 
     assert_eq!(to_pc, from_pc + pc_inc);
 }
@@ -181,12 +185,8 @@ fn rand_branch_lt_test(opcode: BranchLessThanOpcode, num_ops: usize) {
         &mut harness.preflight,
         &mut rng,
         opcode,
-        Some(rv64_bytes_to_u16_block([
-            101, 128, 202, 255, 255, 255, 255, 255,
-        ])),
-        Some(rv64_bytes_to_u16_block([
-            101, 128, 202, 255, 255, 255, 255, 255,
-        ])),
+        Some(bytes_to_u16_block([101, 128, 202, 255, 255, 255, 255, 255])),
+        Some(bytes_to_u16_block([101, 128, 202, 255, 255, 255, 255, 255])),
         Some(24),
     );
     set_and_execute(
@@ -195,8 +195,8 @@ fn rand_branch_lt_test(opcode: BranchLessThanOpcode, num_ops: usize) {
         &mut harness.preflight,
         &mut rng,
         opcode,
-        Some(rv64_bytes_to_u16_block([36, 0, 0, 0, 0, 0, 0, 0])),
-        Some(rv64_bytes_to_u16_block([36, 0, 0, 0, 0, 0, 0, 0])),
+        Some(bytes_to_u16_block([36, 0, 0, 0, 0, 0, 0, 0])),
+        Some(bytes_to_u16_block([36, 0, 0, 0, 0, 0, 0, 0])),
         Some(24),
     );
 
@@ -281,9 +281,9 @@ fn run_negative_branch_lt_test(
 }
 
 #[test]
-fn rv64_blt_wrong_lt_cmp_negative_test() {
-    let a = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
-    let b = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+fn blt_wrong_lt_cmp_negative_test() {
+    let a = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let b = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let prank_vals = Default::default();
     // Canonical (a<b) cmp_result is true for BLT/BLTU and false for BGE/BGEU; prank to opposite.
     run_negative_branch_lt_test(BranchLessThanOpcode::BLT, a, b, false, prank_vals, false);
@@ -293,9 +293,9 @@ fn rv64_blt_wrong_lt_cmp_negative_test() {
 }
 
 #[test]
-fn rv64_blt_wrong_ge_cmp_negative_test() {
-    let a = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
-    let b = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+fn blt_wrong_ge_cmp_negative_test() {
+    let a = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+    let b = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
     let prank_vals = Default::default();
     run_negative_branch_lt_test(BranchLessThanOpcode::BLT, a, b, true, prank_vals, false);
     run_negative_branch_lt_test(BranchLessThanOpcode::BLTU, a, b, true, prank_vals, false);
@@ -304,8 +304,8 @@ fn rv64_blt_wrong_ge_cmp_negative_test() {
 }
 
 #[test]
-fn rv64_blt_wrong_eq_cmp_negative_test() {
-    let a = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+fn blt_wrong_eq_cmp_negative_test() {
+    let a = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let b = a;
     let prank_vals = Default::default();
     // Canonical (a==b) cmp_result is false for BLT/BLTU and true for BGE/BGEU; prank to opposite.
@@ -316,9 +316,9 @@ fn rv64_blt_wrong_eq_cmp_negative_test() {
 }
 
 #[test]
-fn rv64_blt_fake_diff_val_negative_test() {
-    let a = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
-    let b = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+fn blt_fake_diff_val_negative_test() {
+    let a = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let b = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let prank_vals = BranchLessThanPrankValues {
         diff_val: Some(F::NEG_ONE.as_canonical_u32()),
         ..Default::default()
@@ -330,11 +330,11 @@ fn rv64_blt_fake_diff_val_negative_test() {
 }
 
 #[test]
-fn rv64_blt_zero_diff_val_negative_test() {
-    let a = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
-    let b = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+fn blt_zero_diff_val_negative_test() {
+    let a = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let b = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let prank_vals = BranchLessThanPrankValues {
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 1, 0])),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 1, 0])),
         diff_val: Some(0),
         ..Default::default()
     };
@@ -345,11 +345,11 @@ fn rv64_blt_zero_diff_val_negative_test() {
 }
 
 #[test]
-fn rv64_blt_fake_diff_marker_negative_test() {
-    let a = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
-    let b = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+fn blt_fake_diff_marker_negative_test() {
+    let a = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let b = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let prank_vals = BranchLessThanPrankValues {
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([1, 0, 0, 0, 0, 0, 0, 0])),
+        diff_marker: Some(marker_bytes_to_u16_marker([1, 0, 0, 0, 0, 0, 0, 0])),
         diff_val: Some(72),
         ..Default::default()
     };
@@ -360,11 +360,11 @@ fn rv64_blt_fake_diff_marker_negative_test() {
 }
 
 #[test]
-fn rv64_blt_zero_diff_marker_negative_test() {
-    let a = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
-    let b = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+fn blt_zero_diff_marker_negative_test() {
+    let a = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let b = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let prank_vals = BranchLessThanPrankValues {
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 0])),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 0])),
         diff_val: Some(0),
         ..Default::default()
     };
@@ -375,14 +375,14 @@ fn rv64_blt_zero_diff_marker_negative_test() {
 }
 
 #[test]
-fn rv64_blt_signed_wrong_a_msb_negative_test() {
+fn blt_signed_wrong_a_msb_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 34, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        a_msb: Some(rv64_msb_byte_prank_to_u16_limb(a_bytes, 206)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        a_msb: Some(msb_byte_prank_to_u16_limb(a_bytes, 206)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(1),
         ..Default::default()
     };
@@ -391,14 +391,14 @@ fn rv64_blt_signed_wrong_a_msb_negative_test() {
 }
 
 #[test]
-fn rv64_blt_signed_wrong_a_msb_sign_negative_test() {
+fn blt_signed_wrong_a_msb_sign_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 34, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        a_msb: Some(rv64_msb_byte_prank_to_u16_limb(a_bytes, 205)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        a_msb: Some(msb_byte_prank_to_u16_limb(a_bytes, 205)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(256),
         ..Default::default()
     };
@@ -407,14 +407,14 @@ fn rv64_blt_signed_wrong_a_msb_sign_negative_test() {
 }
 
 #[test]
-fn rv64_blt_signed_wrong_b_msb_negative_test() {
+fn blt_signed_wrong_b_msb_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 36, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        b_msb: Some(rv64_msb_byte_prank_to_u16_limb(b_bytes, 206)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        b_msb: Some(msb_byte_prank_to_u16_limb(b_bytes, 206)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(1),
         ..Default::default()
     };
@@ -423,14 +423,14 @@ fn rv64_blt_signed_wrong_b_msb_negative_test() {
 }
 
 #[test]
-fn rv64_blt_signed_wrong_b_msb_sign_negative_test() {
+fn blt_signed_wrong_b_msb_sign_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 36, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        b_msb: Some(rv64_msb_byte_prank_to_u16_limb(b_bytes, 205)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        b_msb: Some(msb_byte_prank_to_u16_limb(b_bytes, 205)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(256),
         ..Default::default()
     };
@@ -439,14 +439,14 @@ fn rv64_blt_signed_wrong_b_msb_sign_negative_test() {
 }
 
 #[test]
-fn rv64_blt_unsigned_wrong_a_msb_negative_test() {
+fn blt_unsigned_wrong_a_msb_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 36, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        a_msb: Some(rv64_msb_byte_prank_to_u16_limb(a_bytes, 204)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        a_msb: Some(msb_byte_prank_to_u16_limb(a_bytes, 204)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(1),
         ..Default::default()
     };
@@ -455,14 +455,14 @@ fn rv64_blt_unsigned_wrong_a_msb_negative_test() {
 }
 
 #[test]
-fn rv64_blt_unsigned_wrong_a_msb_sign_negative_test() {
+fn blt_unsigned_wrong_a_msb_sign_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 36, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        a_msb: Some(rv64_msb_byte_prank_to_u16_limb(a_bytes, -51)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        a_msb: Some(msb_byte_prank_to_u16_limb(a_bytes, -51)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(256),
         ..Default::default()
     };
@@ -471,14 +471,14 @@ fn rv64_blt_unsigned_wrong_a_msb_sign_negative_test() {
 }
 
 #[test]
-fn rv64_blt_unsigned_wrong_b_msb_negative_test() {
+fn blt_unsigned_wrong_b_msb_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 34, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        b_msb: Some(rv64_msb_byte_prank_to_u16_limb(b_bytes, 206)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        b_msb: Some(msb_byte_prank_to_u16_limb(b_bytes, 206)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(1),
         ..Default::default()
     };
@@ -487,14 +487,14 @@ fn rv64_blt_unsigned_wrong_b_msb_negative_test() {
 }
 
 #[test]
-fn rv64_blt_unsigned_wrong_b_msb_sign_negative_test() {
+fn blt_unsigned_wrong_b_msb_sign_negative_test() {
     let a_bytes = [145, 56, 89, 100, 5, 34, 25, 205];
     let b_bytes = [73, 56, 89, 100, 5, 35, 25, 205];
-    let a = rv64_bytes_to_u16_block(a_bytes);
-    let b = rv64_bytes_to_u16_block(b_bytes);
+    let a = bytes_to_u16_block(a_bytes);
+    let b = bytes_to_u16_block(b_bytes);
     let prank_vals = BranchLessThanPrankValues {
-        b_msb: Some(rv64_msb_byte_prank_to_u16_limb(b_bytes, -51)),
-        diff_marker: Some(rv64_marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
+        b_msb: Some(msb_byte_prank_to_u16_limb(b_bytes, -51)),
+        diff_marker: Some(marker_bytes_to_u16_marker([0, 0, 0, 0, 0, 0, 0, 1])),
         diff_val: Some(256),
         ..Default::default()
     };
@@ -514,7 +514,7 @@ fn execute_roundtrip_sanity_test() {
     let mut tester = VmChipTestBuilder::default();
     let mut chip = create_harness(&mut tester);
 
-    let x = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let x = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
     set_and_execute(
         &mut tester,
         &mut chip.executor,
@@ -540,8 +540,8 @@ fn execute_roundtrip_sanity_test() {
 
 #[test]
 fn run_cmp_unsigned_sanity_test() {
-    let x = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
-    let y = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+    let x = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let y = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let diff_u16_idx = 5 / 2; // old byte-limb diff index, packed into u16 cells
     let (cmp_result, diff_idx, x_sign, y_sign) =
         run_cmp::<BLOCK_FE_WIDTH, U16_BITS>(BranchLessThanOpcode::BLTU as u8, &x, &y);
@@ -560,8 +560,8 @@ fn run_cmp_unsigned_sanity_test() {
 
 #[test]
 fn run_cmp_same_sign_sanity_test() {
-    let x = rv64_bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
-    let y = rv64_bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
+    let x = bytes_to_u16_block([145, 56, 89, 100, 5, 34, 25, 205]);
+    let y = bytes_to_u16_block([73, 56, 89, 100, 5, 35, 25, 205]);
     let diff_u16_idx = 5 / 2; // old byte-limb diff index, packed into u16 cells
     let (cmp_result, diff_idx, x_sign, y_sign) =
         run_cmp::<BLOCK_FE_WIDTH, U16_BITS>(BranchLessThanOpcode::BLT as u8, &x, &y);
@@ -580,8 +580,8 @@ fn run_cmp_same_sign_sanity_test() {
 
 #[test]
 fn run_cmp_diff_sign_sanity_test() {
-    let x = rv64_bytes_to_u16_block([0x2d, 0x23, 0x19, 0x37, 0, 0, 0, 0x37]);
-    let y = rv64_bytes_to_u16_block([0xad, 0x22, 0x19, 0xcd, 0xff, 0xff, 0xff, 0xcd]);
+    let x = bytes_to_u16_block([0x2d, 0x23, 0x19, 0x37, 0, 0, 0, 0x37]);
+    let y = bytes_to_u16_block([0xad, 0x22, 0x19, 0xcd, 0xff, 0xff, 0xff, 0xcd]);
     let (cmp_result, diff_idx, x_sign, y_sign) =
         run_cmp::<BLOCK_FE_WIDTH, U16_BITS>(BranchLessThanOpcode::BLT as u8, &x, &y);
     assert!(!cmp_result);
@@ -599,7 +599,7 @@ fn run_cmp_diff_sign_sanity_test() {
 
 #[test]
 fn run_cmp_eq_sanity_test() {
-    let x = rv64_bytes_to_u16_block([0x2d, 0x23, 0x19, 0x37, 0, 0, 0, 0x37]);
+    let x = bytes_to_u16_block([0x2d, 0x23, 0x19, 0x37, 0, 0, 0, 0x37]);
     let (cmp_result, diff_idx, x_sign, y_sign) =
         run_cmp::<BLOCK_FE_WIDTH, U16_BITS>(BranchLessThanOpcode::BLT as u8, &x, &x);
     assert!(!cmp_result);
@@ -634,10 +634,10 @@ fn run_cmp_eq_sanity_test() {
 #[cfg(all(feature = "cuda", feature = "rvr"))]
 type GpuHarness = GpuTestChipHarness<
     F,
-    Rv64BranchLessThanExecutor,
-    Rv64BranchLessThanAir,
-    Rv64BranchLessThanChipGpu,
-    Rv64BranchLessThanChip<F>,
+    BranchLessThanExecutor,
+    BranchLessThanAir,
+    BranchLessThanChipGpu,
+    BranchLessThanChip<F>,
 >;
 
 #[cfg(all(feature = "cuda", feature = "rvr"))]
@@ -651,8 +651,7 @@ fn create_cuda_harness(tester: &GpuChipTestBuilder) -> GpuHarness {
         dummy_range_checker_chip,
         tester.dummy_memory_helper(),
     );
-    let gpu_chip =
-        Rv64BranchLessThanChipGpu::new(tester.range_checker(), tester.timestamp_max_bits());
+    let gpu_chip = BranchLessThanChipGpu::new(tester.range_checker(), tester.timestamp_max_bits());
     GpuTestChipHarness::with_capacity(executor, air, gpu_chip, cpu_chip, MAX_INS_CAPACITY)
         .with_trace_generators(
             generate_trace_from_postflight,

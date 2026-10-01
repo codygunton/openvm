@@ -6,8 +6,6 @@ use std::{
 use derive_more::derive::From;
 use eyre::Result;
 use openvm::platform::memory::MEM_SIZE;
-#[cfg(feature = "evm-prove")]
-use openvm_circuit::arch::U16_CELL_SIZE;
 use openvm_circuit::{
     arch::instructions::exe::VmExe,
     system::memory::{dimensions::MemoryDimensions, merkle::public_values::UserPublicValuesProof},
@@ -17,6 +15,7 @@ use openvm_stark_backend::{
     codec::{Decode, Encode},
     proof::Proof,
 };
+use openvm_stark_sdk::config::baby_bear_poseidon2::Digest;
 use openvm_transpiler::elf::Elf;
 use openvm_verify_stark_host::{
     deferral::DeferralMerkleProofs, pvs::VkCommit, vk::VerificationBaseline, VmStarkProof,
@@ -29,13 +28,13 @@ use crate::OPENVM_VERSION;
 #[derive(From)]
 pub enum ExecutableFormat {
     Elf(Elf),
-    VmExe(VmExe<crate::F>),
-    SharedVmExe(Arc<VmExe<crate::F>>),
+    VmExe(VmExe),
+    SharedVmExe(Arc<VmExe>),
 }
 
 impl<'a> From<&'a [u8]> for ExecutableFormat {
     fn from(bytes: &'a [u8]) -> Self {
-        let elf = Elf::decode(bytes, MEM_SIZE.try_into().unwrap()).expect("Invalid ELF bytes");
+        let elf = Elf::decode(bytes, MEM_SIZE as u64).expect("Invalid ELF bytes");
         ExecutableFormat::Elf(elf)
     }
 }
@@ -168,10 +167,16 @@ pub struct EvmProof {
 #[cfg(feature = "evm-prove")]
 #[derive(Debug, thiserror::Error)]
 pub enum EvmProofConversionError {
-    #[error("Invalid length of instances: expected at least 3, got {0}")]
+    #[error("Invalid length of instances: expected more than {}, got {0}", NUM_BN254_ACCUMULATOR + 2)]
     InvalidLengthInstances(usize),
-    #[error("Invalid length of user public values")]
-    InvalidUserPublicValuesLength,
+    #[error("Accumulator length {0} is not a multiple of {BN254_BYTES}")]
+    InvalidAccumulatorLength(usize),
+    #[error("User public value at index {0} does not fit in one byte")]
+    UserPublicValueOutOfRange(usize),
+    #[error("Value is not a canonical Bn254 scalar")]
+    NonCanonicalScalar,
+    #[error(transparent)]
+    NonCanonicalCommit(#[from] openvm_continuations::CommitBytesError),
 }
 
 #[cfg(feature = "evm-prove")]
@@ -205,9 +210,9 @@ impl EvmProof {
     }
 
     #[cfg(feature = "evm-verify")]
-    pub fn fallback_calldata(&self) -> Vec<u8> {
-        let raw: openvm_static_verifier::keygen::RawEvmProof = self.clone().into();
-        encode_raw_evm_proof_calldata(&raw)
+    pub fn fallback_calldata(&self) -> Result<Vec<u8>, EvmProofConversionError> {
+        let raw: openvm_static_verifier::keygen::RawEvmProof = self.clone().try_into()?;
+        Ok(encode_raw_evm_proof_calldata(&raw))
     }
 }
 
@@ -236,18 +241,20 @@ pub fn encode_raw_evm_proof_calldata(
 /// - `instances[0..12]`: KZG accumulator (12 Fr values)
 /// - `instances[12]`: app_exe_commit (Fr)
 /// - `instances[13]`: app_vm_commit (Fr)
-/// - `instances[14..]`: user public values (each u16 limb as Fr)
+/// - `instances[14..]`: user public values (each byte as Fr)
 #[cfg(feature = "evm-prove")]
-impl From<openvm_static_verifier::keygen::RawEvmProof> for EvmProof {
-    fn from(raw: openvm_static_verifier::keygen::RawEvmProof) -> Self {
+impl TryFrom<openvm_static_verifier::keygen::RawEvmProof> for EvmProof {
+    type Error = EvmProofConversionError;
+
+    fn try_from(raw: openvm_static_verifier::keygen::RawEvmProof) -> Result<Self, Self::Error> {
         use openvm_continuations::CommitBytes;
 
         let openvm_static_verifier::keygen::RawEvmProof { instances, proof } = raw;
-        assert!(
-            instances.len() > NUM_BN254_ACCUMULATOR + 2,
-            "RawEvmProof instances must have at least {} elements (accumulator + exe commit + vk commit)",
-            NUM_BN254_ACCUMULATOR + 2
-        );
+        if instances.len() <= NUM_BN254_ACCUMULATOR + 2 {
+            return Err(EvmProofConversionError::InvalidLengthInstances(
+                instances.len(),
+            ));
+        }
 
         // instances[0..12] are the KZG accumulator
         let accumulator = instances[0..NUM_BN254_ACCUMULATOR]
@@ -270,22 +277,22 @@ impl From<openvm_static_verifier::keygen::RawEvmProof> for EvmProof {
 
         let user_public_values = instances[NUM_BN254_ACCUMULATOR + 2..]
             .iter()
-            .flat_map(|f| {
+            .enumerate()
+            .map(|(index, f)| {
                 let bytes = f.to_bytes();
-                debug_assert!(
-                    bytes[U16_CELL_SIZE..].iter().all(|&byte| byte == 0),
-                    "user public value limb must fit in u16"
-                );
-                std::array::from_fn::<_, U16_CELL_SIZE, _>(|i| bytes[i])
+                if bytes[1..].iter().any(|&byte| byte != 0) {
+                    return Err(EvmProofConversionError::UserPublicValueOutOfRange(index));
+                }
+                Ok(bytes[0])
             })
-            .collect::<Vec<u8>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let app_commit = AppExecutionCommit {
-            app_exe_commit: CommitBytes::new(app_exe_bytes),
-            app_vm_commit: CommitBytes::new(app_vm_bytes),
+            app_exe_commit: CommitBytes::try_new(app_exe_bytes)?,
+            app_vm_commit: CommitBytes::try_new(app_vm_bytes)?,
         };
 
-        Self {
+        Ok(Self {
             version: format!("v{OPENVM_VERSION}"),
             app_commit,
             user_public_values,
@@ -293,15 +300,22 @@ impl From<openvm_static_verifier::keygen::RawEvmProof> for EvmProof {
                 accumulator: evm_accumulator,
                 proof,
             },
-        }
+        })
     }
 }
 
-/// Convert `EvmProof` → `RawEvmProof`.
+/// Convert `EvmProof` → `RawEvmProof`. Fallible because `evm_proof` may be untrusted.
 #[cfg(feature = "evm-prove")]
-impl From<EvmProof> for openvm_static_verifier::keygen::RawEvmProof {
-    fn from(evm_proof: EvmProof) -> Self {
+impl TryFrom<EvmProof> for openvm_static_verifier::keygen::RawEvmProof {
+    type Error = EvmProofConversionError;
+
+    fn try_from(evm_proof: EvmProof) -> Result<Self, Self::Error> {
         use openvm_static_verifier::Fr;
+
+        fn to_fr(le_bytes: &[u8; 32]) -> Result<Fr, EvmProofConversionError> {
+            Option::from(Fr::from_bytes(le_bytes))
+                .ok_or(EvmProofConversionError::NonCanonicalScalar)
+        }
 
         let EvmProof {
             app_commit,
@@ -312,6 +326,12 @@ impl From<EvmProof> for openvm_static_verifier::keygen::RawEvmProof {
 
         let ProofData { accumulator, proof } = proof_data;
 
+        if !accumulator.len().is_multiple_of(BN254_BYTES) {
+            return Err(EvmProofConversionError::InvalidAccumulatorLength(
+                accumulator.len(),
+            ));
+        }
+
         // Reverse each 32-byte chunk from big-endian (EVM) to little-endian (Fr)
         let mut reversed_accumulator = Vec::with_capacity(accumulator.len());
         accumulator
@@ -321,36 +341,33 @@ impl From<EvmProof> for openvm_static_verifier::keygen::RawEvmProof {
         // CommitBytes is big-endian; Fr::from_bytes expects little-endian
         let mut app_exe_bytes = *app_commit.app_exe_commit.as_slice();
         app_exe_bytes.reverse();
-        let app_exe_fr = Fr::from_bytes(&app_exe_bytes).unwrap();
+        let app_exe_fr = to_fr(&app_exe_bytes)?;
 
         let mut app_vm_bytes = *app_commit.app_vm_commit.as_slice();
         app_vm_bytes.reverse();
-        let app_vm_fr = Fr::from_bytes(&app_vm_bytes).unwrap();
+        let app_vm_fr = to_fr(&app_vm_bytes)?;
 
-        assert!(
-            user_public_values.len().is_multiple_of(U16_CELL_SIZE),
-            "user public values length must be a multiple of {U16_CELL_SIZE}"
-        );
         let user_pvs_frs: Vec<Fr> = user_public_values
-            .chunks_exact(U16_CELL_SIZE)
-            .map(|limb| {
+            .into_iter()
+            .map(|byte| {
                 let mut bytes = [0u8; 32];
-                bytes[..U16_CELL_SIZE].copy_from_slice(limb);
-                Fr::from_bytes(&bytes).unwrap()
+                bytes[0] = byte;
+                to_fr(&bytes)
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
         // Reconstruct instances: accumulator + commits + user PVs
         let mut instances = Vec::new();
         for chunk in reversed_accumulator.chunks(BN254_BYTES) {
+            // Length checked above, so every chunk is full-width.
             let c: [u8; 32] = chunk.try_into().unwrap();
-            instances.push(Fr::from_bytes(&c).unwrap());
+            instances.push(to_fr(&c)?);
         }
         instances.push(app_exe_fr);
         instances.push(app_vm_fr);
         instances.extend(user_pvs_frs);
 
-        openvm_static_verifier::keygen::RawEvmProof { instances, proof }
+        Ok(openvm_static_verifier::keygen::RawEvmProof { instances, proof })
     }
 }
 
@@ -399,29 +416,48 @@ mod tests {
     use halo2_base::halo2_proofs::arithmetic::Field;
     use openvm_static_verifier::{keygen::RawEvmProof, Fr};
 
-    use super::{EvmProof, NUM_BN254_ACCUMULATOR, U16_CELL_SIZE};
+    use super::{EvmProof, NUM_BN254_ACCUMULATOR};
 
-    fn fr_from_u16(value: u16) -> Fr {
+    fn fr_from_u8(value: u8) -> Fr {
         let mut bytes = [0u8; 32];
-        bytes[..U16_CELL_SIZE].copy_from_slice(&value.to_le_bytes());
+        bytes[0] = value;
         Fr::from_bytes(&bytes).unwrap()
     }
 
     #[test]
-    fn evm_proof_roundtrips_u16_public_values() {
+    fn evm_proof_roundtrips_byte_public_values() {
         let mut instances = vec![Fr::ZERO; NUM_BN254_ACCUMULATOR + 2];
-        instances.extend([fr_from_u16(0x1234), fr_from_u16(0xabcd)]);
+        instances.extend([fr_from_u8(0x34), fr_from_u8(0xab)]);
         let raw = RawEvmProof {
             instances,
             proof: vec![1, 2, 3],
         };
 
-        let proof = EvmProof::from(raw.clone());
-        assert_eq!(proof.user_public_values, [0x34, 0x12, 0xcd, 0xab]);
+        let proof = EvmProof::try_from(raw.clone()).unwrap();
+        assert_eq!(proof.user_public_values, [0x34, 0xab]);
 
-        let roundtrip = RawEvmProof::from(proof);
+        let roundtrip = RawEvmProof::try_from(proof).unwrap();
         assert_eq!(roundtrip.instances, raw.instances);
         assert_eq!(roundtrip.proof, raw.proof);
+    }
+
+    #[test]
+    fn evm_proof_rejects_non_byte_public_values() {
+        let mut instances = vec![Fr::ZERO; NUM_BN254_ACCUMULATOR + 2];
+        let mut bytes = [0u8; 32];
+        bytes[1] = 1;
+        instances.push(Fr::from_bytes(&bytes).unwrap());
+
+        let error = EvmProof::try_from(RawEvmProof {
+            instances,
+            proof: Vec::new(),
+        })
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            super::EvmProofConversionError::UserPublicValueOutOfRange(0)
+        ));
     }
 }
 
@@ -443,6 +479,53 @@ impl TryFrom<VersionedVmStarkProof> for VmStarkProof {
                 .map(|bytes| DeferralMerkleProofs::decode(&mut std::io::Cursor::new(&bytes)))
                 .transpose()?,
         })
+    }
+}
+
+/// The VM-specific, executable-independent subset of a [VerificationBaseline]: every field except
+/// the `app_exe_commit`, all derived from the VM config and the aggregation parameters. Two
+/// proofs verified against baselines with equal [VmBaseline]s were generated by the same VM and
+/// aggregation pipeline.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VmBaseline {
+    /// See [VerificationBaseline::memory_dimensions].
+    pub memory_dimensions: MemoryDimensions,
+    /// See [VerificationBaseline::num_user_pvs].
+    pub num_user_pvs: usize,
+    /// See [VerificationBaseline::app_vk_commit].
+    pub app_vk_commit: VkCommit<crate::F>,
+    /// See [VerificationBaseline::leaf_vk_commit].
+    pub leaf_vk_commit: VkCommit<crate::F>,
+    /// See [VerificationBaseline::internal_for_leaf_vk_commit].
+    pub internal_for_leaf_vk_commit: VkCommit<crate::F>,
+    /// See [VerificationBaseline::internal_recursive_vk_commit].
+    pub internal_recursive_vk_commit: VkCommit<crate::F>,
+    /// See [VerificationBaseline::expected_def_hook_commit].
+    pub expected_def_hook_commit: Option<Digest>,
+}
+
+impl From<&VerificationBaseline> for VmBaseline {
+    /// Extracts the VM-specific subset of a baseline, dropping the exe-specific `app_exe_commit`.
+    fn from(baseline: &VerificationBaseline) -> Self {
+        let &VerificationBaseline {
+            app_exe_commit: _,
+            memory_dimensions,
+            num_user_pvs,
+            app_vk_commit,
+            leaf_vk_commit,
+            internal_for_leaf_vk_commit,
+            internal_recursive_vk_commit,
+            expected_def_hook_commit,
+        } = baseline;
+        Self {
+            memory_dimensions,
+            num_user_pvs,
+            app_vk_commit,
+            leaf_vk_commit,
+            internal_for_leaf_vk_commit,
+            internal_recursive_vk_commit,
+            expected_def_hook_commit,
+        }
     }
 }
 

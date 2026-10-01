@@ -13,8 +13,8 @@ use openvm_circuit::{
 use openvm_circuit_primitives::{ColumnsAir, StructReflection, StructReflectionHelper};
 use openvm_circuit_primitives_derive::AlignedBorrow;
 use openvm_instructions::{
-    program::DEFAULT_PC_STEP,
-    riscv::{RV64_IMM_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    program::{pc_to_idx, DEFAULT_PC_STEP},
+    riscv::{IMM_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
 };
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
@@ -23,15 +23,15 @@ use openvm_stark_backend::{
 };
 
 use super::{
-    byte_ptr_to_u16_ptr, checked_byte_ptr_to_u16_ptr_value, is_canonical_i12,
-    rv64_bytes_to_u16_block, rv64_u16_block_to_bytes,
+    bytes_to_u16_block, checked_register_u16_pointer, is_canonical_i12,
+    reg_byte_ptr_to_cell_ptr_limbs, u16_block_to_bytes,
 };
 
 /// Immediate-only byte-limb adapter (single register read + register write). The immediate
 /// itself lives in the core, which passes it back as the `ImmInstruction` immediate expression.
 #[repr(C)]
 #[derive(AlignedBorrow, StructReflection)]
-pub struct Rv64BaseAluImmAdapterCols<T> {
+pub struct BaseAluImmAdapterCols<T> {
     pub from_state: ExecutionState<T>,
     pub rd_ptr: T,
     pub rs1_ptr: T,
@@ -42,26 +42,26 @@ pub struct Rv64BaseAluImmAdapterCols<T> {
 /// Reads instructions of the form OP a, b, c, d, e where \[a:4\]_d = \[b:4\]_d op c, with c
 /// always an immediate (d = 1, e = 0).
 #[derive(Clone, Copy, Debug, derive_new::new, ColumnsAir)]
-#[columns_via(Rv64BaseAluImmAdapterCols<u8>)]
-pub struct Rv64BaseAluImmAdapterAir {
+#[columns_via(BaseAluImmAdapterCols<u8>)]
+pub struct BaseAluImmAdapterAir {
     pub(super) execution_bridge: ExecutionBridge,
     pub(super) memory_bridge: MemoryBridge,
 }
 
-impl<F: Field> BaseAir<F> for Rv64BaseAluImmAdapterAir {
+impl<F: Field> BaseAir<F> for BaseAluImmAdapterAir {
     fn width(&self) -> usize {
-        Rv64BaseAluImmAdapterCols::<F>::width()
+        BaseAluImmAdapterCols::<F>::width()
     }
 }
 
-impl<AB: InteractionBuilder> VmAdapterAir<AB> for Rv64BaseAluImmAdapterAir {
+impl<AB: InteractionBuilder> VmAdapterAir<AB> for BaseAluImmAdapterAir {
     type Interface = BasicAdapterInterface<
         AB::Expr,
         ImmInstruction<AB::Expr>,
         1,
         1,
-        RV64_REGISTER_NUM_LIMBS,
-        RV64_REGISTER_NUM_LIMBS,
+        REGISTER_NUM_LIMBS,
+        REGISTER_NUM_LIMBS,
     >;
 
     fn eval(
@@ -70,7 +70,7 @@ impl<AB: InteractionBuilder> VmAdapterAir<AB> for Rv64BaseAluImmAdapterAir {
         local: &[AB::Var],
         ctx: AdapterAirContext<AB::Expr, Self::Interface>,
     ) {
-        let local: &Rv64BaseAluImmAdapterCols<_> = local.borrow();
+        let local: &BaseAluImmAdapterCols<_> = local.borrow();
         let timestamp = local.from_state.timestamp;
         let mut timestamp_delta: usize = 0;
         let mut timestamp_pp = || {
@@ -82,8 +82,8 @@ impl<AB: InteractionBuilder> VmAdapterAir<AB> for Rv64BaseAluImmAdapterAir {
         self.memory_bridge
             .read(
                 MemoryAddress::new(
-                    AB::F::from_u32(RV64_REGISTER_AS),
-                    byte_ptr_to_u16_ptr::<AB>(local.rs1_ptr),
+                    AB::F::from_u32(REGISTER_AS),
+                    reg_byte_ptr_to_cell_ptr_limbs::<AB>(local.rs1_ptr),
                 ),
                 pack_u8_block::<AB>(&ctx.reads[0].clone()),
                 timestamp_pp(),
@@ -95,8 +95,8 @@ impl<AB: InteractionBuilder> VmAdapterAir<AB> for Rv64BaseAluImmAdapterAir {
         self.memory_bridge
             .write(
                 MemoryAddress::new(
-                    AB::F::from_u32(RV64_REGISTER_AS),
-                    byte_ptr_to_u16_ptr::<AB>(local.rd_ptr),
+                    AB::F::from_u32(REGISTER_AS),
+                    reg_byte_ptr_to_cell_ptr_limbs::<AB>(local.rd_ptr),
                 ),
                 pack_u8_block::<AB>(&ctx.writes[0].clone()),
                 timestamp_pp(),
@@ -105,72 +105,62 @@ impl<AB: InteractionBuilder> VmAdapterAir<AB> for Rv64BaseAluImmAdapterAir {
             .eval(builder, ctx.instruction.is_valid.clone());
 
         self.execution_bridge
-            .execute_and_increment_or_set_pc(
+            .execute_and_increment_or_set_pc_idx(
                 ctx.instruction.opcode,
                 [
                     local.rd_ptr.into(),
                     local.rs1_ptr.into(),
                     ctx.instruction.immediate,
-                    AB::Expr::from_u32(RV64_REGISTER_AS),
-                    AB::Expr::from_u32(RV64_IMM_AS),
+                    AB::Expr::from_u32(REGISTER_AS),
+                    AB::Expr::from_u32(IMM_AS),
                 ],
                 local.from_state,
                 AB::F::from_usize(timestamp_delta),
-                (DEFAULT_PC_STEP, ctx.to_pc),
+                (1, ctx.to_pc_idx),
             )
             .eval(builder, ctx.instruction.is_valid);
     }
 
-    fn get_from_pc(&self, local: &[AB::Var]) -> AB::Var {
-        let cols: &Rv64BaseAluImmAdapterCols<_> = local.borrow();
+    fn get_from_pc_idx(&self, local: &[AB::Var]) -> AB::Var {
+        let cols: &BaseAluImmAdapterCols<_> = local.borrow();
         cols.from_state.pc
     }
 }
 
 #[derive(Clone, derive_new::new)]
-pub struct Rv64BaseAluImmAdapterExecutor;
+pub struct BaseAluImmAdapterFiller;
 
-#[derive(Clone, derive_new::new)]
-pub struct Rv64BaseAluImmAdapterFiller;
-
-impl Rv64BaseAluImmAdapterFiller {
+impl BaseAluImmAdapterFiller {
     pub(crate) fn replay<F: PrimeField32>(
         postflight: &Postflight<'_, F>,
         step: PostflightStep,
         mem_helper: &MemoryAuxColsFactory<F>,
-        adapter_row: &mut Rv64BaseAluImmAdapterCols<F>,
-        compute: impl FnOnce([u8; RV64_REGISTER_NUM_LIMBS], u32) -> [u8; RV64_REGISTER_NUM_LIMBS],
-    ) -> Result<([u8; RV64_REGISTER_NUM_LIMBS], [u8; RV64_REGISTER_NUM_LIMBS]), PostflightError>
-    {
+        adapter_row: &mut BaseAluImmAdapterCols<F>,
+        compute: impl FnOnce([u8; REGISTER_NUM_LIMBS], u32) -> [u8; REGISTER_NUM_LIMBS],
+    ) -> Result<([u8; REGISTER_NUM_LIMBS], [u8; REGISTER_NUM_LIMBS]), PostflightError> {
         let instruction = postflight.instruction(step);
-        if instruction.d.as_canonical_u32() != RV64_REGISTER_AS
-            || instruction.e.as_canonical_u32() != RV64_IMM_AS
-        {
+        if instruction.d.as_u32() != REGISTER_AS || instruction.e.as_u32() != IMM_AS {
             return Err(PostflightError::new(
                 "register-immediate ALU instruction has invalid address spaces",
             ));
         }
         let from_pc = postflight.pc(step);
         let from_timestamp = postflight.timestamp(step);
-        let rs1_ptr = instruction.b.as_canonical_u32();
-        let rd_ptr = instruction.a.as_canonical_u32();
-        let immediate = instruction.c.as_canonical_u32();
+        let rs1_ptr = instruction.b.as_u32();
+        let rd_ptr = instruction.a.as_u32();
+        let immediate = instruction.c.as_u32();
         if !is_canonical_i12(immediate) {
             return Err(PostflightError::new(
                 "register-immediate ALU instruction has a non-canonical immediate",
             ));
         }
-        let rs1_u16_ptr = checked_byte_ptr_to_u16_ptr_value(rs1_ptr)?;
-        let rd_u16_ptr = checked_byte_ptr_to_u16_ptr_value(rd_ptr)?;
+        let rs1_u16_ptr = checked_register_u16_pointer(rs1_ptr)?;
+        let rd_u16_ptr = checked_register_u16_pointer(rd_ptr)?;
         let mut replay = postflight.replay(step);
-        let rs1 = replay.read_u16(RV64_REGISTER_AS, rs1_u16_ptr)?;
-        let input = rv64_u16_block_to_bytes(rs1.value);
+        let rs1 = replay.read_u16(REGISTER_AS, rs1_u16_ptr)?;
+        let input = u16_block_to_bytes(rs1.value);
         let output = compute(input, immediate);
-        let write = replay.write_u16(
-            RV64_REGISTER_AS,
-            rd_u16_ptr,
-            rv64_bytes_to_u16_block(output),
-        )?;
+        let write = replay.write_u16(REGISTER_AS, rd_u16_ptr, bytes_to_u16_block(output))?;
         replay.finish(from_pc.wrapping_add(DEFAULT_PC_STEP))?;
 
         adapter_row
@@ -189,7 +179,7 @@ impl Rv64BaseAluImmAdapterFiller {
         adapter_row.rs1_ptr = F::from_u32(rs1_ptr);
         adapter_row.rd_ptr = F::from_u32(rd_ptr);
         adapter_row.from_state.timestamp = F::from_u32(from_timestamp);
-        adapter_row.from_state.pc = F::from_u32(from_pc);
+        adapter_row.from_state.pc = F::from_u32(pc_to_idx(from_pc));
 
         Ok((input, output))
     }

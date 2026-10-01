@@ -3,6 +3,8 @@ use openvm_algebra_circuit::*;
 use openvm_algebra_transpiler::{Fp2TranspilerExtension, ModularTranspilerExtension};
 use openvm_bigint_circuit::*;
 use openvm_bigint_transpiler::*;
+#[cfg(not(feature = "cuda"))]
+use openvm_circuit::arch::SegmentProver as VmSegmentProver;
 use openvm_circuit::{
     arch::{instructions::DEFERRAL_AS, *},
     derive::VmConfig,
@@ -24,7 +26,8 @@ use openvm_sha2_transpiler::*;
 #[cfg(feature = "rvr")]
 use openvm_stark_backend::p3_field::PrimeField32;
 use openvm_stark_backend::{p3_field::Field, StarkEngine, StarkProtocolConfig};
-use openvm_stark_sdk::config::baby_bear_poseidon2::F;
+#[cfg(not(feature = "cuda"))]
+use openvm_stark_sdk::config::baby_bear_poseidon2::BabyBearPoseidon2CpuEngine;
 use openvm_transpiler::transpiler::Transpiler;
 #[cfg(feature = "rvr")]
 use rvr_openvm_lift::RvrExtensions;
@@ -38,11 +41,11 @@ mod preflight;
 #[cfg(feature = "cuda")]
 mod preflight_driver;
 #[cfg(feature = "cuda")]
+use preflight_driver::PreparedContinuation;
+#[cfg(feature = "cuda")]
 pub use preflight_driver::SegmentProver;
 #[cfg(not(feature = "cuda"))]
-mod segment_prover;
-#[cfg(not(feature = "cuda"))]
-pub use segment_prover::SegmentProver;
+pub type SegmentProver = VmSegmentProver<BabyBearPoseidon2CpuEngine, SdkVmCpuBuilder>;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "cuda")] {
@@ -186,12 +189,12 @@ impl SdkVmConfig {
     }
 }
 
-pub trait TranspilerConfig<F> {
-    fn transpiler(&self) -> Transpiler<F>;
+pub trait TranspilerConfig {
+    fn transpiler(&self) -> Transpiler;
 }
 
-impl TranspilerConfig<F> for SdkVmConfig {
-    fn transpiler(&self) -> Transpiler<F> {
+impl TranspilerConfig for SdkVmConfig {
+    fn transpiler(&self) -> Transpiler {
         let mut transpiler = Transpiler::default();
         if self.rv64i.is_some() {
             transpiler = transpiler.with_extension(Rv64ITranspilerExtension);
@@ -439,15 +442,6 @@ where
     }
 }
 
-impl<E> ContinuationProverBuilder<E> for SdkVmCpuBuilder
-where
-    E: StarkEngine<SC = SC, PB = CpuBackend<SC>, PD = CpuDevice<SC>> + 'static,
-{
-    fn continuation_prover() -> ContinuationProverFn<E, Self> {
-        Box::new(ContinuationVmProver::prove)
-    }
-}
-
 #[cfg(feature = "cuda")]
 #[derive(Copy, Clone, Default)]
 pub struct SdkVmGpuBuilder;
@@ -512,8 +506,20 @@ impl VmBuilder<BabyBearPoseidon2GpuEngine> for SdkVmGpuBuilder {
 
 #[cfg(feature = "cuda")]
 impl ContinuationProverBuilder<BabyBearPoseidon2GpuEngine> for SdkVmGpuBuilder {
-    fn continuation_prover() -> ContinuationProverFn<BabyBearPoseidon2GpuEngine, Self> {
-        preflight_driver::continuation_prover()
+    type PreparedContinuation = PreparedContinuation;
+
+    fn prepare_continuation(
+        instance: &VmInstance<BabyBearPoseidon2GpuEngine, Self>,
+    ) -> Result<Self::PreparedContinuation, VirtualMachineError> {
+        PreparedContinuation::new(instance)
+    }
+
+    fn prove_continuation(
+        prepared: &mut Self::PreparedContinuation,
+        instance: &mut VmInstance<BabyBearPoseidon2GpuEngine, Self>,
+        input: Streams,
+    ) -> Result<ContinuationVmProof<SC>, VirtualMachineError> {
+        prepared.prove(instance, input)
     }
 }
 

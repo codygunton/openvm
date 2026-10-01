@@ -11,6 +11,7 @@
 //! get around Rust orphan rules.
 use std::{
     any::{type_name, Any},
+    error::Error,
     sync::Arc,
 };
 
@@ -163,6 +164,9 @@ pub struct AirInventory<SC: StarkProtocolConfig> {
     ext_start: Vec<usize>,
 
     bus_idx_mgr: BusIndexManager,
+    #[cfg(feature = "metrics")]
+    /// Diagnostic names in bus-index order. These names are not part of the verifying key.
+    bus_names: Vec<&'static str>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -173,17 +177,24 @@ pub struct BusIndexManager {
 
 // @dev: ChipInventory does not have the SystemChipComplex because that is custom depending on `PB`.
 // The full struct with SystemChipComplex is VmChipComplex
-pub struct InventoryChip {
+struct InventoryChip<PB: ProverBackend> {
     value: Box<dyn Any>,
     constant_trace_height: Option<usize>,
+    postflight_generator: Option<PostflightGenerator<PB>>,
 }
 
-impl InventoryChip {
+impl<PB: ProverBackend> InventoryChip<PB> {
     fn new<C: 'static>(value: C, constant_trace_height: Option<usize>) -> Self {
         Self {
             value: Box::new(value),
             constant_trace_height,
+            postflight_generator: None,
         }
+    }
+
+    fn with_postflight_generator(mut self, generator: PostflightGenerator<PB>) -> Self {
+        self.postflight_generator = Some(generator);
+        self
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -201,9 +212,7 @@ where
     #[get = "pub"]
     airs: AirInventory<SC>,
     /// Chips that are being built.
-    #[get = "pub"]
-    chips: Vec<InventoryChip>,
-    postflight_generators: Vec<Option<PostflightGenerator<PB>>>,
+    chips: Vec<InventoryChip<PB>>,
 
     /// Number of extensions that have chips added, including the current one that is still being
     /// built.
@@ -461,12 +470,27 @@ impl<SC: StarkProtocolConfig> AirInventory<SC> {
         system: SystemAirInventory,
         bus_idx_mgr: BusIndexManager,
     ) -> Self {
+        #[cfg(feature = "metrics")]
+        let bus_names = {
+            let names = vec![
+                "Execution",
+                "Memory",
+                "Program",
+                "VariableRange",
+                "MemoryMerkle",
+                "Poseidon2Compression",
+            ];
+            assert_eq!(names.len(), usize::from(bus_idx_mgr.bus_idx_max));
+            names
+        };
         Self {
             config,
             system,
             ext_start: Vec::new(),
             ext_airs: Vec::new(),
             bus_idx_mgr,
+            #[cfg(feature = "metrics")]
+            bus_names,
         }
     }
 
@@ -476,7 +500,25 @@ impl<SC: StarkProtocolConfig> AirInventory<SC> {
     }
 
     pub fn new_bus_idx(&mut self) -> BusIndex {
-        self.bus_idx_mgr.new_bus_idx()
+        self.new_bus_idx_named("unnamed")
+    }
+
+    /// Allocates a bus index with a diagnostic name for metrics and tooling.
+    pub fn new_bus_idx_named(&mut self, name: &'static str) -> BusIndex {
+        let idx = self.bus_idx_mgr.new_bus_idx();
+        #[cfg(feature = "metrics")]
+        {
+            debug_assert_eq!(usize::from(idx), self.bus_names.len());
+            self.bus_names.push(name);
+        }
+        #[cfg(not(feature = "metrics"))]
+        let _ = name;
+        idx
+    }
+
+    #[cfg(feature = "metrics")]
+    pub fn bus_names(&self) -> &[&'static str] {
+        &self.bus_names
     }
 
     /// Looks through already-defined AIRs to see if there exists any of type `A` by downcasting.
@@ -561,7 +603,6 @@ where
         Self {
             airs,
             chips: Vec::new(),
-            postflight_generators: Vec::new(),
             cur_num_exts: 0,
             executor_idx_to_insertion_idx: Vec::new(),
         }
@@ -569,6 +610,10 @@ where
 
     pub fn config(&self) -> &SystemConfig {
         &self.airs.config
+    }
+
+    pub(crate) fn num_chips(&self) -> usize {
+        self.chips.len()
     }
 
     // NOTE[jpw]: this is currently unused, it is for debugging purposes
@@ -612,7 +657,7 @@ where
 
     /// Adds a chip that is not associated with any executor, as defined by the
     /// [VmExecutionExtension] trait.
-    pub fn add_periphery_chip<C: Chip<(), PB> + 'static>(&mut self, chip: C) {
+    pub fn add_periphery_chip<C: Chip<PB> + 'static>(&mut self, chip: C) {
         let constant_trace_height = chip.constant_trace_height();
         self.add_periphery_chip_with_height(chip, constant_trace_height);
     }
@@ -624,7 +669,6 @@ where
     ) {
         self.chips
             .push(InventoryChip::new(chip, constant_trace_height));
-        self.postflight_generators.push(None);
     }
 
     /// Adds a chip and associates it to the next executor.
@@ -634,13 +678,12 @@ where
         tracing::debug!("add_executor_chip: {}", type_name::<C>());
         self.executor_idx_to_insertion_idx.push(self.chips.len());
         self.chips.push(InventoryChip::new(chip, None));
-        self.postflight_generators.push(None);
     }
 
-    /// Adds a periphery chip with its record-free CPU trace generator.
-    pub fn add_postflight_periphery_chip<C, G>(&mut self, chip: C, generate: G)
+    /// Adds a periphery chip with its CPU trace generator over postflight history.
+    pub fn add_periphery_chip_with_tracegen<C, G>(&mut self, chip: C, generate: G)
     where
-        C: Chip<(), PB> + 'static,
+        C: Chip<PB> + 'static,
         G: for<'a> Fn(
                 &C,
                 &Postflight<'a, PB::Val>,
@@ -650,10 +693,11 @@ where
             + 'static,
     {
         let constant_trace_height = chip.constant_trace_height();
-        self.add_postflight_periphery_chip_with_height(chip, constant_trace_height, generate);
+        self.add_periphery_chip_with_height_and_tracegen(chip, constant_trace_height, generate);
     }
 
-    pub fn add_postflight_periphery_chip_with_height<C, G>(
+    /// Adds a periphery chip with an explicit trace height and CPU trace generator.
+    pub fn add_periphery_chip_with_height_and_tracegen<C, G>(
         &mut self,
         chip: C,
         constant_trace_height: Option<usize>,
@@ -668,14 +712,14 @@ where
             + Sync
             + 'static,
     {
-        self.chips
-            .push(InventoryChip::new(chip, constant_trace_height));
-        self.postflight_generators
-            .push(Some(erase_postflight_generator(generate)));
+        self.chips.push(
+            InventoryChip::new(chip, constant_trace_height)
+                .with_postflight_generator(erase_postflight_generator(generate)),
+        );
     }
 
-    /// Adds an executor chip with its record-free CPU trace generator.
-    pub fn add_postflight_executor_chip<C, G>(&mut self, chip: C, generate: G)
+    /// Adds an executor chip with its CPU trace generator over postflight history.
+    pub fn add_executor_chip_with_tracegen<C, G>(&mut self, chip: C, generate: G)
     where
         C: 'static,
         G: for<'a> Fn(
@@ -688,9 +732,10 @@ where
     {
         tracing::debug!("add_executor_chip: {}", type_name::<C>());
         self.executor_idx_to_insertion_idx.push(self.chips.len());
-        self.chips.push(InventoryChip::new(chip, None));
-        self.postflight_generators
-            .push(Some(erase_postflight_generator(generate)));
+        self.chips.push(
+            InventoryChip::new(chip, None)
+                .with_postflight_generator(erase_postflight_generator(generate)),
+        );
     }
 
     /// Returns the mapping from executor index to the AIR index, where AIR index is the index of
@@ -788,6 +833,42 @@ pub enum ChipInventoryError {
     MissingChip { actual: usize, expected: usize },
     #[error("Missing executor chip. Number of executors with associated chips is {actual}, expected number is {expected}")]
     MissingExecutor { actual: usize, expected: usize },
+    #[error("Failed to initialize prover chip `{name}`: {source}")]
+    ProverChipInitialization {
+        name: String,
+        #[source]
+        source: Box<dyn Error + Send + Sync>,
+    },
+}
+
+impl ChipInventoryError {
+    pub fn prover_chip_initialization(
+        name: impl Into<String>,
+        source: impl Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::ProverChipInitialization {
+            name: name.into(),
+            source: Box::new(source),
+        }
+    }
+}
+
+#[cfg(test)]
+mod chip_inventory_error_tests {
+    use std::{error::Error, io::Error as IoError};
+
+    use super::ChipInventoryError;
+
+    #[test]
+    fn prover_chip_initialization_preserves_source() {
+        let error = ChipInventoryError::prover_chip_initialization(
+            "test chip",
+            IoError::other("setup failed"),
+        );
+        let source = Error::source(&error).unwrap();
+        let source = source.downcast_ref::<IoError>().unwrap();
+        assert_eq!(source.to_string(), "setup failed");
+    }
 }
 
 // ======================= VM Chip Complex Implementation =============================
@@ -813,11 +894,6 @@ where
         &mut self,
         postflight: &Postflight<'_, Val<SC>>,
     ) -> Result<ProvingContext<CpuBackend<SC>>, GenerationError> {
-        debug_assert_eq!(
-            self.inventory.chips.len(),
-            self.inventory.postflight_generators.len()
-        );
-
         let sys_ctxs = {
             let _span = info_span!("system_trace_gen").entered();
             self.system.generate_proving_ctx_from_postflight(postflight)
@@ -827,18 +903,12 @@ where
         exec_ctxs.resize_with(self.inventory.chips.len(), || None);
         {
             let _span = info_span!("executor_trace_gen").entered();
-            for (chain_pos, (insertion_idx, (chip, generator))) in self
-                .inventory
-                .chips
-                .iter()
-                .zip(&self.inventory.postflight_generators)
-                .enumerate()
-                .rev()
-                .enumerate()
+            for (chain_pos, (insertion_idx, chip)) in
+                self.inventory.chips.iter().enumerate().rev().enumerate()
             {
                 let air_name = self.inventory.airs.ext_airs[insertion_idx].name();
                 let _air_span = info_span!("single_trace_gen", air = air_name).entered();
-                let generator = generator.as_ref().ok_or_else(|| {
+                let generator = chip.postflight_generator.as_ref().ok_or_else(|| {
                     GenerationError::ExtensionTracegen(format!(
                         "AIR {air_name} has no postflight trace generator"
                     ))
@@ -872,7 +942,6 @@ where
         transcript: &GpuPostflightTranscript,
         replay_plan: &GpuPostflightPlan,
         mut generate_extension: impl FnMut(
-            usize,
             &dyn Any,
         )
             -> Result<AirProvingContext<GpuBackend>, GenerationError>,
@@ -905,19 +974,17 @@ where
             {
                 let _air_span =
                     info_span!("single_trace_gen", air = air_names[insertion_idx]).entered();
-                exec_ctxs[chain_pos] = Some(
-                    generate_extension(insertion_idx, chip.as_any()).map_err(
-                        |error| match error {
-                            GenerationError::ExtensionTracegen(message) => {
-                                GenerationError::ExtensionTracegen(format!(
-                                    "AIR `{}`: {message}",
-                                    air_names[insertion_idx]
-                                ))
-                            }
-                            error => error,
-                        },
-                    )?,
-                );
+                exec_ctxs[chain_pos] = Some(generate_extension(chip.as_any()).map_err(
+                    |error| match error {
+                        GenerationError::ExtensionTracegen(message) => {
+                            GenerationError::ExtensionTracegen(format!(
+                                "AIR `{}`: {message}",
+                                air_names[insertion_idx]
+                            ))
+                        }
+                        error => error,
+                    },
+                )?);
             }
         }
         let ctx_without_empties = sys_ctxs
@@ -1064,5 +1131,17 @@ mod tests {
         assert_eq!(port.memory_bridge.range_bus().index(), 3);
         assert_eq!(system.memory.interface.boundary.merkle_bus.index, 4);
         assert_eq!(system.memory.interface.boundary.compression_bus.index, 5);
+        #[cfg(feature = "metrics")]
+        assert_eq!(
+            inventory.bus_names(),
+            [
+                "Execution",
+                "Memory",
+                "Program",
+                "VariableRange",
+                "MemoryMerkle",
+                "Poseidon2Compression",
+            ]
+        );
     }
 }

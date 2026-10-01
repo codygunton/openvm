@@ -1,12 +1,13 @@
 //! Chip to handle phantom instructions.
-//! The Air will always constrain a NOP which advances pc by DEFAULT_PC_STEP.
+//! The AIR constrains a NOP that advances the circuit pc by one index. The runtime executor
+//! advances the architectural byte pc by `DEFAULT_PC_STEP`.
 //! The runtime executor will execute different phantom instructions that may
 //! affect trace generation based on the operand.
 use std::{borrow::Borrow, sync::Arc};
 
 use openvm_circuit_primitives::{ColumnsAir, StructReflection, StructReflectionHelper};
 use openvm_circuit_primitives_derive::AlignedBorrow;
-use openvm_instructions::{program::DEFAULT_PC_STEP, PhantomDiscriminant, VmOpcode};
+use openvm_instructions::{PhantomDiscriminant, VmOpcode};
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
     p3_air::{Air, AirBuilder, BaseAir},
@@ -20,9 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 use super::memory::online::GuestMemory;
-use crate::arch::{
-    ExecutionBridge, ExecutionState, PcIncOrSet, PhantomSubExecutor, Streams, VmChipWrapper,
-};
+use crate::arch::{ExecutionBridge, ExecutionState, PcIdxIncOrSet, PhantomSubExecutor, Streams};
 
 mod execution;
 #[cfg(test)]
@@ -32,9 +31,9 @@ mod trace;
 pub(crate) use trace::generate_trace_from_postflight;
 
 /// PhantomAir still needs columns for each nonzero operand in a phantom instruction.
-/// We currently allow `a,b,c` where the lower 16 bits of `c` are used as the [PhantomInstruction]
-/// discriminant.
-const NUM_PHANTOM_OPERANDS: usize = 3;
+/// We allow `a,b,c,d`, where `c` is the 16-bit phantom discriminant and `d` is the
+/// instruction-specific 16-bit `c_upper` value.
+const NUM_PHANTOM_OPERANDS: usize = 4;
 
 #[derive(Clone, Debug, ColumnsAir)]
 #[columns_via(PhantomCols<u8>)]
@@ -47,7 +46,8 @@ pub struct PhantomAir {
 #[repr(C)]
 #[derive(AlignedBorrow, StructReflection, Copy, Clone, Serialize, Deserialize)]
 pub struct PhantomCols<T> {
-    pub pc: T,
+    /// Circuit PC index (`byte_pc / DEFAULT_PC_STEP`).
+    pub pc_idx: T,
     #[serde(with = "BigArray")]
     pub operands: [T; NUM_PHANTOM_OPERANDS],
     pub timestamp: T,
@@ -67,7 +67,7 @@ impl<AB: AirBuilder + InteractionBuilder> Air<AB> for PhantomAir {
         let main = builder.main();
         let local = main.row_slice(0).expect("window should have two elements");
         let &PhantomCols {
-            pc,
+            pc_idx,
             operands,
             timestamp,
             is_valid,
@@ -75,26 +75,22 @@ impl<AB: AirBuilder + InteractionBuilder> Air<AB> for PhantomAir {
 
         builder.assert_bool(is_valid);
         self.execution_bridge
-            .execute_and_increment_or_set_pc(
-                self.phantom_opcode.to_field::<AB::F>(),
+            .execute_and_increment_or_set_pc_idx(
+                AB::F::from_usize(self.phantom_opcode.as_usize()),
                 operands,
-                ExecutionState::<AB::Expr>::new(pc, timestamp),
+                ExecutionState::<AB::Expr>::new(pc_idx, timestamp),
                 AB::Expr::ONE,
-                PcIncOrSet::Inc(AB::Expr::from_u32(DEFAULT_PC_STEP)),
+                PcIdxIncOrSet::Inc(AB::Expr::ONE),
             )
             .eval(builder, is_valid);
     }
 }
 
-/// `PhantomChip` is a special executor because it is stateful and stores all the phantom
-/// sub-executors.
+/// Stateful executor that stores and dispatches all phantom sub-executors.
 #[derive(Clone, derive_new::new)]
 pub struct PhantomExecutor {
     pub(crate) phantom_executors: FxHashMap<PhantomDiscriminant, Arc<dyn PhantomSubExecutor>>,
 }
-
-pub struct PhantomFiller;
-pub type PhantomChip<F> = VmChipWrapper<F, PhantomFiller>;
 
 pub struct NopPhantomExecutor;
 pub struct CycleStartPhantomExecutor;

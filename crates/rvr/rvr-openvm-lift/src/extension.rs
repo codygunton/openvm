@@ -6,12 +6,11 @@ use std::{
 };
 
 use openvm_instructions::{
-    exe::SparseMemoryImage, metering::PAGE_MASK_LEAF_BITS, LocalOpcode, VmOpcode, VM_DIGEST_WIDTH,
+    exe::SparseMemoryImage, instruction::Instruction, metering::PAGE_MASK_LEAF_BITS, LocalOpcode,
+    VmOpcode, VM_DIGEST_WIDTH,
 };
 use openvm_stark_backend::p3_field::PrimeField32;
 use rvr_openvm_ir::{FixedTraceRows, LiftedInstr, Variable};
-
-use crate::RvrInstruction;
 
 /// Number of byte-addressed memory bytes represented by one metering page.
 pub const MAIN_MEMORY_PAGE_BYTES: usize =
@@ -165,6 +164,8 @@ pub enum ExtensionError {
     AirIndexOutOfBounds { opcode: VmOpcode, air_idx: usize },
     #[error("failed to register host callbacks: {0}")]
     HostCallbackRegistration(String),
+    #[error("invalid instruction for opcode {opcode:?} at pc {pc:#x}")]
+    InvalidInstruction { opcode: VmOpcode, pc: u64 },
     #[error(
         "opcode {opcode:?} at pc {pc:#x} was claimed by both {first_extension} and {second_extension}"
     )]
@@ -182,7 +183,7 @@ pub trait RvrExtension: Send + Sync {
     /// Try to lift an OpenVM instruction into IR.
     /// Return `None` if this extension doesn't handle the opcode.
     /// Chip indices are stored on the extension and baked into IR nodes.
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr>;
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr>;
 
     /// C header files for this extension, as `(filename, content)` pairs.
     /// Written to the output directory and `#include`d in the generated code.
@@ -217,6 +218,13 @@ pub trait RvrExtension: Send + Sync {
     /// Maximum number of main-memory page entries one instruction can append
     /// between page-buffer drains. Extensions with zero such entries return zero.
     fn max_main_memory_pages_per_instruction(&self) -> usize;
+
+    /// Whether this extension can emit accesses to the deferral address space.
+    /// Metered execution uses this to avoid allocating the deferral page buffer
+    /// when no registered extension can populate it.
+    fn uses_deferral_address_space(&self) -> bool {
+        false
+    }
 
     /// Returns indirect-jump candidates found by this extension in initialized data.
     fn extra_cfg_targets(
@@ -310,7 +318,7 @@ impl ExtensionRegistry {
     /// Returns an error if multiple extensions claim the same instruction.
     pub fn try_lift(
         &self,
-        insn: &RvrInstruction,
+        insn: &Instruction,
         pc: u64,
     ) -> Result<Option<LiftedInstr>, ExtensionError> {
         let mut lifted: Option<(&'static str, LiftedInstr)> = None;
@@ -376,6 +384,13 @@ impl ExtensionRegistry {
             .map(|ext| ext.extension.max_main_memory_pages_per_instruction())
             .max()
             .unwrap_or(0)
+    }
+
+    /// Whether any registered extension can access the deferral address space.
+    pub fn uses_deferral_address_space(&self) -> bool {
+        self.extensions
+            .iter()
+            .any(|ext| ext.extension.uses_deferral_address_space())
     }
 
     /// Collect indirect-jump candidates from initialized memory.
@@ -457,10 +472,13 @@ mod tests {
     use crate::opcode::NopInstr;
 
     struct ClaimingExtension;
-    struct BoundedExtension(usize);
+    struct BoundedExtension {
+        max_main_memory_pages: usize,
+        uses_deferral: bool,
+    }
 
     impl RvrExtension for ClaimingExtension {
-        fn try_lift(&self, _insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+        fn try_lift(&self, _insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
             Some(LiftedInstr::Body(InstrAt {
                 pc,
                 instr: Box::new(NopInstr),
@@ -478,7 +496,7 @@ mod tests {
     }
 
     impl RvrExtension for BoundedExtension {
-        fn try_lift(&self, _insn: &RvrInstruction, _pc: u64) -> Option<LiftedInstr> {
+        fn try_lift(&self, _insn: &Instruction, _pc: u64) -> Option<LiftedInstr> {
             None
         }
 
@@ -487,7 +505,11 @@ mod tests {
         }
 
         fn max_main_memory_pages_per_instruction(&self) -> usize {
-            self.0
+            self.max_main_memory_pages
+        }
+
+        fn uses_deferral_address_space(&self) -> bool {
+            self.uses_deferral
         }
     }
 
@@ -511,11 +533,36 @@ mod tests {
     #[test]
     fn registry_uses_largest_extension_page_bound() {
         let mut registry = ExtensionRegistry::new();
-        registry.register(BoundedExtension(2));
-        registry.register(BoundedExtension(9));
-        registry.register(BoundedExtension(6));
+        registry.register(BoundedExtension {
+            max_main_memory_pages: 2,
+            uses_deferral: false,
+        });
+        registry.register(BoundedExtension {
+            max_main_memory_pages: 9,
+            uses_deferral: false,
+        });
+        registry.register(BoundedExtension {
+            max_main_memory_pages: 6,
+            uses_deferral: false,
+        });
 
         assert_eq!(registry.max_main_memory_pages_per_instruction(), 9);
+    }
+
+    #[test]
+    fn registry_reports_deferral_address_space_usage() {
+        let mut registry = ExtensionRegistry::new();
+        registry.register(BoundedExtension {
+            max_main_memory_pages: 0,
+            uses_deferral: false,
+        });
+        assert!(!registry.uses_deferral_address_space());
+
+        registry.register(BoundedExtension {
+            max_main_memory_pages: 0,
+            uses_deferral: true,
+        });
+        assert!(registry.uses_deferral_address_space());
     }
 
     #[test]
@@ -523,8 +570,7 @@ mod tests {
         let mut registry = ExtensionRegistry::new();
         registry.register(ClaimingExtension);
         registry.register(ClaimingExtension);
-        let instruction =
-            RvrInstruction::from_canonical(VmOpcode::from_usize(123), [0; 7], 2_013_265_921);
+        let instruction = Instruction::from_usize(VmOpcode::from_usize(123), []);
 
         assert!(matches!(
             registry.try_lift(&instruction, 0x100),

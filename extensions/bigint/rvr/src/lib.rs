@@ -5,12 +5,13 @@
 //! via double FFI.
 
 use openvm_bigint_transpiler::{
-    Rv64BaseAlu256Opcode, Rv64BranchEqual256Opcode, Rv64BranchLessThan256Opcode,
-    Rv64LessThan256Opcode, Rv64Mul256Opcode, Rv64Shift256Opcode,
+    BaseAlu256Opcode, BranchEqual256Opcode, BranchLessThan256Opcode, LessThan256Opcode,
+    Mul256Opcode, Shift256Opcode,
 };
 use openvm_instructions::{
+    instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_NUM_REGISTERS, RV64_REGISTER_BYTES},
+    riscv::{MEMORY_AS, NUM_REGISTERS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::{
@@ -19,25 +20,34 @@ use openvm_riscv_transpiler::{
 use rvr_openvm_ir::{
     CfgEffect, CfgTerm, ExtEmitCtx, ExtInstr, InstrAt, LiftedInstr, Terminator, Variable,
 };
-use rvr_openvm_lift::{
-    decode_variable, max_main_memory_pages_for_contiguous_range, opcode_air_idx, AirIndex,
-    ExtensionError, RvrExtension, RvrExtensionCtx, RvrInstruction,
-};
+use rvr_openvm_lift::{decode_variable, max_main_memory_pages_for_contiguous_range, RvrExtension};
 use strum::EnumCount;
 
 // An Int256 operation can read two independent 32-byte values and write one.
 const INT256_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION: usize =
     3 * max_main_memory_pages_for_contiguous_range(32);
+const BRANCH_IMMEDIATE_BOUND: i32 = 1 << 12;
 
 fn decode_reg(value: u32) -> Variable {
-    decode_variable(value, RV64_REGISTER_BYTES as u32, RV64_NUM_REGISTERS as u32)
+    decode_variable(value, REGISTER_BYTES as u32, NUM_REGISTERS as u32)
+}
+
+fn has_register_memory_domains(insn: &Instruction) -> bool {
+    insn.d.as_u32() == REGISTER_AS && insn.e.as_u32() == MEMORY_AS
+}
+
+fn decode_branch_immediate(insn: &Instruction) -> Option<i32> {
+    let imm = insn.c.as_i32();
+    (-BRANCH_IMMEDIATE_BOUND..BRANCH_IMMEDIATE_BOUND)
+        .contains(&imm)
+        .then_some(imm)
 }
 
 fn emit_pointer_alignment_guard(ctx: &mut dyn ExtEmitCtx, pointers: &[&str]) {
     let pointers = pointers.join(" | ");
     ctx.write_line(&format!(
         "if (unlikely((({pointers}) & {}ull) != 0ull)) {{",
-        RV64_REGISTER_BYTES - 1
+        REGISTER_BYTES - 1
     ));
     ctx.emit_trap();
     ctx.write_line("}");
@@ -117,8 +127,6 @@ pub struct Int256AluInstr {
     pub rs2_reg: Variable,
     /// The ALU operation to perform (selects the FFI function at codegen time).
     pub op: Int256AluOp,
-    /// AIR index associated with this instruction.
-    pub chip_idx: Option<AirIndex>,
 }
 
 impl ExtInstr for Int256AluInstr {
@@ -127,33 +135,22 @@ impl ExtInstr for Int256AluInstr {
     }
 
     fn emit_c(&self, ctx: &mut dyn ExtEmitCtx) {
-        // Preflight follows the AIR's source-read then destination-read
-        // schedule. Pure and metered execution retain destination-first codegen
-        // because they do not emit these memory events.
-        let (rd, rs1, rs2) = if ctx.is_checkpoint_preflight() {
-            let rs1 = ctx.read_var(self.rs1_reg);
-            let rs2 = ctx.read_var(self.rs2_reg);
-            let rd = ctx.read_var(self.rd_reg);
-            (rd, rs1, rs2)
-        } else {
-            let rd = ctx.read_var(self.rd_reg);
-            let rs1 = ctx.read_var(self.rs1_reg);
-            let rs2 = ctx.read_var(self.rs2_reg);
-            (rd, rs1, rs2)
-        };
+        let rs1 = ctx.read_var(self.rs1_reg);
+        let rs2 = ctx.read_var(self.rs2_reg);
+        let rd = ctx.read_var(self.rd_reg);
         emit_pointer_alignment_guard(ctx, &[&rd, &rs1, &rs2]);
         // The FFI performs eight aligned heap reads followed by four aligned
-        // heap writes. Checkpoint replay reconstructs those events from the
+        // heap writes. GPU replay reconstructs those events from the
         // postimage; pure and metered modes emit neither reservation nor peek.
-        ctx.reserve_preflight_writes("4u", "12u");
-        let checkpoint = ctx.is_checkpoint_preflight();
-        if checkpoint {
+        ctx.reserve_preflight_timestamp_slots("12u");
+        let is_preflight = ctx.is_preflight();
+        if is_preflight {
             ctx.reserve_replay_values("4u");
-        } else if ctx.counts_checkpoint_residuals() {
+        } else {
             ctx.count_fixed_replay_values(4);
         }
         ctx.emit_call(self.op.ffi_name(), &["state", &rd, &rs1, &rs2]);
-        if checkpoint {
+        if is_preflight {
             ctx.append_replay_memory_u64_range(&rd, "4u");
         }
     }
@@ -184,8 +181,6 @@ pub struct Int256BranchEqInstr {
     pub fall_pc: u64,
     /// If true, branch on *not* equal (BNE); otherwise branch on equal (BEQ).
     pub is_ne: bool,
-    /// Chip index for metering. See [`Int256AluInstr::chip_idx`].
-    pub chip_idx: Option<AirIndex>,
 }
 
 impl ExtInstr for Int256BranchEqInstr {
@@ -210,7 +205,7 @@ impl ExtInstr for Int256BranchEqInstr {
         // The predicate call performs eight aligned heap reads. Its one-bit
         // result is the minimum information needed by independent GPU chunks
         // to recover the dynamic successor before memory chronology exists.
-        ctx.advance_checkpoint_timestamp(8);
+        ctx.advance_timestamp(8);
         ctx.append_replay_value(&cond);
         ctx.flush_before_control_transfer();
         ctx.write_line(&format!("if ({cond}) {{"));
@@ -252,8 +247,6 @@ pub struct Int256BranchLtInstr {
     pub fall_pc: u64,
     /// The branch-less-than variant (selects the FFI function at codegen time).
     pub op: Int256BranchLtOp,
-    /// Chip index for metering. See [`Int256AluInstr::chip_idx`].
-    pub chip_idx: Option<AirIndex>,
 }
 
 impl ExtInstr for Int256BranchLtInstr {
@@ -270,7 +263,7 @@ impl ExtInstr for Int256BranchLtInstr {
         let rs2 = ctx.read_var(self.rs2_reg);
         emit_pointer_alignment_guard(ctx, &[&rs1, &rs2]);
         let cond = ctx.emit_call_expr("bool", self.op.ffi_name(), &["state", &rs1, &rs2]);
-        ctx.advance_checkpoint_timestamp(8);
+        ctx.advance_timestamp(8);
         ctx.append_replay_value(&cond);
         ctx.flush_before_control_transfer();
         ctx.write_line(&format!("if ({cond}) {{"));
@@ -302,84 +295,28 @@ impl ExtInstr for Int256BranchLtInstr {
 // ── Extension struct ────────────────────────────────────────────────────────
 
 /// The Int256 extension. Register this with the `ExtensionRegistry`.
-pub struct Int256Extension {
-    add_sub_chip_idx: Option<AirIndex>,
-    bitwise_logic_chip_idx: Option<AirIndex>,
-    shift_logical_chip_idx: Option<AirIndex>,
-    shift_right_arithmetic_chip_idx: Option<AirIndex>,
-    less_than_chip_idx: Option<AirIndex>,
-    mul_chip_idx: Option<AirIndex>,
-    branch_eq_chip_idx: Option<AirIndex>,
-    branch_lt_chip_idx: Option<AirIndex>,
-}
+pub struct Int256Extension;
 
 impl Int256Extension {
-    pub fn new(ctx: Option<&RvrExtensionCtx>) -> Result<Self, ExtensionError> {
-        let add_sub_chip_idx = opcode_air_idx(ctx, Rv64BaseAlu256Opcode(BaseAluOpcode::ADD))?;
-        let bitwise_logic_chip_idx = opcode_air_idx(ctx, Rv64BaseAlu256Opcode(BaseAluOpcode::XOR))?;
-        let shift_logical_chip_idx = opcode_air_idx(ctx, Rv64Shift256Opcode(ShiftOpcode::SLL))?;
-        let shift_right_arithmetic_chip_idx =
-            opcode_air_idx(ctx, Rv64Shift256Opcode(ShiftOpcode::SRA))?;
-        let less_than_chip_idx = opcode_air_idx(ctx, Rv64LessThan256Opcode(LessThanOpcode::SLT))?;
-        let mul_chip_idx = opcode_air_idx(ctx, Rv64Mul256Opcode(MulOpcode::MUL))?;
-        let branch_eq_chip_idx =
-            opcode_air_idx(ctx, Rv64BranchEqual256Opcode(BranchEqualOpcode::BEQ))?;
-        let branch_lt_chip_idx =
-            opcode_air_idx(ctx, Rv64BranchLessThan256Opcode(BranchLessThanOpcode::BLT))?;
-
-        Ok(Self {
-            add_sub_chip_idx,
-            bitwise_logic_chip_idx,
-            shift_logical_chip_idx,
-            shift_right_arithmetic_chip_idx,
-            less_than_chip_idx,
-            mul_chip_idx,
-            branch_eq_chip_idx,
-            branch_lt_chip_idx,
-        })
+    pub const fn new() -> Self {
+        Self
     }
+}
 
-    /// Map a global opcode to the chip index for that operation.
-    fn chip_idx_for_opcode(&self, opcode: usize) -> Option<AirIndex> {
-        let base_alu_start = Rv64BaseAlu256Opcode::CLASS_OFFSET;
-        let shift_start = Rv64Shift256Opcode::CLASS_OFFSET;
-        let lt_start = Rv64LessThan256Opcode::CLASS_OFFSET;
-        let beq_start = Rv64BranchEqual256Opcode::CLASS_OFFSET;
-        let blt_start = Rv64BranchLessThan256Opcode::CLASS_OFFSET;
-        let mul_start = Rv64Mul256Opcode::CLASS_OFFSET;
-
-        if opcode >= base_alu_start && opcode < base_alu_start + BaseAluOpcode::COUNT {
-            match opcode - base_alu_start {
-                0..=1 => self.add_sub_chip_idx,
-                _ => self.bitwise_logic_chip_idx,
-            }
-        } else if opcode >= shift_start && opcode < shift_start + ShiftOpcode::COUNT {
-            match opcode - shift_start {
-                0..=1 => self.shift_logical_chip_idx,
-                _ => self.shift_right_arithmetic_chip_idx,
-            }
-        } else if opcode >= lt_start && opcode < lt_start + LessThanOpcode::COUNT {
-            self.less_than_chip_idx
-        } else if opcode >= beq_start && opcode < beq_start + BranchEqualOpcode::COUNT {
-            self.branch_eq_chip_idx
-        } else if opcode >= blt_start && opcode < blt_start + BranchLessThanOpcode::COUNT {
-            self.branch_lt_chip_idx
-        } else if opcode >= mul_start && opcode < mul_start + MulOpcode::COUNT {
-            self.mul_chip_idx
-        } else {
-            panic!("unknown Int256 opcode: {opcode:#x}");
-        }
+impl Default for Int256Extension {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl RvrExtension for Int256Extension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         let opcode = insn.opcode.as_usize();
 
         // ── ALU body instructions ───────────────────────────────────────
 
         // BaseAlu256: ADD(0), SUB(1), XOR(2), OR(3), AND(4)
-        let base_alu_start = Rv64BaseAlu256Opcode::CLASS_OFFSET;
+        let base_alu_start = BaseAlu256Opcode::CLASS_OFFSET;
         if opcode >= base_alu_start && opcode < base_alu_start + BaseAluOpcode::COUNT {
             let op = match opcode - base_alu_start {
                 0 => Int256AluOp::Add,
@@ -389,11 +326,11 @@ impl RvrExtension for Int256Extension {
                 4 => Int256AluOp::And,
                 _ => unreachable!(),
             };
-            return Some(self.lift_alu(insn, pc, op));
+            return self.lift_alu(insn, pc, op);
         }
 
         // Shift256: SLL(0), SRL(1), SRA(2)
-        let shift_start = Rv64Shift256Opcode::CLASS_OFFSET;
+        let shift_start = Shift256Opcode::CLASS_OFFSET;
         if opcode >= shift_start && opcode < shift_start + ShiftOpcode::COUNT {
             let op = match opcode - shift_start {
                 0 => Int256AluOp::Sll,
@@ -401,39 +338,40 @@ impl RvrExtension for Int256Extension {
                 2 => Int256AluOp::Sra,
                 _ => unreachable!(),
             };
-            return Some(self.lift_alu(insn, pc, op));
+            return self.lift_alu(insn, pc, op);
         }
 
         // LessThan256: SLT(0), SLTU(1)
-        let lt_start = Rv64LessThan256Opcode::CLASS_OFFSET;
+        let lt_start = LessThan256Opcode::CLASS_OFFSET;
         if opcode >= lt_start && opcode < lt_start + LessThanOpcode::COUNT {
             let op = match opcode - lt_start {
                 0 => Int256AluOp::Slt,
                 1 => Int256AluOp::Sltu,
                 _ => unreachable!(),
             };
-            return Some(self.lift_alu(insn, pc, op));
+            return self.lift_alu(insn, pc, op);
         }
 
         // Mul256: MUL(0)
-        let mul_start = Rv64Mul256Opcode::CLASS_OFFSET;
+        let mul_start = Mul256Opcode::CLASS_OFFSET;
         if opcode >= mul_start && opcode < mul_start + MulOpcode::COUNT {
-            return Some(self.lift_alu(insn, pc, Int256AluOp::Mul));
+            return self.lift_alu(insn, pc, Int256AluOp::Mul);
         }
 
         // ── Branch terminator instructions ──────────────────────────────
 
         // BranchEqual256: BEQ(0), BNE(1)
-        let beq_start = Rv64BranchEqual256Opcode::CLASS_OFFSET;
+        let beq_start = BranchEqual256Opcode::CLASS_OFFSET;
         if opcode >= beq_start && opcode < beq_start + BranchEqualOpcode::COUNT {
             let is_ne = opcode - beq_start == 1;
-            let rs1_reg = decode_reg(insn.a);
-            let rs2_reg = decode_reg(insn.b);
-            let imm = insn.signed_c();
-            let target_pc = (pc as i64 + imm as i64) as u64;
+            if !has_register_memory_domains(insn) {
+                return None;
+            }
+            let imm = decode_branch_immediate(insn)?;
+            let rs1_reg = decode_reg(insn.a.as_u32());
+            let rs2_reg = decode_reg(insn.b.as_u32());
+            let target_pc = pc.wrapping_add_signed(i64::from(imm));
             let fall_pc = pc + DEFAULT_PC_STEP as u64;
-            let chip_idx = self.chip_idx_for_opcode(opcode);
-
             return Some(LiftedInstr::Term {
                 pc,
                 terminator: Terminator::instruction(Int256BranchEqInstr {
@@ -442,14 +380,13 @@ impl RvrExtension for Int256Extension {
                     target_pc,
                     fall_pc,
                     is_ne,
-                    chip_idx,
                 }),
                 source_loc: None,
             });
         }
 
         // BranchLessThan256: BLT(0), BLTU(1), BGE(2), BGEU(3)
-        let blt_start = Rv64BranchLessThan256Opcode::CLASS_OFFSET;
+        let blt_start = BranchLessThan256Opcode::CLASS_OFFSET;
         if opcode >= blt_start && opcode < blt_start + BranchLessThanOpcode::COUNT {
             let op = match opcode - blt_start {
                 0 => Int256BranchLtOp::Blt,
@@ -458,13 +395,14 @@ impl RvrExtension for Int256Extension {
                 3 => Int256BranchLtOp::Bgeu,
                 _ => unreachable!(),
             };
-            let rs1_reg = decode_reg(insn.a);
-            let rs2_reg = decode_reg(insn.b);
-            let imm = insn.signed_c();
-            let target_pc = (pc as i64 + imm as i64) as u64;
+            if !has_register_memory_domains(insn) {
+                return None;
+            }
+            let imm = decode_branch_immediate(insn)?;
+            let rs1_reg = decode_reg(insn.a.as_u32());
+            let rs2_reg = decode_reg(insn.b.as_u32());
+            let target_pc = pc.wrapping_add_signed(i64::from(imm));
             let fall_pc = pc + DEFAULT_PC_STEP as u64;
-            let chip_idx = self.chip_idx_for_opcode(opcode);
-
             return Some(LiftedInstr::Term {
                 pc,
                 terminator: Terminator::instruction(Int256BranchLtInstr {
@@ -473,7 +411,6 @@ impl RvrExtension for Int256Extension {
                     target_pc,
                     fall_pc,
                     op,
-                    chip_idx,
                 }),
                 source_loc: None,
             });
@@ -504,28 +441,29 @@ impl RvrExtension for Int256Extension {
 
 impl Int256Extension {
     /// Lift an R-type ALU instruction: a=rd, b=rs1, c=rs2.
-    fn lift_alu(&self, insn: &RvrInstruction, pc: u64, op: Int256AluOp) -> LiftedInstr {
-        let rd_reg = decode_reg(insn.a);
-        let rs1_reg = decode_reg(insn.b);
-        let rs2_reg = decode_reg(insn.c);
-        let chip_idx = self.chip_idx_for_opcode(insn.opcode.as_usize());
-
-        LiftedInstr::Body(InstrAt {
+    fn lift_alu(&self, insn: &Instruction, pc: u64, op: Int256AluOp) -> Option<LiftedInstr> {
+        if !has_register_memory_domains(insn) {
+            return None;
+        }
+        let rd_reg = decode_reg(insn.a.as_u32());
+        let rs1_reg = decode_reg(insn.b.as_u32());
+        let rs2_reg = decode_reg(insn.c.as_u32());
+        Some(LiftedInstr::Body(InstrAt {
             pc,
             instr: Box::new(Int256AluInstr {
                 rd_reg,
                 rs1_reg,
                 rs2_reg,
                 op,
-                chip_idx,
             }),
             source_loc: None,
-        })
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use openvm_instructions::VmOpcode;
     use rvr_openvm_ir::{MemWidth, PageAddressSpace};
 
     use super::*;
@@ -538,7 +476,7 @@ mod tests {
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum TestEmitMode {
-        Checkpoint,
+        Preflight,
         Direct,
         Metered,
     }
@@ -548,7 +486,7 @@ mod tests {
             Self {
                 lines: Vec::new(),
                 next_tmp: 0,
-                mode: TestEmitMode::Checkpoint,
+                mode: TestEmitMode::Preflight,
             }
         }
     }
@@ -561,14 +499,14 @@ mod tests {
             }
         }
 
-        fn records_checkpoint(&self) -> bool {
-            self.mode == TestEmitMode::Checkpoint
+        fn records_preflight(&self) -> bool {
+            self.mode == TestEmitMode::Preflight
         }
     }
 
     impl ExtEmitCtx for TestEmitCtx {
-        fn is_checkpoint_preflight(&self) -> bool {
-            self.records_checkpoint()
+        fn is_preflight(&self) -> bool {
+            self.records_preflight()
         }
 
         fn read_var(&mut self, var: Variable) -> String {
@@ -582,14 +520,8 @@ mod tests {
         }
 
         fn advance_timestamp(&mut self, slots: u32) {
-            if self.records_checkpoint() {
+            if self.records_preflight() {
                 self.lines.push(format!("advance({slots})"));
-            }
-        }
-
-        fn advance_checkpoint_timestamp(&mut self, slots: u32) {
-            if self.records_checkpoint() {
-                self.lines.push(format!("advance_checkpoint({slots})"));
             }
         }
 
@@ -617,32 +549,32 @@ mod tests {
             unreachable!()
         }
 
-        fn reserve_preflight_writes(&mut self, writes: &str, slots: &str) {
-            if self.records_checkpoint() {
-                self.lines.push(format!("reserve({writes}, {slots})"));
+        fn reserve_preflight_timestamp_slots(&mut self, slots: &str) {
+            if self.records_preflight() {
+                self.lines.push(format!("reserve({slots})"));
             }
         }
 
         fn reserve_replay_values(&mut self, count: &str) {
-            if self.records_checkpoint() {
+            if self.records_preflight() {
                 self.lines.push(format!("reserve_replay({count})"));
             }
         }
 
         fn append_replay_value(&mut self, value: &str) {
-            if self.records_checkpoint() {
+            if self.records_preflight() {
                 self.lines.push(format!("append({value})"));
             }
         }
 
         fn append_replay_memory_u64_range(&mut self, base: &str, count: &str) {
-            if self.records_checkpoint() {
+            if self.records_preflight() {
                 self.lines.push(format!("append_range({base}, {count})"));
             }
         }
 
         fn flush_before_control_transfer(&mut self) {
-            if self.records_checkpoint() {
+            if self.records_preflight() {
                 self.lines.push("flush".to_string());
             }
         }
@@ -699,20 +631,30 @@ mod tests {
         }
     }
 
-    fn instruction(opcode: impl LocalOpcode, c: u32) -> RvrInstruction {
-        RvrInstruction::from_canonical(opcode.global_opcode(), [8, 16, c, 0, 0, 0, 0], 101)
+    fn instruction(opcode: VmOpcode, c: i32) -> Instruction {
+        Instruction::from_isize(
+            opcode,
+            8,
+            16,
+            c as isize,
+            REGISTER_AS as isize,
+            MEMORY_AS as isize,
+        )
     }
 
     #[test]
-    fn bigint_branches_preserve_negative_field_encoded_offsets() {
+    fn bigint_branches_preserve_negative_offsets() {
         let pc = 0x1000;
-        let ext = Int256Extension::new(None).unwrap();
+        let ext = Int256Extension::new();
 
         for insn in [
-            instruction(Rv64BranchEqual256Opcode(BranchEqualOpcode::BEQ), 101 - 12),
             instruction(
-                Rv64BranchLessThan256Opcode(BranchLessThanOpcode::BLT),
-                101 - 12,
+                BranchEqual256Opcode(BranchEqualOpcode::BEQ).global_opcode(),
+                -12,
+            ),
+            instruction(
+                BranchLessThan256Opcode(BranchLessThanOpcode::BLT).global_opcode(),
+                -12,
             ),
         ] {
             let lifted = ext.try_lift(&insn, pc).unwrap();
@@ -727,20 +669,67 @@ mod tests {
     }
 
     #[test]
-    fn int256_alu_checkpoint_emits_exact_schedule_and_postimage() {
+    fn bigint_instruction_domains_match_the_interpreter() {
+        let ext = Int256Extension::new();
+        let pc = 0x1000;
+        for opcode in [
+            BaseAlu256Opcode(BaseAluOpcode::ADD).global_opcode(),
+            Shift256Opcode(ShiftOpcode::SLL).global_opcode(),
+            LessThan256Opcode(LessThanOpcode::SLT).global_opcode(),
+            Mul256Opcode(MulOpcode::MUL).global_opcode(),
+            BranchEqual256Opcode(BranchEqualOpcode::BEQ).global_opcode(),
+            BranchLessThan256Opcode(BranchLessThanOpcode::BLT).global_opcode(),
+        ] {
+            let valid = Instruction::from_usize(
+                opcode,
+                [8, 16, 24, REGISTER_AS as usize, MEMORY_AS as usize],
+            );
+            assert!(ext.try_lift(&valid, pc).is_some());
+
+            let wrong_register = Instruction::from_usize(
+                opcode,
+                [8, 16, 24, MEMORY_AS as usize, MEMORY_AS as usize],
+            );
+            assert!(ext.try_lift(&wrong_register, pc).is_none());
+
+            let wrong_memory = Instruction::from_usize(
+                opcode,
+                [8, 16, 24, REGISTER_AS as usize, REGISTER_AS as usize],
+            );
+            assert!(ext.try_lift(&wrong_memory, pc).is_none());
+        }
+    }
+
+    #[test]
+    fn bigint_branches_require_signed_13_bit_offsets() {
+        let ext = Int256Extension::new();
+        for opcode in [
+            BranchEqual256Opcode(BranchEqualOpcode::BEQ).global_opcode(),
+            BranchLessThan256Opcode(BranchLessThanOpcode::BLT).global_opcode(),
+        ] {
+            for offset in [-BRANCH_IMMEDIATE_BOUND, BRANCH_IMMEDIATE_BOUND - 1] {
+                assert!(ext.try_lift(&instruction(opcode, offset), 0x1000).is_some());
+            }
+            for offset in [-BRANCH_IMMEDIATE_BOUND - 1, BRANCH_IMMEDIATE_BOUND] {
+                assert!(ext.try_lift(&instruction(opcode, offset), 0x1000).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn int256_alu_preflight_emits_exact_schedule_and_postimage() {
         let instruction = Int256AluInstr {
             rd_reg: Variable::new(1),
             rs1_reg: Variable::new(2),
             rs2_reg: Variable::new(3),
             op: Int256AluOp::Add,
-            chip_idx: None,
         };
         assert!(instruction.supports_preflight());
 
-        let mut checkpoint = TestEmitCtx::default();
-        instruction.emit_c(&mut checkpoint);
+        let mut preflight = TestEmitCtx::default();
+        instruction.emit_c(&mut preflight);
         assert_eq!(
-            checkpoint.lines,
+            preflight.lines,
             [
                 "read(r2)",
                 "read(r3)",
@@ -748,7 +737,7 @@ mod tests {
                 "if (unlikely(((r1 | r2 | r3) & 7ull) != 0ull)) {",
                 "trap",
                 "}",
-                "reserve(4u, 12u)",
+                "reserve(12u)",
                 "reserve_replay(4u)",
                 "rvr_ext_int256_add(state, r1, r2, r3)",
                 "append_range(r1, 4u)",
@@ -761,9 +750,9 @@ mod tests {
             assert_eq!(
                 execution.lines,
                 [
-                    "read(r1)",
                     "read(r2)",
                     "read(r3)",
+                    "read(r1)",
                     "if (unlikely(((r1 | r2 | r3) & 7ull) != 0ull)) {",
                     "trap",
                     "}",
@@ -774,21 +763,20 @@ mod tests {
     }
 
     #[test]
-    fn int256_branches_checkpoint_emit_only_the_decision_residual() {
+    fn int256_branches_preflight_emit_only_the_decision_replay_value() {
         let instruction = Int256BranchEqInstr {
             rs1_reg: Variable::new(2),
             rs2_reg: Variable::new(3),
             target_pc: 40,
             fall_pc: 44,
             is_ne: false,
-            chip_idx: None,
         };
         assert!(instruction.supports_preflight());
 
-        let mut checkpoint = TestEmitCtx::default();
-        instruction.emit_c_term(&mut checkpoint, &|pc| format!("goto_{pc}"));
+        let mut preflight = TestEmitCtx::default();
+        instruction.emit_c_term(&mut preflight, &|pc| format!("goto_{pc}"));
         assert_eq!(
-            checkpoint.lines,
+            preflight.lines,
             [
                 "read(r2)",
                 "read(r3)",
@@ -796,7 +784,7 @@ mod tests {
                 "trap",
                 "}",
                 "bool tmp0 = rvr_ext_int256_beq(state, r2, r3)",
-                "advance_checkpoint(8)",
+                "advance(8)",
                 "append(tmp0)",
                 "flush",
                 "if (tmp0) {",
@@ -832,14 +820,13 @@ mod tests {
             target_pc: 40,
             fall_pc: 44,
             op: Int256BranchLtOp::Bltu,
-            chip_idx: None,
         };
-        let mut checkpoint = TestEmitCtx::default();
-        instruction.emit_c_term(&mut checkpoint, &|pc| format!("goto_{pc}"));
-        assert_eq!(checkpoint.lines[6], "advance_checkpoint(8)");
-        assert_eq!(checkpoint.lines[8], "flush");
+        let mut preflight = TestEmitCtx::default();
+        instruction.emit_c_term(&mut preflight, &|pc| format!("goto_{pc}"));
+        assert_eq!(preflight.lines[6], "advance(8)");
+        assert_eq!(preflight.lines[8], "flush");
         assert_eq!(
-            checkpoint.lines[5],
+            preflight.lines[5],
             "bool tmp0 = rvr_ext_int256_bltu(state, r2, r3)"
         );
     }

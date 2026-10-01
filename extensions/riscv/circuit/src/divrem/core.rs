@@ -92,7 +92,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &DivRemCoreCols<_, NUM_LIMBS, LIMB_BITS> = local_core.borrow();
         let flags = [
@@ -330,7 +330,7 @@ where
         let a = array::from_fn(|i| select(is_div.clone(), q[i], r[i]));
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: [cols.b.map(Into::into), cols.c.map(Into::into)].into(),
             writes: [a.map(Into::into)].into(),
             instruction: MinimalInstruction {
@@ -364,13 +364,12 @@ pub(crate) type DivRemResult<const NUM_LIMBS: usize> = (
 );
 
 #[derive(Clone, Copy, derive_new::new)]
-pub struct DivRemExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
+pub struct DivRemCoreExecutor<const NUM_LIMBS: usize, const LIMB_BITS: usize> {
     pub offset: usize,
 }
 
 pub struct DivRemFiller<A, const NUM_LIMBS: usize, const LIMB_BITS: usize> {
     pub(crate) adapter: A,
-    pub offset: usize,
     pub bitwise_lookup_chip: SharedBitwiseOperationLookupChip<LIMB_BITS>,
     pub range_tuple_chip: SharedRangeTupleCheckerChip<2>,
 }
@@ -380,7 +379,6 @@ impl<A, const NUM_LIMBS: usize, const LIMB_BITS: usize> DivRemFiller<A, NUM_LIMB
         adapter: A,
         bitwise_lookup_chip: SharedBitwiseOperationLookupChip<LIMB_BITS>,
         range_tuple_chip: SharedRangeTupleCheckerChip<2>,
-        offset: usize,
     ) -> Self {
         // The RangeTupleChecker is used to range check (a[i], carry[i]) pairs where 0 <= i
         // < 2 * NUM_LIMBS. a[i] must have LIMB_BITS bits and carry[i] is the sum of i + 1
@@ -398,7 +396,6 @@ impl<A, const NUM_LIMBS: usize, const LIMB_BITS: usize> DivRemFiller<A, NUM_LIMB
 
         Self {
             adapter,
-            offset,
             bitwise_lookup_chip,
             range_tuple_chip,
         }

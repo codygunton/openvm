@@ -4,27 +4,28 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 
-use openvm_algebra_transpiler::Rv64ModularArithmeticOpcode;
+use openvm_algebra_transpiler::ModularArithmeticOpcode;
 use openvm_circuit::{
     arch::{
-        Postflight, PostflightError, PostflightStep, U16Access, VmChipWrapper, BLOCK_FE_WIDTH,
-        MEMORY_BLOCK_BYTES,
+        fill_trace_rows, Postflight, PostflightError, PostflightStep, U16Access, VmChipWrapper,
+        BLOCK_FE_WIDTH, MEMORY_BLOCK_BYTES,
     },
     system::memory::SharedMemoryHelper,
     utils::next_power_of_two_or_zero,
 };
 use openvm_circuit_primitives::var_range::VariableRangeCheckerChip;
 use openvm_instructions::{
-    program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    program::{pc_to_idx, DEFAULT_PC_STEP},
+    riscv::{MEMORY_AS, REGISTER_AS},
     VmOpcode,
 };
 use openvm_mod_circuit_builder::FieldExpressionFiller;
 use openvm_riscv_adapters::{
-    Rv64IsEqualModU16AdapterCols, Rv64VecHeapAdapterCols, Rv64VecHeapAdapterFiller,
-    VecHeapTraceInput,
+    IsEqualModU16AdapterCols, VecHeapAdapterCols, VecHeapAdapterFiller, VecHeapTraceInput,
 };
-use openvm_riscv_circuit::adapters::{ptr_bound_from_ptr, ptr_to_field_u16_limbs, U16_BITS};
+use openvm_riscv_circuit::adapters::{
+    add_block_index_range_checks, ptr_to_field_u16_limbs, U16_BITS,
+};
 use openvm_stark_backend::{
     p3_air::BaseAir, p3_field::PrimeField32, p3_matrix::dense::RowMajorMatrix,
     p3_maybe_rayon::prelude::*,
@@ -102,9 +103,7 @@ fn replay_vec_heap<const NUM_READS: usize, const BLOCKS: usize, F: PrimeField32>
     pointer_max_bits: usize,
 ) -> Result<VecHeapTraceInput<NUM_READS, BLOCKS>, PostflightError> {
     let instruction = postflight.instruction(step);
-    if instruction.d.as_canonical_u32() != RV64_REGISTER_AS
-        || instruction.e.as_canonical_u32() != RV64_MEMORY_AS
-    {
+    if instruction.d.as_u32() != REGISTER_AS || instruction.e.as_u32() != MEMORY_AS {
         return Err(PostflightError::new(
             "vector-heap instruction has invalid address spaces",
         ));
@@ -114,12 +113,12 @@ fn replay_vec_heap<const NUM_READS: usize, const BLOCKS: usize, F: PrimeField32>
     let from_timestamp = postflight.timestamp(step);
     let rs_ptrs = from_fn(|index| {
         if index == 0 {
-            instruction.b.as_canonical_u32()
+            instruction.b.as_u32()
         } else {
-            instruction.c.as_canonical_u32()
+            instruction.c.as_u32()
         }
     });
-    let rd_ptr = instruction.a.as_canonical_u32();
+    let rd_ptr = instruction.a.as_u32();
     let mut rs_u16_ptrs = [0; NUM_READS];
     for index in 0..NUM_READS {
         rs_u16_ptrs[index] = checked_u16_pointer(rs_ptrs[index], "source register")?;
@@ -129,9 +128,9 @@ fn replay_vec_heap<const NUM_READS: usize, const BLOCKS: usize, F: PrimeField32>
     let mut replay = postflight.replay(step);
     let mut rs_accesses: [Option<U16Access>; NUM_READS] = from_fn(|_| None);
     for index in 0..NUM_READS {
-        rs_accesses[index] = Some(replay.read_u16(RV64_REGISTER_AS, rs_u16_ptrs[index])?);
+        rs_accesses[index] = Some(replay.read_u16(REGISTER_AS, rs_u16_ptrs[index])?);
     }
-    let rd_access = replay.read_u16(RV64_REGISTER_AS, rd_u16_ptr)?;
+    let rd_access = replay.read_u16(REGISTER_AS, rd_u16_ptr)?;
 
     let mut rs_vals = [0; NUM_READS];
     let mut rs_prev_timestamps = [0; NUM_READS];
@@ -148,10 +147,8 @@ fn replay_vec_heap<const NUM_READS: usize, const BLOCKS: usize, F: PrimeField32>
             let byte_pointer = pointer
                 .checked_add((block * MEMORY_BLOCK_BYTES) as u32)
                 .ok_or_else(|| PostflightError::new("vector-heap read pointer overflow"))?;
-            let access = replay.read_u16(
-                RV64_MEMORY_AS,
-                checked_u16_pointer(byte_pointer, "heap read")?,
-            )?;
+            let access =
+                replay.read_u16(MEMORY_AS, checked_u16_pointer(byte_pointer, "heap read")?)?;
             heap_prev_timestamps[read_index][block] = access.previous_timestamp;
             heap_reads[read_index][block] = access.value;
         }
@@ -165,10 +162,8 @@ fn replay_vec_heap<const NUM_READS: usize, const BLOCKS: usize, F: PrimeField32>
         let byte_pointer = rd_val
             .checked_add((block * MEMORY_BLOCK_BYTES) as u32)
             .ok_or_else(|| PostflightError::new("vector-heap write pointer overflow"))?;
-        let access = replay.write_observed_u16(
-            RV64_MEMORY_AS,
-            checked_u16_pointer(byte_pointer, "heap write")?,
-        )?;
+        let access = replay
+            .write_observed_u16(MEMORY_AS, checked_u16_pointer(byte_pointer, "heap write")?)?;
         write_prev_timestamps[block] = access.previous_timestamp;
         writes[block] = access.value;
         write_predecessors[block] = access.previous_value;
@@ -199,7 +194,7 @@ pub(crate) fn generate_field_expression_trace_from_postflight<
     F: PrimeField32 + Send + Sync + Clone,
     const BLOCKS: usize,
 >(
-    chip: &VmChipWrapper<F, FieldExpressionFiller<Rv64VecHeapAdapterFiller<2, BLOCKS, BLOCKS>>>,
+    chip: &VmChipWrapper<F, FieldExpressionFiller<VecHeapAdapterFiller<2, BLOCKS, BLOCKS>>>,
     postflight: &Postflight<'_, F>,
     opcode_base: usize,
     pointer_max_bits: usize,
@@ -215,7 +210,7 @@ pub(crate) fn generate_field_expression_trace_from_postflight<
                 rows.checked_add(postflight.steps(VmOpcode::from_usize(opcode)).len())
                     .ok_or_else(|| PostflightError::new("field-expression trace height overflow"))
             })?;
-    let adapter_width = Rv64VecHeapAdapterCols::<F, 2, BLOCKS, BLOCKS>::width();
+    let adapter_width = VecHeapAdapterCols::<F, 2, BLOCKS, BLOCKS>::width();
     let width = adapter_width
         .checked_add(BaseAir::<F>::width(&chip.inner.expr))
         .ok_or_else(|| PostflightError::new("field-expression trace width overflow"))?;
@@ -279,8 +274,13 @@ pub(crate) fn generate_field_expression_trace_from_postflight<
             })?;
         row_index = rows_end;
     }
-    for row in trace.values[row_index * width..].chunks_exact_mut(width) {
-        chip.inner.fill_dummy_core_row(&mut row[adapter_width..]);
+    if row_index < height {
+        let mut dummy_row = F::zero_vec(width);
+        chip.inner
+            .fill_dummy_core_row(&mut dummy_row[adapter_width..]);
+        trace.values[row_index * width..]
+            .par_chunks_exact_mut(width)
+            .for_each(|row| row.copy_from_slice(&dummy_row));
     }
     merge_range_counts(
         chip.inner.range_checker.as_ref(),
@@ -295,14 +295,14 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
     const NUM_LANES: usize,
     const TOTAL_LIMBS: usize,
 >(
-    chip: &ModularIsEqualU16Chip<F, NUM_LANES, TOTAL_LIMBS>,
+    chip: &ModularIsEqualU16Chip<F, TOTAL_LIMBS>,
     postflight: &Postflight<'_, F>,
     opcode_base: usize,
     pointer_max_bits: usize,
 ) -> Result<RowMajorMatrix<F>, PostflightError> {
     let local_opcodes = [
-        Rv64ModularArithmeticOpcode::IS_EQ as usize,
-        Rv64ModularArithmeticOpcode::SETUP_ISEQ as usize,
+        ModularArithmeticOpcode::IS_EQ as usize,
+        ModularArithmeticOpcode::SETUP_ISEQ as usize,
     ];
     let rows_used = local_opcodes.iter().try_fold(0usize, |rows, &local| {
         let opcode = opcode_base
@@ -311,7 +311,7 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
         rows.checked_add(postflight.steps(VmOpcode::from_usize(opcode)).len())
             .ok_or_else(|| PostflightError::new("modular equality trace height overflow"))
     })?;
-    let adapter_width = Rv64IsEqualModU16AdapterCols::<F, 2, NUM_LANES>::width();
+    let adapter_width = IsEqualModU16AdapterCols::<F, 2, NUM_LANES>::width();
     let width = adapter_width
         .checked_add(ModularIsEqualCoreCols::<F, TOTAL_LIMBS>::width())
         .ok_or_else(|| PostflightError::new("modular equality trace width overflow"))?;
@@ -335,11 +335,12 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
         let opcode = opcode_base
             .checked_add(local_opcode)
             .ok_or_else(|| PostflightError::new("modular equality opcode overflow"))?;
-        for &step in postflight.steps(VmOpcode::from_usize(opcode)) {
+        let steps = postflight.steps(VmOpcode::from_usize(opcode));
+        fill_trace_rows(&mut trace, row_index, steps, |row, step| {
             let instruction = postflight.instruction(step);
-            if instruction.a.as_canonical_u32() == 0
-                || instruction.d.as_canonical_u32() != RV64_REGISTER_AS
-                || instruction.e.as_canonical_u32() != RV64_MEMORY_AS
+            if instruction.a.as_u32() == 0
+                || instruction.d.as_u32() != REGISTER_AS
+                || instruction.e.as_u32() != MEMORY_AS
             {
                 return Err(PostflightError::new(
                     "modular equality instruction has invalid operands",
@@ -347,11 +348,8 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
             }
             let from_pc = postflight.pc(step);
             let from_timestamp = postflight.timestamp(step);
-            let rs_ptrs = [
-                instruction.b.as_canonical_u32(),
-                instruction.c.as_canonical_u32(),
-            ];
-            let rd_ptr = instruction.a.as_canonical_u32();
+            let rs_ptrs = [instruction.b.as_u32(), instruction.c.as_u32()];
+            let rd_ptr = instruction.a.as_u32();
             let rs_u16_ptrs = [
                 checked_u16_pointer(rs_ptrs[0], "source register")?,
                 checked_u16_pointer(rs_ptrs[1], "source register")?,
@@ -360,8 +358,8 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
 
             let mut replay = postflight.replay(step);
             let rs_accesses = [
-                replay.read_u16(RV64_REGISTER_AS, rs_u16_ptrs[0])?,
-                replay.read_u16(RV64_REGISTER_AS, rs_u16_ptrs[1])?,
+                replay.read_u16(REGISTER_AS, rs_u16_ptrs[0])?,
+                replay.read_u16(REGISTER_AS, rs_u16_ptrs[1])?,
             ];
             let mut rs_vals = [0; 2];
             let mut heap_accesses: [[Option<U16Access>; NUM_LANES]; 2] =
@@ -377,10 +375,8 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
                         .ok_or_else(|| {
                             PostflightError::new("modular equality read pointer overflow")
                         })?;
-                    let access = replay.read_u16(
-                        RV64_MEMORY_AS,
-                        checked_u16_pointer(byte_pointer, "heap read")?,
-                    )?;
+                    let access = replay
+                        .read_u16(MEMORY_AS, checked_u16_pointer(byte_pointer, "heap read")?)?;
                     inputs[read][block * BLOCK_FE_WIDTH..(block + 1) * BLOCK_FE_WIDTH]
                         .copy_from_slice(&access.value);
                     heap_accesses[read][block] = Some(access);
@@ -388,12 +384,11 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
             }
             let mut write_value = [0; BLOCK_FE_WIDTH];
             write_value[0] = (inputs[0] == inputs[1]) as u16;
-            let write = replay.write_u16(RV64_REGISTER_AS, rd_u16_ptr, write_value)?;
+            let write = replay.write_u16(REGISTER_AS, rd_u16_ptr, write_value)?;
             replay.finish(from_pc.wrapping_add(DEFAULT_PC_STEP))?;
 
-            let row = &mut trace.values[row_index * width..(row_index + 1) * width];
             let (adapter_row, core_row) = row.split_at_mut(adapter_width);
-            let adapter_cols: &mut Rv64IsEqualModU16AdapterCols<F, 2, NUM_LANES> =
+            let adapter_cols: &mut IsEqualModU16AdapterCols<F, 2, NUM_LANES> =
                 adapter_row.borrow_mut();
             adapter_cols
                 .writes_aux
@@ -420,25 +415,29 @@ pub(crate) fn generate_modular_is_equal_trace_from_postflight<
                     rs_accesses[read].timestamp,
                     adapter_cols.rs_read_aux[read].as_mut(),
                 );
-                temporary_range_checker.add_count(
-                    ptr_bound_from_ptr(rs_vals[read], pointer_max_bits),
-                    U16_BITS,
+                // Block-index range-check counts (the AIR converts each base pointer once
+                // with multiplicity `is_valid`).
+                add_block_index_range_checks(
+                    &temporary_range_checker,
+                    rs_vals[read],
+                    pointer_max_bits,
                 );
                 adapter_cols.rs_val[read] = ptr_to_field_u16_limbs(rs_vals[read]);
                 adapter_cols.rs_ptr[read] = F::from_u32(rs_ptrs[read]);
             }
             adapter_cols.from_state.timestamp = F::from_u32(from_timestamp);
-            adapter_cols.from_state.pc = F::from_u32(from_pc);
+            adapter_cols.from_state.pc = F::from_u32(pc_to_idx(from_pc));
 
             chip.inner.fill_trace_row_from_execution_data(
                 temporary_range_checker.as_ref(),
-                local_opcode == Rv64ModularArithmeticOpcode::SETUP_ISEQ as usize,
+                local_opcode == ModularArithmeticOpcode::SETUP_ISEQ as usize,
                 inputs[0],
                 inputs[1],
                 core_row,
             )?;
-            row_index += 1;
-        }
+            Ok(())
+        })?;
+        row_index += steps.len();
     }
     merge_range_counts(
         chip.inner.range_checker_chip.as_ref(),

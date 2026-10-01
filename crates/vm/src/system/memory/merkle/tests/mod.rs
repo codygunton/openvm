@@ -227,11 +227,11 @@ fn random_test(
             },
             AddressSpaceHostConfig {
                 num_cells: VM_DIGEST_WIDTH << height,
-                layout: MemoryCellType::F { size: 4 },
+                layout: MemoryCellType::FIELD32,
             },
             AddressSpaceHostConfig {
                 num_cells: VM_DIGEST_WIDTH << height,
-                layout: MemoryCellType::F { size: 4 },
+                layout: MemoryCellType::FIELD32,
             },
         ],
         ptr_bits_from_address_height(height),
@@ -316,11 +316,11 @@ fn expand_test_no_accesses() {
             },
             AddressSpaceHostConfig {
                 num_cells: VM_DIGEST_WIDTH << height,
-                layout: MemoryCellType::F { size: 4 },
+                layout: MemoryCellType::FIELD32,
             },
             AddressSpaceHostConfig {
                 num_cells: VM_DIGEST_WIDTH << height,
-                layout: MemoryCellType::F { size: 4 },
+                layout: MemoryCellType::FIELD32,
             },
         ],
         ptr_bits_from_address_height(height),
@@ -366,11 +366,11 @@ fn expand_test_negative() {
             },
             AddressSpaceHostConfig {
                 num_cells: VM_DIGEST_WIDTH << height,
-                layout: MemoryCellType::F { size: 4 },
+                layout: MemoryCellType::FIELD32,
             },
             AddressSpaceHostConfig {
                 num_cells: VM_DIGEST_WIDTH << height,
-                layout: MemoryCellType::F { size: 4 },
+                layout: MemoryCellType::FIELD32,
             },
         ],
         ptr_bits_from_address_height(height),
@@ -906,7 +906,7 @@ fn real_vm_keygen_verifier_rejects_below_leaf_swap_counterexample() {
     };
 
     use crate::{
-        arch::{Postflight, PostflightTracegen, Streams, SystemConfig, VirtualMachine, VmState},
+        arch::{PostflightTracegen, Streams, SystemConfig, VirtualMachine, VmState},
         system::{
             memory::{online::GuestMemory, AddressMap},
             SystemCpuBuilder,
@@ -935,7 +935,7 @@ fn real_vm_keygen_verifier_rejects_below_leaf_swap_counterexample() {
     // context. It touches no memory, so the boundary AIR is empty and the
     // merkle/compression/memory buses are left to {merkle, poseidon2}, which we
     // overwrite below.
-    let program = Program::from_instructions(&[Instruction::<BabyBear>::from_isize(
+    let program = Program::from_instructions(&[Instruction::from_isize(
         TERMINATE.global_opcode(),
         0,
         0,
@@ -943,22 +943,19 @@ fn real_vm_keygen_verifier_rejects_below_leaf_swap_counterexample() {
         0,
         0,
     )]);
-    let vm_exe: VmExe<BabyBear> = program.into();
+    let vm_exe: VmExe = program.into();
     let memory = GuestMemory::new(AddressMap::from_mem_config(&vm_config.memory_config));
     vm.transport_init_memory_to_device(&memory);
     vm.load_program(vm.commit_program_on_device(&vm_exe.program));
     let from_state = VmState::new_with_defaults(0, memory, Streams::default(), 0);
     let interpreter = vm.preflight_interpreter(&vm_exe).unwrap();
-    let output = vm.execute_preflight(&interpreter, from_state).unwrap();
-    let postflight = Postflight::new(
-        &vm_exe.program,
-        &output.history,
-        &vm_config.memory_config,
-        output.exit_code,
-    )
-    .unwrap();
-    SystemCpuBuilder::prepare_postflight(&vm, &vm_exe.program).unwrap();
-    let mut ctx = vm.generate_proving_ctx(&(), &output, &postflight).unwrap();
+    let output = interpreter
+        .execute_preflight_from_state(from_state, None)
+        .unwrap();
+    let prepared = SystemCpuBuilder::prepare_postflight(&vm, &vm_exe.program).unwrap();
+    let mut ctx = vm
+        .generate_proving_ctx(&vm_exe.program, &prepared, &output)
+        .unwrap();
 
     // Overwrite the merkle + poseidon2 contexts with the fraudulent ones.
     // `prove` requires `per_air` to be sorted by AIR id, so we re-sort after
@@ -972,7 +969,7 @@ fn real_vm_keygen_verifier_rejects_below_leaf_swap_counterexample() {
         AirProvingContext::simple(merkle_trace, merkle_pvs),
     ));
     ctx.per_trace
-        .push((poseidon2_air_id, poseidon2_chip.generate_proving_ctx(())));
+        .push((poseidon2_air_id, poseidon2_chip.generate_proving_ctx()));
     ctx.per_trace.sort_by_key(|(id, _)| *id);
 
     let proof = vm.engine.prove(vm.pk(), ctx).unwrap();

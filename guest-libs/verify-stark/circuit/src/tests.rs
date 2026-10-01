@@ -12,7 +12,9 @@ use openvm_circuit::{
     utils::test_utils::test_system_config,
 };
 use openvm_continuations::{
-    circuit::{deferral::DeferralCircuitPvs, utils::vk_commit_components},
+    circuit::{
+        deferral::DeferralCircuitPvs, inner::VerifierCircuitType, utils::vk_commit_components,
+    },
     prover::ChildVkKind,
     utils::poseidon2_input_to_digests,
     SC,
@@ -86,11 +88,11 @@ fn run_leaf_aggregation(
     let config = test_rv64im_config();
     let elf = Elf::decode(
         include_bytes!("../../../../crates/continuations/programs/examples/fibonacci.elf"),
-        MEM_SIZE as u32,
+        MEM_SIZE as u64,
     )?;
     let exe = VmExe::from_elf(
         elf,
-        Transpiler::<F>::default()
+        Transpiler::default()
             .with_extension(Rv64ITranspilerExtension)
             .with_extension(Rv64MTranspilerExtension)
             .with_extension(Rv64IoTranspilerExtension),
@@ -108,7 +110,7 @@ fn run_leaf_aggregation(
     let leaf_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         Arc::new(app_pk.get_vk()),
         leaf_params_with_100_bits_security(),
-        false,
+        VerifierCircuitType::Leaf,
         None,
     );
     let leaf_proof =
@@ -135,7 +137,7 @@ fn run_full_aggregation(
     let internal_for_leaf_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         leaf_vk,
         internal_params_with_100_bits_security(),
-        false,
+        VerifierCircuitType::InternalForLeaf,
         None,
     );
     let internal_for_leaf_proof = internal_for_leaf_prover
@@ -144,7 +146,7 @@ fn run_full_aggregation(
     let internal_recursive_prover = InnerProver::<DEFAULT_MAX_NUM_PROOFS>::new::<Engine>(
         internal_for_leaf_prover.get_vk(),
         internal_params_with_100_bits_security(),
-        true,
+        VerifierCircuitType::InternalRecursive,
         None,
     );
     let mut internal_recursive_proof = internal_recursive_prover
@@ -215,7 +217,7 @@ fn test_deferral_verify_prover(child_extra_recursive_layers: usize) -> Result<()
         &vm_poseidon2_hasher::<F>(),
         &vm_pvs.program_commit,
         &vm_pvs.initial_root,
-        vm_pvs.initial_pc,
+        vm_pvs.initial_pc_idx,
     );
     let app_vm_commit =
         poseidon2_hash_slice(&vk_commit_components(verifier_pvs).into_flattened()).0;

@@ -6,7 +6,7 @@ use halo2curves_axiom::{
     bn256::{Fq as BnFq, Fq2 as BnFq2, Fr as BnFr, G1Affine as BnG1, G2Affine as BnG2},
 };
 use openvm_algebra_transpiler::{
-    Fp2Opcode, Fp2TranspilerExtension, ModularTranspilerExtension, Rv64ModularArithmeticOpcode,
+    Fp2Opcode, Fp2TranspilerExtension, ModularArithmeticOpcode, ModularTranspilerExtension,
 };
 use openvm_circuit::{
     arch::{
@@ -17,7 +17,7 @@ use openvm_circuit::{
 };
 use openvm_ecc_circuit::WeierstrassPreflightGpuTracegen;
 use openvm_ecc_guest::{algebra::field::FieldExtension, AffinePoint};
-use openvm_ecc_transpiler::{EccTranspilerExtension, Rv64WeierstrassOpcode};
+use openvm_ecc_transpiler::{EccTranspilerExtension, WeierstrassOpcode};
 use openvm_instructions::{
     exe::VmExe, instruction::Instruction, program::DEFAULT_PC_STEP, LocalOpcode, SystemOpcode,
 };
@@ -27,28 +27,24 @@ use openvm_pairing_guest::{
 };
 use openvm_pairing_transpiler::{PairingPhantom, PairingTranspilerExtension};
 use openvm_riscv_transpiler::{
-    Rv64HintStoreOpcode, Rv64ITranspilerExtension, Rv64IoTranspilerExtension,
-    Rv64MTranspilerExtension,
+    HintStoreOpcode, Rv64ITranspilerExtension, Rv64IoTranspilerExtension, Rv64MTranspilerExtension,
 };
-use openvm_stark_sdk::{
-    openvm_stark_backend::{p3_field::PrimeField32, StarkEngine},
-    p3_baby_bear::BabyBear,
-};
+use openvm_stark_sdk::{openvm_stark_backend::StarkEngine, p3_baby_bear::BabyBear};
 use openvm_toolchain_tests::{build_example_program_at_path_with_features, get_programs_dir};
 use openvm_transpiler::{transpiler::Transpiler, FromElf};
 
 const DISCOVERY_INSTRUCTIONS: usize = 512;
-const DISCOVERY_RESIDUALS: usize = 4_096;
+const DISCOVERY_REPLAY_VALUES: usize = 4_096;
 const PROOF_CHECKPOINT_INTERVAL: usize = 512;
 
 #[derive(Default)]
 struct Discovery {
     split: Option<u32>,
     retired: u32,
-    residuals: usize,
+    replay_values: usize,
 }
 
-fn instruction_at(exe: &VmExe<BabyBear>, pc: u32) -> &Instruction<BabyBear> {
+fn instruction_at(exe: &VmExe, pc: u32) -> &Instruction {
     let slot = pc
         .checked_sub(exe.program.pc_base)
         .expect("executed PC precedes the program base")
@@ -95,7 +91,7 @@ fn discover_pairing_split(
     loop {
         let execution = checkpoint.execute_from_state_for(
             state,
-            PreflightLimits::new(DISCOVERY_INSTRUCTIONS, DISCOVERY_RESIDUALS, 1),
+            PreflightLimits::new(DISCOVERY_INSTRUCTIONS, DISCOVERY_REPLAY_VALUES, 1),
         )?;
         if discovery.split.is_none() {
             discovery.split = find_split_after_phantom(&execution, pairing_pc)
@@ -105,8 +101,8 @@ fn discover_pairing_split(
             .retired
             .checked_add(execution.retired)
             .expect("pairing fixture instruction count exceeds u32");
-        let chunk_residuals = execution.transcript.residuals.len();
-        discovery.residuals += chunk_residuals;
+        let chunk_replay_values = execution.transcript.replay_values.len();
+        discovery.replay_values += chunk_replay_values;
         state = execution.state;
         if matches!(execution.endpoint, PreflightEndpoint::Terminated) {
             break;
@@ -117,11 +113,11 @@ fn discover_pairing_split(
 
 fn prove_pairing_checkpoint(
     mut config: Rv64PairingConfig,
-    exe: VmExe<BabyBear>,
+    exe: VmExe,
     input: Vec<Vec<u8>>,
 ) -> Result<()> {
     *config.as_mut() = test_system_config();
-    let executor = VmExecutor::new(config.clone())?;
+    let executor = VmExecutor::<BabyBear, _>::new(config.clone())?;
     let checkpoint = executor.preflight_instance(&exe)?;
     let pairing_pcs = exe
         .program
@@ -129,7 +125,7 @@ fn prove_pairing_checkpoint(
         .iter()
         .filter_map(|(pc, instruction, _)| {
             (instruction.opcode.as_usize() == SystemOpcode::PHANTOM.global_opcode_usize()
-                && instruction.c.as_canonical_u32() as u16 == PairingPhantom::HintFinalExp as u16)
+                && instruction.c.as_u32() as u16 == PairingPhantom::HintFinalExp as u16)
                 .then_some(*pc)
         })
         .collect::<Vec<_>>();
@@ -152,7 +148,7 @@ fn prove_pairing_checkpoint(
         VirtualMachine::new_with_keygen(test_gpu_engine(), Rv64PairingGpuBuilder, config.clone())?;
     let cached_program = vm.commit_program_on_device(&exe.program);
     vm.load_program(cached_program);
-    let gpu_program = WeierstrassPreflightGpuTracegen::upload_postflight_program(
+    let replay_program = WeierstrassPreflightGpuTracegen::upload_postflight_program(
         &exe.program,
         &config.modular.system.memory_config,
         &config.modular.modular,
@@ -178,7 +174,7 @@ fn prove_pairing_checkpoint(
         vm.transport_init_memory_to_device(&state.memory);
         let limits = PreflightLimits::new(
             retired as usize,
-            discovery.residuals.max(1),
+            discovery.replay_values.max(1),
             PROOF_CHECKPOINT_INTERVAL,
         );
         let execution = checkpoint.execute_from_state_for(state, limits)?;
@@ -199,27 +195,25 @@ fn prove_pairing_checkpoint(
         }
 
         let (gpu_transcript, replay_plan) =
-            WeierstrassPreflightGpuTracegen::postflight(&vm, &gpu_program, &execution, retired)?;
+            WeierstrassPreflightGpuTracegen::postflight(&vm, &replay_program, &execution, retired)?;
         let program_log = gpu_transcript.program_log_host()?;
         let memory_log = gpu_transcript.memory_log_host()?;
         for event in program_log.iter().take(program_log.len().saturating_sub(1)) {
             let instruction = instruction_at(&exe, event.pc);
             let opcode = instruction.opcode.as_usize();
             let is_pairing_phantom = opcode == SystemOpcode::PHANTOM.global_opcode_usize()
-                && instruction.c.as_canonical_u32() as u16 == PairingPhantom::HintFinalExp as u16;
+                && instruction.c.as_u32() as u16 == PairingPhantom::HintFinalExp as u16;
             if is_pairing_phantom {
                 saw_pairing_phantom = true;
             } else if saw_pairing_phantom
-                && (opcode == Rv64HintStoreOpcode::HINT_STORED.global_opcode_usize()
-                    || opcode == Rv64HintStoreOpcode::HINT_BUFFER.global_opcode_usize())
+                && (opcode == HintStoreOpcode::HINT_STORED.global_opcode_usize()
+                    || opcode == HintStoreOpcode::HINT_BUFFER.global_opcode_usize())
             {
                 saw_pairing_hint_store = true;
             }
-            saw_modular |= (Rv64ModularArithmeticOpcode::CLASS_OFFSET
-                ..Rv64WeierstrassOpcode::CLASS_OFFSET)
+            saw_modular |= (ModularArithmeticOpcode::CLASS_OFFSET..WeierstrassOpcode::CLASS_OFFSET)
                 .contains(&opcode);
-            saw_ecc |=
-                (Rv64WeierstrassOpcode::CLASS_OFFSET..Fp2Opcode::CLASS_OFFSET).contains(&opcode);
+            saw_ecc |= (WeierstrassOpcode::CLASS_OFFSET..Fp2Opcode::CLASS_OFFSET).contains(&opcode);
             saw_fp2 |= (Fp2Opcode::CLASS_OFFSET..Fp2Opcode::CLASS_OFFSET + 0x100).contains(&opcode);
         }
         if segment_index == 0 {
@@ -248,7 +242,7 @@ fn prove_pairing_checkpoint(
         let proving_ctx = Rv64PairingGpuBuilder::generate_proving_ctx_from_postflight(
             &mut vm,
             &config,
-            &gpu_program,
+            replay_program.program(),
             &gpu_transcript,
             &replay_plan,
         )?;
@@ -280,10 +274,7 @@ fn prove_pairing_checkpoint(
     Ok(())
 }
 
-fn transpile_pairing_fixture(
-    curve_feature: &str,
-    config: &Rv64PairingConfig,
-) -> Result<VmExe<BabyBear>> {
+fn transpile_pairing_fixture(curve_feature: &str, config: &Rv64PairingConfig) -> Result<VmExe> {
     let elf = build_example_program_at_path_with_features(
         get_programs_dir!("tests/programs"),
         "pairing_check",
@@ -292,7 +283,7 @@ fn transpile_pairing_fixture(
     )?;
     Ok(VmExe::from_elf(
         elf,
-        Transpiler::<BabyBear>::default()
+        Transpiler::default()
             .with_extension(Rv64ITranspilerExtension)
             .with_extension(Rv64MTranspilerExtension)
             .with_extension(Rv64IoTranspilerExtension)

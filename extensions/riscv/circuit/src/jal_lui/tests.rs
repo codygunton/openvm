@@ -16,11 +16,15 @@ use openvm_circuit_primitives::{
     },
     var_range::SharedVariableRangeCheckerChip,
 };
-use openvm_instructions::{instruction::Instruction, program::PC_BITS, LocalOpcode};
-use openvm_riscv_transpiler::Rv64JalLuiOpcode::{self, *};
+use openvm_instructions::{
+    instruction::{Instruction, InstructionOperand},
+    program::{DEFAULT_PC_STEP, MAX_ALLOWED_PC},
+    LocalOpcode,
+};
+use openvm_riscv_transpiler::JalLuiOpcode::{self, *};
 use openvm_stark_backend::{
     p3_air::BaseAir,
-    p3_field::{PrimeCharacteristicRing, PrimeField32},
+    p3_field::PrimeCharacteristicRing,
     p3_matrix::{
         dense::{DenseMatrix, RowMajorMatrix},
         Matrix,
@@ -32,40 +36,40 @@ use rand::{rngs::StdRng, Rng};
 use test_case::test_case;
 #[cfg(all(feature = "cuda", feature = "rvr"))]
 use {
-    crate::Rv64JalLuiChipGpu,
+    crate::JalLuiChipGpu,
     openvm_circuit::arch::testing::{GpuChipTestBuilder, GpuTestChipHarness},
 };
 
 use super::trace::generate_trace_from_postflight;
 use crate::{
     adapters::{
-        rv64_u16_block_to_bytes, Rv64CondRdWriteAdapterAir, Rv64CondRdWriteAdapterCols,
-        RV64_BYTE_BITS, RV64_PTR_U16_LIMBS, RV_J_TYPE_IMM_BITS,
+        u16_block_to_bytes, CondRdWriteAdapterAir, CondRdWriteAdapterCols, BYTE_BITS,
+        PTR_U16_LIMBS, RV_J_TYPE_IMM_BITS,
     },
-    jal_lui::{get_signed_imm, run_jal_lui, Rv64JalLuiCoreCols},
-    Rv64JalLuiAir, Rv64JalLuiChip, Rv64JalLuiCoreAir, Rv64JalLuiExecutor, Rv64JalLuiFiller,
+    jal_lui::{get_signed_imm, run_jal_lui, JalLuiCoreCols},
+    JalLuiAir, JalLuiChip, JalLuiCoreAir, JalLuiExecutor, JalLuiFiller,
 };
 
 const MAX_INS_CAPACITY: usize = 128;
 const LIMB_MAX_U16: u32 = u16::MAX as u32;
 type F = BabyBear;
-type Harness = TestChipHarness<F, Rv64JalLuiExecutor, Rv64JalLuiAir, Rv64JalLuiChip<F>>;
+type Harness = TestChipHarness<F, JalLuiExecutor, JalLuiAir, JalLuiChip<F>>;
 
 fn create_harness_fields(
     memory_bridge: MemoryBridge,
     execution_bridge: ExecutionBridge,
     range_checker_chip: SharedVariableRangeCheckerChip,
     memory_helper: SharedMemoryHelper<F>,
-) -> (Rv64JalLuiAir, Rv64JalLuiExecutor, Rv64JalLuiChip<F>) {
+) -> (JalLuiAir, JalLuiExecutor, JalLuiChip<F>) {
     let air = VmAirWrapper::new(
-        Rv64CondRdWriteAdapterAir::new(crate::adapters::Rv64RdWriteAdapterAir::new(
+        CondRdWriteAdapterAir::new(crate::adapters::RdWriteAdapterAir::new(
             memory_bridge,
             execution_bridge,
         )),
-        Rv64JalLuiCoreAir::new(range_checker_chip.bus()),
+        JalLuiCoreAir::new(range_checker_chip.bus()),
     );
-    let executor = Rv64JalLuiExecutor::new();
-    let chip = VmChipWrapper::<F, _>::new(Rv64JalLuiFiller::new(range_checker_chip), memory_helper);
+    let executor = JalLuiExecutor::new();
+    let chip = VmChipWrapper::<F, _>::new(JalLuiFiller::new(range_checker_chip), memory_helper);
     (air, executor, chip)
 }
 
@@ -74,14 +78,12 @@ fn create_harness(
 ) -> (
     Harness,
     (
-        BitwiseOperationLookupAir<RV64_BYTE_BITS>,
-        SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+        BitwiseOperationLookupAir<BYTE_BITS>,
+        SharedBitwiseOperationLookupChip<BYTE_BITS>,
     ),
 ) {
     let bitwise_bus = BitwiseOperationLookupBus::new(BITWISE_OP_LOOKUP_BUS);
-    let bitwise_chip = Arc::new(BitwiseOperationLookupChip::<RV64_BYTE_BITS>::new(
-        bitwise_bus,
-    ));
+    let bitwise_chip = Arc::new(BitwiseOperationLookupChip::<BYTE_BITS>::new(bitwise_bus));
     let (air, executor, chip) = create_harness_fields(
         tester.memory_bridge(),
         tester.execution_bridge(),
@@ -102,9 +104,9 @@ fn create_harness(
 fn set_and_execute<E: openvm_circuit::arch::Executor<F> + Clone>(
     tester: &mut impl TestBuilder<F>,
     executor: &mut E,
-    preflight: &mut openvm_circuit::arch::testing::TestPreflight<F>,
+    preflight: &mut openvm_circuit::arch::testing::TestPreflight,
     rng: &mut StdRng,
-    opcode: Rv64JalLuiOpcode,
+    opcode: JalLuiOpcode,
     imm: Option<i32>,
     initial_pc: Option<u32>,
     rd_ptr: Option<usize>,
@@ -112,7 +114,10 @@ fn set_and_execute<E: openvm_circuit::arch::Executor<F> + Clone>(
     let is_jal = opcode == JAL;
     let imm = imm.unwrap_or_else(|| {
         if is_jal {
-            let raw: i32 = rng.random_range(0..(1 << (RV_J_TYPE_IMM_BITS - 1)));
+            // JAL offsets are DEFAULT_PC_STEP-aligned byte offsets.
+            let raw: i32 = rng
+                .random_range(0..(1 << (RV_J_TYPE_IMM_BITS - 1)) / DEFAULT_PC_STEP as i32)
+                * DEFAULT_PC_STEP as i32;
             if rng.random_bool(0.5) {
                 -raw
             } else {
@@ -125,37 +130,35 @@ fn set_and_execute<E: openvm_circuit::arch::Executor<F> + Clone>(
     let a = rd_ptr.unwrap_or_else(|| (rng.random_range(0..32) << 3) as usize);
 
     let initial_pc = initial_pc.unwrap_or_else(|| {
-        if is_jal && imm < 0 {
-            rng.random_range((-imm as u32)..(1u32 << 30))
+        // An aligned byte pc over the full 32-bit range; for JAL, keep the target and the
+        // return address inside the implemented PC address space.
+        if is_jal {
+            let lo = (-imm).max(0) as u32 / DEFAULT_PC_STEP;
+            let hi = (MAX_ALLOWED_PC - DEFAULT_PC_STEP - imm.max(0) as u32) / DEFAULT_PC_STEP;
+            rng.random_range(lo..=hi) * DEFAULT_PC_STEP
         } else {
-            rng.random_range(0..(1u32 << 30).min(1u32 << PC_BITS))
+            (rng.random::<u32>() & !3).min(MAX_ALLOWED_PC - DEFAULT_PC_STEP)
         }
     });
-    let imm_field: F = if imm.is_negative() {
-        -F::from_u32(imm.unsigned_abs())
-    } else {
-        F::from_u32(imm.unsigned_abs())
-    };
     tester.execute_with_pc(
         executor,
         preflight,
-        &Instruction::from_usize(
+        &Instruction::new(
             opcode.global_opcode(),
-            [
-                a,
-                0,
-                imm_field.as_canonical_u32() as usize,
-                1,
-                0,
-                (a != 0) as usize,
-            ],
+            InstructionOperand::from_usize(a),
+            InstructionOperand::ZERO,
+            InstructionOperand::from_i32(imm),
+            InstructionOperand::ONE,
+            InstructionOperand::ZERO,
+            a != 0,
+            InstructionOperand::ZERO,
         ),
         initial_pc,
     );
 
     let (_next_pc, rd_data) = run_jal_lui(is_jal, initial_pc, imm);
     if a != 0 {
-        let rd_bytes = rv64_u16_block_to_bytes(rd_data);
+        let rd_bytes = u16_block_to_bytes(rd_data);
         assert_eq!(rd_bytes.map(F::from_u8), tester.read_bytes::<8>(1, a));
     }
 }
@@ -169,7 +172,7 @@ fn set_and_execute<E: openvm_circuit::arch::Executor<F> + Clone>(
 
 #[test_case(JAL, 100)]
 #[test_case(LUI, 100)]
-fn rand_jal_lui_test(opcode: Rv64JalLuiOpcode, num_ops: usize) {
+fn rand_jal_lui_test(opcode: JalLuiOpcode, num_ops: usize) {
     let mut rng = create_seeded_rng();
     let mut tester = VmChipTestBuilder::default();
     let (mut harness, bitwise) = create_harness(&tester);
@@ -194,6 +197,32 @@ fn rand_jal_lui_test(opcode: Rv64JalLuiOpcode, num_ops: usize) {
     tester.simple_test().expect("Verification failed");
 }
 
+#[test]
+fn jal_max_pc_test() {
+    // JAL at 0xfffffffc writes the 64-bit link address 0x1_00000000.
+    let mut rng = create_seeded_rng();
+    let mut tester = VmChipTestBuilder::default();
+    let (mut harness, bitwise) = create_harness(&tester);
+
+    set_and_execute(
+        &mut tester,
+        &mut harness.executor,
+        &mut harness.preflight,
+        &mut rng,
+        JAL,
+        Some(-4096),
+        Some(MAX_ALLOWED_PC),
+        None,
+    );
+
+    let tester = tester
+        .build()
+        .load(harness)
+        .load_periphery(bitwise)
+        .finalize();
+    tester.simple_test().expect("Verification failed");
+}
+
 //////////////////////////////////////////////////////////////////////////////////////
 // NEGATIVE TESTS
 //
@@ -203,19 +232,20 @@ fn rand_jal_lui_test(opcode: Rv64JalLuiOpcode, num_ops: usize) {
 
 #[derive(Clone, Copy, Default, PartialEq)]
 struct JalLuiPrankValues {
-    pub rd_data: Option<[u32; RV64_PTR_U16_LIMBS]>,
+    pub rd_data: Option<[u32; PTR_U16_LIMBS]>,
     pub imm: Option<i32>,
     pub imm_low_4: Option<u32>,
     pub is_jal: Option<bool>,
     pub is_lui: Option<bool>,
     pub is_sign_extend: Option<bool>,
+    pub rd_carry: Option<bool>,
     pub rd_ptr: Option<u32>,
     pub needs_write: Option<bool>,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn run_negative_jal_lui_test_with_rd_ptr(
-    opcode: Rv64JalLuiOpcode,
+    opcode: JalLuiOpcode,
     initial_imm: Option<i32>,
     initial_pc: Option<u32>,
     rd_ptr: Option<usize>,
@@ -241,8 +271,8 @@ fn run_negative_jal_lui_test_with_rd_ptr(
     let modify_trace = |trace: &mut DenseMatrix<BabyBear>| {
         let mut trace_row = trace.row_slice(0).unwrap().to_vec();
         let (adapter_row, core_row) = trace_row.split_at_mut(adapter_width);
-        let adapter_cols: &mut Rv64CondRdWriteAdapterCols<F> = adapter_row.borrow_mut();
-        let core_cols: &mut Rv64JalLuiCoreCols<F> = core_row.borrow_mut();
+        let adapter_cols: &mut CondRdWriteAdapterCols<F> = adapter_row.borrow_mut();
+        let core_cols: &mut JalLuiCoreCols<F> = core_row.borrow_mut();
 
         if let Some(data) = prank_vals.rd_data {
             core_cols.rd_data = data.map(F::from_u32);
@@ -266,6 +296,9 @@ fn run_negative_jal_lui_test_with_rd_ptr(
         if let Some(is_sign_extend) = prank_vals.is_sign_extend {
             core_cols.is_sign_extend = F::from_bool(is_sign_extend);
         }
+        if let Some(rd_carry) = prank_vals.rd_carry {
+            core_cols.rd_carry = F::from_bool(rd_carry);
+        }
         if let Some(rd_ptr) = prank_vals.rd_ptr {
             adapter_cols.inner.rd_ptr = F::from_u32(rd_ptr);
         }
@@ -288,7 +321,7 @@ fn run_negative_jal_lui_test_with_rd_ptr(
 }
 
 fn run_negative_jal_lui_test(
-    opcode: Rv64JalLuiOpcode,
+    opcode: JalLuiOpcode,
     initial_imm: Option<i32>,
     initial_pc: Option<u32>,
     prank_vals: JalLuiPrankValues,
@@ -346,7 +379,7 @@ fn opcode_flag_negative_test() {
 fn write_suppression_boundary_negative_test() {
     run_negative_jal_lui_test_with_rd_ptr(
         JAL,
-        Some((1 << 19) + 2),
+        Some((1 << 19) + 4),
         Some(28120),
         Some(0),
         JalLuiPrankValues {
@@ -358,7 +391,7 @@ fn write_suppression_boundary_negative_test() {
 
     run_negative_jal_lui_test_with_rd_ptr(
         JAL,
-        Some((1 << 19) + 2),
+        Some((1 << 19) + 4),
         Some(28120),
         Some(8),
         JalLuiPrankValues {
@@ -401,7 +434,7 @@ fn rd_upper_bytes_trace_tamper_negative_test() {
     let modify_trace = |trace: &mut DenseMatrix<BabyBear>| {
         let mut trace_row = trace.row_slice(0).unwrap().to_vec();
         let (adapter_row, _) = trace_row.split_at_mut(adapter_width);
-        let adapter_cols: &mut Rv64CondRdWriteAdapterCols<F> = adapter_row.borrow_mut();
+        let adapter_cols: &mut CondRdWriteAdapterCols<F> = adapter_row.borrow_mut();
         adapter_cols.inner.rd_aux_cols.prev_data[1] = F::from_u32(1);
         *trace = RowMajorMatrix::new(trace_row, trace.width());
     };
@@ -418,7 +451,7 @@ fn rd_upper_bytes_trace_tamper_negative_test() {
 }
 
 #[test]
-fn sign_extend_flag_negative_tests() {
+fn rd_high_flags_negative_tests() {
     // LUI with imm small enough that imm << 12 has bit 31 unset (MSB of rd[1] is 0).
     // is_sign_extend pranked to true should fail.
     run_negative_jal_lui_test(
@@ -431,14 +464,13 @@ fn sign_extend_flag_negative_tests() {
         },
         true,
     );
-    // JAL writes pc+4 with pc < 2^30, so MSB of rd[1] is always 0.
-    // is_sign_extend pranked to true should fail.
+    // This non-boundary JAL has no bit-32 carry, so rd_carry pranked to true should fail.
     run_negative_jal_lui_test(
         JAL,
         None,
         None,
         JalLuiPrankValues {
-            is_sign_extend: Some(true),
+            rd_carry: Some(true),
             ..Default::default()
         },
         true,
@@ -460,7 +492,7 @@ fn overflow_negative_tests() {
     run_negative_jal_lui_test(
         JAL,
         None,
-        Some((1u32 << 28) - 6),
+        Some((1u32 << 28) - 8),
         JalLuiPrankValues {
             rd_data: Some([0, 0]),
             ..Default::default()
@@ -548,7 +580,8 @@ fn execute_roundtrip_sanity_test() {
         &mut harness.preflight,
         &mut rng,
         JAL,
-        Some((1i32 << (RV_J_TYPE_IMM_BITS - 1)) - 1),
+        // The largest DEFAULT_PC_STEP-aligned J-type offset.
+        Some((1i32 << (RV_J_TYPE_IMM_BITS - 1)) - DEFAULT_PC_STEP as i32),
         None,
         None,
     );
@@ -575,7 +608,7 @@ fn jal_x0_write_suppression_test() {
         &mut harness.preflight,
         &mut rng,
         JAL,
-        Some((1 << 19) + 2),
+        Some((1 << 19) + 4),
         Some(28120),
         Some(0),
     );
@@ -600,9 +633,42 @@ fn run_lui_sign_extend_sanity_test() {
 #[test]
 fn get_signed_imm_test() {
     let imm: i32 = -10;
-    let imm_f: F = -F::from_u32(10);
-    let signed_imm = get_signed_imm(true, imm_f);
-    assert_eq!(signed_imm, imm);
+    let signed_imm = get_signed_imm(true, InstructionOperand::from_i32(imm));
+    assert_eq!(signed_imm, Some(imm));
+}
+
+#[test]
+fn get_signed_imm_rejects_out_of_range_values() {
+    let jal_bound = 1i32 << (RV_J_TYPE_IMM_BITS - 1);
+    assert_eq!(
+        get_signed_imm(true, InstructionOperand::from_i32(-jal_bound)),
+        Some(-jal_bound)
+    );
+    assert_eq!(
+        get_signed_imm(true, InstructionOperand::from_i32(jal_bound - 1)),
+        Some(jal_bound - 1)
+    );
+    assert_eq!(
+        get_signed_imm(true, InstructionOperand::from_i32(jal_bound)),
+        None
+    );
+    assert_eq!(
+        get_signed_imm(true, InstructionOperand::from_i32(InstructionOperand::MAX)),
+        None
+    );
+
+    assert_eq!(
+        get_signed_imm(false, InstructionOperand::from_u32((1u32 << 20) - 1),),
+        Some((1 << 20) - 1)
+    );
+    assert_eq!(
+        get_signed_imm(false, InstructionOperand::from_u32(1u32 << 20)),
+        None
+    );
+    assert_eq!(
+        get_signed_imm(false, InstructionOperand::from_i32(-1)),
+        None
+    );
 }
 
 // ////////////////////////////////////////////////////////////////////////////////////
@@ -612,8 +678,7 @@ fn get_signed_imm_test() {
 // ////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(all(feature = "cuda", feature = "rvr"))]
-type GpuHarness =
-    GpuTestChipHarness<F, Rv64JalLuiExecutor, Rv64JalLuiAir, Rv64JalLuiChipGpu, Rv64JalLuiChip<F>>;
+type GpuHarness = GpuTestChipHarness<F, JalLuiExecutor, JalLuiAir, JalLuiChipGpu, JalLuiChip<F>>;
 
 #[cfg(all(feature = "cuda", feature = "rvr"))]
 fn create_cuda_harness(tester: &GpuChipTestBuilder) -> GpuHarness {
@@ -626,7 +691,7 @@ fn create_cuda_harness(tester: &GpuChipTestBuilder) -> GpuHarness {
         dummy_range_checker_chip,
         tester.dummy_memory_helper(),
     );
-    let gpu_chip = Rv64JalLuiChipGpu::new(tester.range_checker(), tester.timestamp_max_bits());
+    let gpu_chip = JalLuiChipGpu::new(tester.range_checker(), tester.timestamp_max_bits());
     GpuTestChipHarness::with_capacity(executor, air, gpu_chip, cpu_chip, MAX_INS_CAPACITY)
         .with_trace_generators(
             generate_trace_from_postflight,
@@ -639,7 +704,7 @@ fn create_cuda_harness(tester: &GpuChipTestBuilder) -> GpuHarness {
 #[cfg(all(feature = "cuda", feature = "rvr"))]
 #[test_case(JAL, 100)]
 #[test_case(LUI, 100)]
-fn test_cuda_rand_jal_lui_tracegen(opcode: Rv64JalLuiOpcode, num_ops: usize) {
+fn test_cuda_rand_jal_lui_tracegen(opcode: JalLuiOpcode, num_ops: usize) {
     let mut tester = GpuChipTestBuilder::default()
         .with_bitwise_op_lookup(openvm_circuit::arch::testing::default_bitwise_lookup_bus());
     let mut rng = create_seeded_rng();
@@ -654,6 +719,18 @@ fn test_cuda_rand_jal_lui_tracegen(opcode: Rv64JalLuiOpcode, num_ops: usize) {
             opcode,
             None,
             None,
+            None,
+        );
+    }
+    if opcode == JAL {
+        set_and_execute(
+            &mut tester,
+            &mut harness.executor,
+            &mut harness.preflight,
+            &mut rng,
+            JAL,
+            Some(-4096),
+            Some(MAX_ALLOWED_PC),
             None,
         );
     }

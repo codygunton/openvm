@@ -39,7 +39,7 @@ use crate::{
         },
         phantom::{
             CycleEndPhantomExecutor, CycleStartPhantomExecutor, NopPhantomExecutor, PhantomAir,
-            PhantomChip, PhantomExecutor, PhantomFiller,
+            PhantomExecutor,
         },
         poseidon2::{
             air::Poseidon2PeripheryAir, new_poseidon2_periphery_air, Poseidon2PeripheryChip,
@@ -186,8 +186,8 @@ impl SystemAirInventory {
 impl<F: PrimeField32> VmExecutionConfig<F> for SystemConfig {
     type Executor = SystemExecutor;
 
-    /// The only way to create an [ExecutorInventory] is from a [SystemConfig]. This will always
-    /// add an executor for [PhantomChip], which handles all phantom sub-executors.
+    /// Creates the system executor inventory, including the executor that dispatches phantom
+    /// sub-executors.
     fn create_executors(
         &self,
     ) -> Result<ExecutorInventory<Self::Executor>, ExecutorInventoryError> {
@@ -343,11 +343,11 @@ where
         self.connector_chip.begin(postflight.from_state());
         self.connector_chip
             .end(postflight.to_state(), postflight.exit_code());
-        let connector_ctx = self.connector_chip.generate_proving_ctx(());
+        let connector_ctx = self.connector_chip.generate_proving_ctx();
 
         let memory_ctxs = self
             .memory_controller
-            .generate_proving_ctx(postflight.touched_memory().to_vec());
+            .generate_proving_ctx(postflight.touched_memory());
 
         [program_ctx, connector_ctx]
             .into_iter()
@@ -367,7 +367,7 @@ where
 
     fn transport_init_memory_to_device(&mut self, memory: &GuestMemory) {
         self.memory_controller
-            .set_initial_memory(memory.memory.clone());
+            .set_initial_memory(memory.memory.sparse_clone());
     }
 
     fn memory_top_tree(&self) -> Option<&[[Val<SC>; VM_DIGEST_WIDTH]]> {
@@ -401,11 +401,11 @@ where
 
         let mut inventory = ChipInventory::new(airs);
         inventory.next_air::<VariableRangeCheckerAir>()?;
-        inventory.add_postflight_periphery_chip(range_checker.clone(), |chip, _| {
-            Ok(chip.generate_proving_ctx(()))
+        inventory.add_periphery_chip_with_tracegen(range_checker.clone(), |chip, _| {
+            Ok(chip.generate_proving_ctx())
         });
 
-        assert_eq!(inventory.chips().len(), POSEIDON2_INSERTION_IDX);
+        assert_eq!(inventory.num_chips(), POSEIDON2_INSERTION_IDX);
         // ATTENTION: The threshold 7 here must match the one in `new_poseidon2_periphery_air`
         if config.max_constraint_degree >= 7 {
             inventory.next_air::<Poseidon2PeripheryAir<Val<SC>, 0>>()?;
@@ -416,8 +416,8 @@ where
             vm_poseidon2_config(),
             config.max_constraint_degree,
         ));
-        inventory.add_postflight_periphery_chip(hasher_chip.clone(), |chip, _| {
-            Ok(chip.generate_proving_ctx(()))
+        inventory.add_periphery_chip_with_tracegen(hasher_chip.clone(), |chip, _| {
+            Ok(chip.generate_proving_ctx())
         });
         let system = SystemChipInventory::new(
             config,
@@ -426,8 +426,7 @@ where
             hasher_chip,
         );
 
-        let phantom_chip = PhantomChip::new(PhantomFiller, system.memory_controller.helper());
-        inventory.add_postflight_executor_chip(phantom_chip, |_, postflight| {
+        inventory.add_executor_chip_with_tracegen((), |_, postflight| {
             phantom::generate_trace_from_postflight(postflight)
                 .map(AirProvingContext::simple_no_pis)
         });

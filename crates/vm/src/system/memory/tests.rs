@@ -3,7 +3,7 @@ use std::array;
 #[cfg(feature = "cuda")]
 use openvm_instructions::DEFERRAL_AS;
 use openvm_instructions::{
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
     PUBLIC_VALUES_AS,
 };
 use openvm_stark_backend::p3_field::PrimeCharacteristicRing;
@@ -27,7 +27,8 @@ fn test_memory_write_by_tester(tester: &mut impl TestBuilder<F>, its: usize) {
     // and intersecting/overlapping blocks,
     // by limiting the space of valid pointers.
     let max_ptr = 10;
-    let value_bounds = [u16::MAX as u32 + 1; 3];
+    // REGISTER_AS and MEMORY_AS are U16; PUBLIC_VALUES_AS is U8.
+    let value_bounds = [u16::MAX as u32 + 1, u16::MAX as u32 + 1, u8::MAX as u32 + 1];
     for _ in 0..its {
         let addr_sp = rng.random_range(1..=value_bounds.len());
         let value_bound: u32 = value_bounds[addr_sp - 1];
@@ -47,11 +48,30 @@ fn test_memory_write(its: usize) {
     let mut mem_config = MemoryConfig::default();
     let small_bits = 10;
     let small = 1 << small_bits;
-    mem_config.addr_spaces[RV64_REGISTER_AS as usize].num_cells = small;
-    mem_config.addr_spaces[RV64_MEMORY_AS as usize].num_cells = small;
+    mem_config.addr_spaces[REGISTER_AS as usize].num_cells = small;
+    mem_config.addr_spaces[MEMORY_AS as usize].num_cells = small;
     mem_config.addr_spaces[PUBLIC_VALUES_AS as usize].num_cells = small;
     let mut tester = VmChipTestBuilder::<F>::from_config(mem_config);
     test_memory_write_by_tester(&mut tester, its);
+    let tester = tester.build().finalize();
+    tester.simple_test().expect("Verification failed");
+}
+
+#[test]
+fn test_memory_write_max_address() {
+    let mut rng = create_seeded_rng();
+    let mem_config = MemoryConfig::default();
+    // The default config gives MEMORY_AS its full 2^32-byte capacity (2^31 u16 cells).
+    // Touch the last cell block so the boundary/merkle chips process the top of the address range.
+    let last_block = mem_config.addr_spaces[MEMORY_AS as usize].num_cells - BLOCK_FE_WIDTH;
+    let mut tester = VmChipTestBuilder::<F>::from_config(mem_config);
+    let values: [F; BLOCK_FE_WIDTH] =
+        array::from_fn(|_| F::from_u32(rng.random_range(0..u16::MAX as u32 + 1)));
+    tester.write::<BLOCK_FE_WIDTH>(MEMORY_AS as usize, last_block, values);
+    assert_eq!(
+        tester.read::<BLOCK_FE_WIDTH>(MEMORY_AS as usize, last_block),
+        values
+    );
     let tester = tester.build().finalize();
     tester.simple_test().expect("Verification failed");
 }
@@ -64,8 +84,8 @@ fn test_cuda_memory_write(its: usize) {
     let mut mem_config = MemoryConfig::default();
     let small_bits = 10;
     let small = 1 << small_bits;
-    mem_config.addr_spaces[RV64_REGISTER_AS as usize].num_cells = small;
-    mem_config.addr_spaces[RV64_MEMORY_AS as usize].num_cells = small;
+    mem_config.addr_spaces[REGISTER_AS as usize].num_cells = small;
+    mem_config.addr_spaces[MEMORY_AS as usize].num_cells = small;
     mem_config.addr_spaces[PUBLIC_VALUES_AS as usize].num_cells = small;
     mem_config.addr_spaces[DEFERRAL_AS as usize].num_cells = small;
     mem_config.pointer_max_bits = small_bits;

@@ -8,13 +8,13 @@ use openvm_circuit_primitives_derive::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS, RV64_WORD_NUM_LIMBS},
+    riscv::{REGISTER_AS, REGISTER_NUM_LIMBS, WORD_NUM_LIMBS},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::BaseAluWOpcode;
 use openvm_stark_backend::p3_field::PrimeField32;
 
-use super::AddSubWExecutor;
+use super::AddSubWCoreExecutor;
 
 #[derive(AlignedBytesBorrow, Clone)]
 #[repr(C)]
@@ -24,22 +24,22 @@ pub(super) struct AddSubWPreCompute {
     c: u8,
 }
 
-impl AddSubWExecutor {
+impl AddSubWCoreExecutor {
     #[inline(always)]
-    pub(super) fn pre_compute_impl<F: PrimeField32>(
+    pub(super) fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut AddSubWPreCompute,
     ) -> Result<(), StaticProgramError> {
         let Instruction { a, b, c, d, e, .. } = inst;
-        if d.as_canonical_u32() != RV64_REGISTER_AS || e.as_canonical_u32() != RV64_REGISTER_AS {
+        if d.as_u32() != REGISTER_AS || e.as_u32() != REGISTER_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         *data = AddSubWPreCompute {
-            a: a.as_canonical_u32() as u8,
-            b: b.as_canonical_u32() as u8,
-            c: c.as_canonical_u32() as u8,
+            a: a.as_u32() as u8,
+            b: b.as_u32() as u8,
+            c: c.as_u32() as u8,
         };
         Ok(())
     }
@@ -56,7 +56,7 @@ macro_rules! dispatch {
     };
 }
 
-impl<F> InterpreterExecutor<F> for AddSubWExecutor
+impl<F> InterpreterExecutor<F> for AddSubWCoreExecutor
 where
     F: PrimeField32,
 {
@@ -73,7 +73,7 @@ where
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -89,7 +89,7 @@ where
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -102,7 +102,7 @@ where
     }
 }
 
-impl<F> InterpreterMeteredExecutor<F> for AddSubWExecutor
+impl<F> InterpreterMeteredExecutor<F> for AddSubWCoreExecutor
 where
     F: PrimeField32,
 {
@@ -116,7 +116,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -134,7 +134,7 @@ where
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -153,21 +153,15 @@ unsafe fn execute_e12_impl<CTX: ExecutionCtxTrait, OP: AluWOp>(
     pre_compute: &AddSubWPreCompute,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
 ) {
-    let rs1 =
-        exec_state.vm_read_bytes::<RV64_WORD_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.b as u32);
-    let rs2 =
-        exec_state.vm_read_bytes::<RV64_WORD_NUM_LIMBS>(RV64_REGISTER_AS, pre_compute.c as u32);
+    let rs1 = exec_state.vm_read_bytes::<WORD_NUM_LIMBS>(REGISTER_AS, pre_compute.b as u32);
+    let rs2 = exec_state.vm_read_bytes::<WORD_NUM_LIMBS>(REGISTER_AS, pre_compute.c as u32);
 
     let rs1_low = u32::from_le_bytes(rs1);
     let rs2_low = u32::from_le_bytes(rs2);
     let rd_word = <OP as AluWOp>::compute(rs1_low, rs2_low);
     let rd = (rd_word as i32 as i64 as u64).to_le_bytes();
 
-    exec_state.vm_write_bytes::<RV64_REGISTER_NUM_LIMBS>(
-        RV64_REGISTER_AS,
-        pre_compute.a as u32,
-        &rd,
-    );
+    exec_state.vm_write_bytes::<REGISTER_NUM_LIMBS>(REGISTER_AS, pre_compute.a as u32, &rd);
     let pc = exec_state.pc();
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
 }

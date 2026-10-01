@@ -6,7 +6,7 @@ use openvm_circuit_primitives::{
     encoder::Encoder,
     AlignedBorrow, ColumnsAir, StructReflection, StructReflectionHelper, SubAir,
 };
-use openvm_riscv_transpiler::Rv64LoadStoreOpcode::LOADBU;
+use openvm_riscv_transpiler::LoadStoreOpcode::LOADBU;
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
     p3_air::BaseAir,
@@ -15,8 +15,7 @@ use openvm_stark_backend::{
 };
 
 use crate::adapters::{
-    shift_encoder, LoadByteInstruction, Rv64LoadByteAdapterFiller, BYTE_SHIFT_SELECTOR_WIDTH,
-    RV64_BYTE_BITS,
+    shift_encoder, LoadByteAdapterFiller, LoadByteInstruction, BYTE_BITS, BYTE_SHIFT_SELECTOR_WIDTH,
 };
 
 /// Handles unsigned byte loads by decomposing the selected u16 cell and zero-extending the chosen
@@ -68,7 +67,7 @@ where
         &self,
         builder: &mut AB,
         local_core: &[AB::Var],
-        _from_pc: AB::Var,
+        _from_pc_idx: AB::Var,
     ) -> AdapterAirContext<AB::Expr, I> {
         let cols: &LoadByteCoreCols<AB::Var> = (*local_core).borrow();
         self.encoder.eval(builder, &cols.selector);
@@ -101,7 +100,7 @@ where
                     )
                 },
             );
-        let inv_2_pow_8 = AB::F::from_u32(1 << RV64_BYTE_BITS).inverse();
+        let inv_2_pow_8 = AB::F::from_u32(1 << BYTE_BITS).inverse();
         // selected_cell = lo + 2^8 * hi.
         let selected_cell = even_selected_cell + odd_selected_cell.clone();
         let read_cell_hi_byte = (selected_cell - cols.read_cell_lo_byte) * inv_2_pow_8;
@@ -134,7 +133,7 @@ where
         );
 
         AdapterAirContext {
-            to_pc: None,
+            to_pc_idx: None,
             reads: cols.read_data.map(Into::into).into(),
             writes: write_data.into(),
             instruction: LoadByteInstruction {
@@ -152,18 +151,18 @@ where
 }
 
 #[derive(Clone)]
-pub struct LoadByteFiller<A = Rv64LoadByteAdapterFiller> {
+pub struct LoadByteFiller<A = LoadByteAdapterFiller> {
     pub(super) adapter: A,
     pub offset: usize,
     pub(super) encoder: Encoder,
-    pub(super) bitwise_lookup_chip: SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+    pub(super) bitwise_lookup_chip: SharedBitwiseOperationLookupChip<BYTE_BITS>,
 }
 
 impl<A> LoadByteFiller<A> {
     pub fn new(
         adapter: A,
         offset: usize,
-        bitwise_lookup_chip: SharedBitwiseOperationLookupChip<RV64_BYTE_BITS>,
+        bitwise_lookup_chip: SharedBitwiseOperationLookupChip<BYTE_BITS>,
     ) -> Self {
         Self {
             adapter,

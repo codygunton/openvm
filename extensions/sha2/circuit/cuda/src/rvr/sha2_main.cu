@@ -6,13 +6,13 @@
 #include "primitives/histogram.cuh"
 #include "primitives/trace_access.h"
 #include "primitives/utils.cuh"
+#include "riscv-adapters/pointer_conv.cuh"
 #include "system/memory/controller.cuh"
 #include "system/memory/offline_checker.cuh"
 #include "rvr/replay.cuh"
 
 using namespace riscv;
 using namespace sha2;
-using openvm::U16_BITS;
 
 template <typename V>
 static __device__ __forceinline__ void sha2_main_replay_row_body(
@@ -52,29 +52,25 @@ static __device__ __forceinline__ void sha2_main_replay_row_body(
 
     SHA2_MAIN_WRITE_INSTR(V, row, is_enabled, Fp::one());
     SHA2_MAIN_WRITE_INSTR(V, row, from_state.timestamp, input.timestamp);
-    SHA2_MAIN_WRITE_INSTR(V, row, from_state.pc, input.from_pc);
+    SHA2_MAIN_WRITE_INSTR(V, row, from_state.pc, ::program::pc_to_idx(input.from_pc));
     SHA2_MAIN_WRITE_INSTR(V, row, dst_reg_ptr, input.dst_reg_ptr);
     SHA2_MAIN_WRITE_INSTR(V, row, state_reg_ptr, input.state_reg_ptr);
     SHA2_MAIN_WRITE_INSTR(V, row, input_reg_ptr, input.input_reg_ptr);
 
-    uint16_t dst_ptr_u16s[RV64_PTR_U16_LIMBS];
-    uint16_t state_ptr_u16s[RV64_PTR_U16_LIMBS];
-    uint16_t input_ptr_u16s[RV64_PTR_U16_LIMBS];
+    uint16_t dst_ptr_u16s[PTR_U16_LIMBS];
+    uint16_t state_ptr_u16s[PTR_U16_LIMBS];
+    uint16_t input_ptr_u16s[PTR_U16_LIMBS];
     ptr_to_u16_limbs(dst_ptr_u16s, input.dst_ptr);
     ptr_to_u16_limbs(state_ptr_u16s, input.state_ptr);
     ptr_to_u16_limbs(input_ptr_u16s, input.input_ptr);
     SHA2_MAIN_WRITE_ARRAY_INSTR(V, row, dst_ptr_limbs, dst_ptr_u16s);
     SHA2_MAIN_WRITE_ARRAY_INSTR(V, row, state_ptr_limbs, state_ptr_u16s);
     SHA2_MAIN_WRITE_ARRAY_INSTR(V, row, input_ptr_limbs, input_ptr_u16s);
-    range_checker.add_count(
-        ptr_bound_from_high_u16(dst_ptr_u16s[RV64_PTR_U16_LIMBS - 1], ptr_max_bits), U16_BITS
-    );
-    range_checker.add_count(
-        ptr_bound_from_high_u16(state_ptr_u16s[RV64_PTR_U16_LIMBS - 1], ptr_max_bits), U16_BITS
-    );
-    range_checker.add_count(
-        ptr_bound_from_high_u16(input_ptr_u16s[RV64_PTR_U16_LIMBS - 1], ptr_max_bits), U16_BITS
-    );
+    // Block-index range-check counts for each base heap pointer. Mirrors
+    // `add_block_index_range_checks` in `main_chip/trace.rs`.
+    add_block_index_range_checks(range_checker, input.input_ptr, ptr_max_bits);
+    add_block_index_range_checks(range_checker, input.state_ptr, ptr_max_bits);
+    add_block_index_range_checks(range_checker, input.dst_ptr, ptr_max_bits);
 
 #pragma unroll
     for (size_t i = 0; i < SHA2_REGISTER_READS; i++) {

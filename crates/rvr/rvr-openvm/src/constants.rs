@@ -2,19 +2,21 @@
 
 use openvm_instructions::{
     metering::{PAGE_MASK_LEAF_BITS, SEGMENT_CHECK_INSNS},
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS},
+    riscv::{MEMORY_AS, REGISTER_AS},
     DEFERRAL_AS, PUBLIC_VALUES_AS, VM_DIGEST_WIDTH,
 };
 use openvm_platform::{memory::MEM_SIZE, WORD_SIZE};
 use rvr_openvm_lift::MAIN_MEMORY_PAGE_BYTES;
-use rvr_state::CHECKPOINT_DIRTY_PAGE_BYTES;
+use rvr_state::PREFLIGHT_DIRTY_PAGE_BYTES;
 
-const BYTE_SPACE_PTRS_PER_LEAF: usize = core::mem::size_of::<u16>() * VM_DIGEST_WIDTH;
-const DEFERRAL_PTRS_PER_LEAF: usize = VM_DIGEST_WIDTH;
+// Number of pointer values in one Merkle leaf for cell-addressed public-values and deferral spaces.
+const CELLS_PER_LEAF: usize = VM_DIGEST_WIDTH;
+// Number of byte addresses in one Merkle leaf for U16-backed main memory.
+const MEMORY_LEAF_BYTES: usize = core::mem::size_of::<u16>() * VM_DIGEST_WIDTH;
 
 // Extension page bounds are declared against this page size and feed the
 // unchecked main-memory page buffer.
-const _: () = assert!(BYTE_SPACE_PTRS_PER_LEAF << PAGE_MASK_LEAF_BITS == MAIN_MEMORY_PAGE_BYTES);
+const _: () = assert!(MEMORY_LEAF_BYTES << PAGE_MASK_LEAF_BITS == MAIN_MEMORY_PAGE_BYTES);
 
 /// Maximum AS_MEMORY page buffer entries per segment check interval.
 ///
@@ -24,14 +26,15 @@ const _: () = assert!(BYTE_SPACE_PTRS_PER_LEAF << PAGE_MASK_LEAF_BITS == MAIN_ME
 pub const MEM_PAGE_BUF_CAP: usize = 1 << 16;
 
 /// Worst-case AS_PUBLIC_VALUES pages a fixed-width reveal can touch.
-const MAX_PV_PAGES_PER_INSN: usize = 2;
+const MAX_PV_PAGES_PER_INSN: usize = 1;
 
 /// Maximum AS_PUBLIC_VALUES page buffer entries per segment check interval.
-/// The C tracer does not bounds-check this buffer. A reveal can span two pages.
+/// The C tracer verifies capacity and grows this cold-path buffer before an overflowing append.
 pub const PV_PAGE_BUF_CAP: usize = 1 << 12;
 
 /// Maximum AS_DEFERRAL page buffer entries per segment check interval.
-/// No bounds checks in C. Deferral CALL records two reads and two writes.
+/// Deferral CALL records two reads and two writes. The C tracer verifies
+/// capacity and grows this cold-path buffer before an overflowing append.
 const MAX_DEFERRAL_PAGES_PER_INSN: usize = 4;
 pub const DEFERRAL_PAGE_BUF_CAP: usize = 1 << 12;
 
@@ -45,9 +48,9 @@ pub fn constants_header(
     max_mem_pages_per_insn: usize,
 ) -> String {
     let memory_mask = MEM_SIZE as u64 - 1;
-    let byte_space_ptrs_per_leaf_bits = BYTE_SPACE_PTRS_PER_LEAF.ilog2();
-    let deferral_ptrs_per_leaf_bits = DEFERRAL_PTRS_PER_LEAF.ilog2();
-    let checkpoint_dirty_page_bits = CHECKPOINT_DIRTY_PAGE_BYTES.ilog2();
+    let cells_per_leaf_bits = CELLS_PER_LEAF.ilog2();
+    let memory_leaf_byte_bits = MEMORY_LEAF_BYTES.ilog2();
+    let preflight_dirty_page_bits = PREFLIGHT_DIRTY_PAGE_BYTES.ilog2();
 
     let mut header = format!(
         "\
@@ -55,8 +58,8 @@ pub fn constants_header(
 #include <stdint.h>
 
 static constexpr uint64_t MEMORY_MASK = 0x{memory_mask:x}ull;
-static constexpr uint32_t AS_REGISTER = {RV64_REGISTER_AS};
-static constexpr uint32_t AS_MEMORY = {RV64_MEMORY_AS};
+static constexpr uint32_t AS_REGISTER = {REGISTER_AS};
+static constexpr uint32_t AS_MEMORY = {MEMORY_AS};
 static constexpr uint32_t AS_PUBLIC_VALUES = {PUBLIC_VALUES_AS};
 static constexpr uint32_t AS_DEFERRAL = {DEFERRAL_AS};
 static constexpr uint32_t WORD_SIZE = {WORD_SIZE};
@@ -65,11 +68,11 @@ static constexpr uint32_t DEFERRAL_DIGEST_SIZE = {VM_DIGEST_WIDTH};
 static constexpr uint64_t RV_TEXT_START = 0x{text_start:08x}ull;
 static constexpr uint64_t RV_TEXT_END = 0x{text_end:08x}ull;
 static constexpr uint32_t RV_DISPATCH_TABLE_SIZE = {dispatch_table_size}u;
-static constexpr uint32_t TRACER_BYTE_SPACE_PTRS_PER_LEAF_BITS = {byte_space_ptrs_per_leaf_bits};
-static constexpr uint32_t TRACER_DEFERRAL_PTRS_PER_LEAF_BITS = {deferral_ptrs_per_leaf_bits};
+static constexpr uint32_t TRACER_CELLS_PER_LEAF_BITS = {cells_per_leaf_bits};
+static constexpr uint32_t TRACER_MEMORY_LEAF_BYTE_BITS = {memory_leaf_byte_bits};
 static constexpr uint32_t TRACER_PAGE_BITS = {PAGE_MASK_LEAF_BITS};
-static constexpr uint32_t CHECKPOINT_DIRTY_PAGE_BITS = {checkpoint_dirty_page_bits};
-static_assert((1u << CHECKPOINT_DIRTY_PAGE_BITS) == {CHECKPOINT_DIRTY_PAGE_BYTES}u);
+static constexpr uint32_t PREFLIGHT_DIRTY_PAGE_BITS = {preflight_dirty_page_bits};
+static_assert((1u << PREFLIGHT_DIRTY_PAGE_BITS) == {PREFLIGHT_DIRTY_PAGE_BYTES}u);
 static constexpr uint32_t TRACER_MEM_PAGE_BUF_CAP = {MEM_PAGE_BUF_CAP};
 static constexpr uint32_t TRACER_PV_PAGE_BUF_CAP = {PV_PAGE_BUF_CAP};
 static constexpr uint32_t TRACER_DEFERRAL_PAGE_BUF_CAP = {DEFERRAL_PAGE_BUF_CAP};

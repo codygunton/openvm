@@ -8,7 +8,7 @@ use num_traits::Zero;
 use openvm_algebra_transpiler::Fp2Opcode;
 use openvm_circuit::arch::{
     testing::{
-        memory::{gen_pointer, gen_register_pointer},
+        memory::{gen_distinct_register_pointers, gen_pointer},
         TestBuilder, TestChipHarness, TestPreflight, VmChipTestBuilder,
     },
     MEMORY_BLOCK_BYTES,
@@ -16,7 +16,7 @@ use openvm_circuit::arch::{
 use openvm_circuit_primitives::bigint::utils::secp256k1_coord_prime;
 use openvm_instructions::{
     instruction::Instruction,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode, VmOpcode,
 };
 use openvm_mod_circuit_builder::{
@@ -129,7 +129,7 @@ fn create_muldiv_test_chips<const BLOCKS: usize>(
 fn set_and_execute_fp2<const BLOCKS: usize, const NUM_LIMBS: usize>(
     tester: &mut impl TestBuilder<F>,
     executor: &mut Fp2Executor<BLOCKS>,
-    preflight: &mut TestPreflight<F>,
+    preflight: &mut TestPreflight,
     rng: &mut StdRng,
     modulus: &BigUint,
     is_setup: bool,
@@ -172,31 +172,26 @@ fn set_and_execute_fp2<const BLOCKS: usize, const NUM_LIMBS: usize>(
         (a_c0, a_c1, b_c0, b_c1, op)
     };
 
-    let ptr_as = RV64_REGISTER_AS as usize;
-    let data_as = RV64_MEMORY_AS as usize;
+    let ptr_as = REGISTER_AS as usize;
+    let data_as = MEMORY_AS as usize;
 
-    let rs1_ptr = gen_register_pointer(rng, RV64_REGISTER_NUM_LIMBS);
-    let mut rs2_ptr = gen_register_pointer(rng, RV64_REGISTER_NUM_LIMBS);
-    while rs2_ptr == rs1_ptr {
-        rs2_ptr = gen_register_pointer(rng, RV64_REGISTER_NUM_LIMBS);
-    }
-    let rd_ptr = gen_register_pointer(rng, RV64_REGISTER_NUM_LIMBS);
+    let [rs1_ptr, rs2_ptr, rd_ptr] = gen_distinct_register_pointers(rng, REGISTER_NUM_LIMBS);
 
-    let a_base_addr = gen_pointer(rng, RV64_REGISTER_NUM_LIMBS) as u32;
-    let b_base_addr = gen_pointer(rng, RV64_REGISTER_NUM_LIMBS) as u32;
-    let result_base_addr = gen_pointer(rng, RV64_REGISTER_NUM_LIMBS) as u32;
+    let a_base_addr = gen_pointer(rng, REGISTER_NUM_LIMBS) as u32;
+    let b_base_addr = gen_pointer(rng, REGISTER_NUM_LIMBS) as u32;
+    let result_base_addr = gen_pointer(rng, REGISTER_NUM_LIMBS) as u32;
 
-    tester.write_bytes::<RV64_REGISTER_NUM_LIMBS>(
+    tester.write_bytes::<REGISTER_NUM_LIMBS>(
         ptr_as,
         rs1_ptr,
         (a_base_addr as u64).to_le_bytes().map(F::from_u8),
     );
-    tester.write_bytes::<RV64_REGISTER_NUM_LIMBS>(
+    tester.write_bytes::<REGISTER_NUM_LIMBS>(
         ptr_as,
         rs2_ptr,
         (b_base_addr as u64).to_le_bytes().map(F::from_u8),
     );
-    tester.write_bytes::<RV64_REGISTER_NUM_LIMBS>(
+    tester.write_bytes::<REGISTER_NUM_LIMBS>(
         ptr_as,
         rd_ptr,
         (result_base_addr as u64).to_le_bytes().map(F::from_u8),
@@ -393,7 +388,8 @@ mod cuda_tests {
             tester.range_checker().device_ctx.clone(),
             offset,
             tester.range_checker(),
-        );
+        )
+        .unwrap();
 
         let address_bits = tester.address_bits();
         GpuTestChipHarness::with_capacity(executor, air, hybrid_chip, cpu_chip, MAX_INS_CAPACITY)
@@ -448,7 +444,8 @@ mod cuda_tests {
             tester.range_checker().device_ctx.clone(),
             offset,
             tester.range_checker(),
-        );
+        )
+        .unwrap();
 
         let address_bits = tester.address_bits();
         GpuTestChipHarness::with_capacity(executor, air, hybrid_chip, cpu_chip, MAX_INS_CAPACITY)

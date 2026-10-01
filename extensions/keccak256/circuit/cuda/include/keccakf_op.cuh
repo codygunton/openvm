@@ -13,26 +13,14 @@ using namespace keccak256;
 
 inline constexpr size_t NUM_OP_ROWS_PER_INS = 1; // 1 row per instruction
 
-// Record structure matching Rust KeccakfRecord (from trace.rs)
-// Must match exact layout with #[repr(C)]
-struct KeccakfOpRecord {
-    uint32_t pc;
-    uint32_t timestamp;
-    uint32_t rd_ptr;
-    uint32_t buffer_ptr;
-    MemoryReadAuxRecord rd_aux;
-    MemoryReadAuxRecord buffer_word_aux[KECCAK_WIDTH_MEM_OPS];
-    uint8_t preimage_buffer_bytes[KECCAK_WIDTH_BYTES];
-};
-
 // Column structure matching Rust KeccakfOpCols (from columns.rs)
 template <typename T> struct KeccakfOpCols {
-    T pc;
+    T pc_idx;
     T is_valid;
     T timestamp;
     T rd_ptr;
     // Low 32 bits of [rd_ptr:8]_1 as u16 cells.
-    T buffer_ptr_limbs[RV64_PTR_U16_LIMBS];
+    T buffer_ptr_limbs[PTR_U16_LIMBS];
     // Keccak state as u16 cells.
     T preimage[KECCAK_WIDTH_U16S];
     T postimage[KECCAK_WIDTH_U16S];

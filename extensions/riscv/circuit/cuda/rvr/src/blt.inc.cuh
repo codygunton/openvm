@@ -86,8 +86,8 @@ __global__ void blt_replay_tracegen(
     uint32_t encoded_imm = instruction.words[3];
     if (instruction.words[0] != expected_opcode ||
         instruction.words[4] != register_address_space ||
-        instruction.words[5] != register_address_space || (rs1_ptr & 1) != 0 ||
-        (rs2_ptr & 1) != 0) {
+        instruction.words[5] != register_address_space || !replay_canonical_register_pointer(rs1_ptr) ||
+        !replay_canonical_register_pointer(rs2_ptr)) {
         preflight_set_error(error, 14);
         return;
     }
@@ -114,19 +114,27 @@ __global__ void blt_replay_tracegen(
 
     uint16_t rs1[BLOCK_FE_WIDTH];
     uint16_t rs2[BLOCK_FE_WIDTH];
-    if (!replay_u16_block(first_read.value, rs1) || !replay_u16_block(second_read.value, rs2)) {
-        preflight_set_error(error, 17);
-        return;
-    }
+    replay_u16_block(first_read.value, rs1);
+    replay_u16_block(second_read.value, rs2);
 
     bool signed_op = local_opcode == 0 || local_opcode == 2;
     bool ge_op = local_opcode == 2 || local_opcode == 3;
     bool cmp_lt =
         run_less_than<BLOCK_FE_WIDTH, U16_BITS>(signed_op, rs1, rs2).cmp_result;
     bool should_branch = ge_op ? !cmp_lt : cmp_lt;
-    Fp expected_next_pc_field(from.pc);
-    expected_next_pc_field += Fp(should_branch ? encoded_imm : 4);
-    if (to.pc != expected_next_pc_field.asUInt32()) {
+    uint32_t expected_next_pc;
+    if (should_branch) {
+        // Taken targets must stay inside the implemented PC address space on an aligned
+        // slot (mirrors the CPU trace filler).
+        if (!replay_branch_target_in_bounds(from.pc, encoded_imm)) {
+            preflight_set_error(error, 18);
+            return;
+        }
+        expected_next_pc = replay_taken_branch_pc(from.pc, encoded_imm);
+    } else {
+        expected_next_pc = from.pc + ::program::DEFAULT_PC_STEP;
+    }
+    if (to.pc != expected_next_pc) {
         preflight_set_error(error, 18);
         return;
     }
@@ -153,7 +161,7 @@ __global__ void blt_replay_tracegen(
         return;
     }
 
-    Rv64BranchAdapter adapter(
+    BranchAdapter adapter(
         VariableRangeChecker(range_checker, range_checker_num_bins), timestamp_max_bits
     );
     adapter.fill_trace_row(
@@ -165,7 +173,7 @@ __global__ void blt_replay_tracegen(
         first_previous.timestamp,
         second_previous.timestamp
     );
-    Rv64BranchLessThanCoreRecord core_record{};
+    BranchLessThanCoreRecord<BLOCK_FE_WIDTH, U16_BITS> core_record{};
 #pragma unroll
     for (size_t i = 0; i < BLOCK_FE_WIDTH; i++) {
         core_record.a[i] = rs1[i];
@@ -173,7 +181,7 @@ __global__ void blt_replay_tracegen(
     }
     core_record.imm = encoded_imm;
     core_record.local_opcode = local_opcode;
-    Rv64BranchLessThanCore core{VariableRangeChecker(range_checker, range_checker_num_bins)};
+    BranchLessThanCore<BLOCK_FE_WIDTH, U16_BITS> core{VariableRangeChecker(range_checker, range_checker_num_bins)};
     core.fill_trace_row(row.slice_from(COL_INDEX(BranchLessThanCols, core)), core_record);
 }
 
@@ -226,7 +234,7 @@ extern "C" int _blt_replay_tracegen(
     assert(total_steps <= SIZE_MAX - num_bgeu_steps);
     total_steps += num_bgeu_steps;
     assert(height >= total_steps);
-    auto [grid, block] = kernel_launch_params(height, RV64_REPLAY_THREADS);
+    auto [grid, block] = kernel_launch_params(height, REPLAY_THREADS);
     blt_replay_tracegen<<<grid, block, 0, stream>>>(
         d_trace,
         height,

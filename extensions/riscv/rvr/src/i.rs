@@ -6,27 +6,29 @@ use std::collections::{BTreeMap, HashSet};
 
 use openvm_instructions::{
     exe::SparseMemoryImage,
+    instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_IMM_AS, RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_BYTES},
+    riscv::{IMM_AS, MEMORY_AS, REGISTER_AS, REGISTER_BYTES},
     LocalOpcode,
 };
 use openvm_riscv_transpiler::{
-    BaseAluImmOpcode, BaseAluOpcode, BaseAluWImmOpcode, BaseAluWOpcode, BranchEqualOpcode,
-    BranchLessThanOpcode, LessThanImmOpcode, LessThanOpcode, Rv64AuipcOpcode, Rv64JalLuiOpcode,
-    Rv64JalrOpcode, Rv64LoadStoreOpcode, ShiftImmOpcode, ShiftOpcode, ShiftWImmOpcode,
-    ShiftWOpcode,
+    AuipcOpcode, BaseAluImmOpcode, BaseAluOpcode, BaseAluWImmOpcode, BaseAluWOpcode,
+    BranchEqualOpcode, BranchLessThanOpcode, JalLuiOpcode, JalrOpcode, LessThanImmOpcode,
+    LessThanOpcode, LoadStoreOpcode, ShiftImmOpcode, ShiftOpcode, ShiftWImmOpcode, ShiftWOpcode,
 };
 use rvr_openvm_ir::{
     CfgBranchCond, CfgOperand, ExtInstr, InstrAt, LiftedInstr, MemWidth, Terminator,
 };
-use rvr_openvm_lift::{max_main_memory_pages_for_contiguous_range, RvrExtension, RvrInstruction};
+use rvr_openvm_lift::{max_main_memory_pages_for_contiguous_range, RvrExtension};
 
 use self::instruction::{AluOp, Rv64IInstr};
 use crate::instruction::{decode_imm_cg, decode_reg, reg_operand, ZERO};
 
 const U24_MASK: u32 = (1 << 24) - 1;
-const RV64I_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION: usize =
-    max_main_memory_pages_for_contiguous_range(RV64_REGISTER_BYTES as usize);
+const B_TYPE_IMM_BITS: u32 = 13;
+const J_TYPE_IMM_BITS: u32 = 21;
+const MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION: usize =
+    max_main_memory_pages_for_contiguous_range(REGISTER_BYTES as usize);
 
 /// RVR extension for RV64I base integer instructions.
 pub struct Rv64IExtension;
@@ -44,7 +46,7 @@ impl Default for Rv64IExtension {
 }
 
 impl RvrExtension for Rv64IExtension {
-    fn try_lift(&self, insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+    fn try_lift(&self, insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
         try_lift(insn, pc)
     }
 
@@ -53,7 +55,7 @@ impl RvrExtension for Rv64IExtension {
     }
 
     fn max_main_memory_pages_per_instruction(&self) -> usize {
-        RV64I_MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION
+        MAX_MAIN_MEMORY_PAGES_PER_INSTRUCTION
     }
 
     /// Find initialized values that match valid RV64 instruction PCs.
@@ -70,7 +72,7 @@ impl RvrExtension for Rv64IExtension {
         let bytes = init_memory
             .iter()
             .filter_map(|(&(address_space, address), &byte)| {
-                (address_space == RV64_MEMORY_AS).then_some((address, byte))
+                (address_space == MEMORY_AS).then_some((address, byte))
             })
             .collect::<BTreeMap<_, _>>();
         bytes
@@ -95,7 +97,7 @@ impl RvrExtension for Rv64IExtension {
     }
 }
 
-pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
+pub(crate) fn try_lift(insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
     let opcode = insn.opcode.as_usize();
 
     let alu_reg = [
@@ -129,7 +131,7 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
         .into_iter()
         .find(|(candidate, _)| *candidate == opcode)
     {
-        let raw = insn.c;
+        let raw = insn.c.as_u32();
         let imm = sign_extend_12(raw);
         if raw != (imm as u32 & U24_MASK) {
             return None;
@@ -152,7 +154,7 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
         .into_iter()
         .find(|(candidate, _)| *candidate == opcode)
     {
-        if insn.c >= 64 {
+        if insn.c.as_u32() >= 64 {
             return None;
         }
         return lift_alu(
@@ -160,7 +162,7 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
             pc,
             op,
             false,
-            Some(CfgOperand::Const(u64::from(insn.c))),
+            Some(CfgOperand::Const(u64::from(insn.c.as_u32()))),
         );
     }
 
@@ -179,7 +181,7 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
     }
 
     if opcode == BaseAluWImmOpcode::ADDIW.global_opcode_usize() {
-        let raw = insn.c;
+        let raw = insn.c.as_u32();
         let imm = sign_extend_12(raw);
         if raw != (imm as u32 & U24_MASK) {
             return None;
@@ -202,7 +204,7 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
         .into_iter()
         .find(|(candidate, _)| *candidate == opcode)
     {
-        if insn.c >= 32 {
+        if insn.c.as_u32() >= 32 {
             return None;
         }
         return lift_alu(
@@ -210,43 +212,43 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
             pc,
             op,
             true,
-            Some(CfgOperand::Const(u64::from(insn.c))),
+            Some(CfgOperand::Const(u64::from(insn.c.as_u32()))),
         );
     }
 
     let loads = [
         (
-            Rv64LoadStoreOpcode::LOADD.global_opcode_usize(),
+            LoadStoreOpcode::LOADD.global_opcode_usize(),
             MemWidth::Double,
             false,
         ),
         (
-            Rv64LoadStoreOpcode::LOADBU.global_opcode_usize(),
+            LoadStoreOpcode::LOADBU.global_opcode_usize(),
             MemWidth::Byte,
             false,
         ),
         (
-            Rv64LoadStoreOpcode::LOADHU.global_opcode_usize(),
+            LoadStoreOpcode::LOADHU.global_opcode_usize(),
             MemWidth::Half,
             false,
         ),
         (
-            Rv64LoadStoreOpcode::LOADWU.global_opcode_usize(),
+            LoadStoreOpcode::LOADWU.global_opcode_usize(),
             MemWidth::Word,
             false,
         ),
         (
-            Rv64LoadStoreOpcode::LOADB.global_opcode_usize(),
+            LoadStoreOpcode::LOADB.global_opcode_usize(),
             MemWidth::Byte,
             true,
         ),
         (
-            Rv64LoadStoreOpcode::LOADH.global_opcode_usize(),
+            LoadStoreOpcode::LOADH.global_opcode_usize(),
             MemWidth::Half,
             true,
         ),
         (
-            Rv64LoadStoreOpcode::LOADW.global_opcode_usize(),
+            LoadStoreOpcode::LOADW.global_opcode_usize(),
             MemWidth::Word,
             true,
         ),
@@ -260,19 +262,19 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
 
     let stores = [
         (
-            Rv64LoadStoreOpcode::STORED.global_opcode_usize(),
+            LoadStoreOpcode::STORED.global_opcode_usize(),
             MemWidth::Double,
         ),
         (
-            Rv64LoadStoreOpcode::STOREW.global_opcode_usize(),
+            LoadStoreOpcode::STOREW.global_opcode_usize(),
             MemWidth::Word,
         ),
         (
-            Rv64LoadStoreOpcode::STOREH.global_opcode_usize(),
+            LoadStoreOpcode::STOREH.global_opcode_usize(),
             MemWidth::Half,
         ),
         (
-            Rv64LoadStoreOpcode::STOREB.global_opcode_usize(),
+            LoadStoreOpcode::STOREB.global_opcode_usize(),
             MemWidth::Byte,
         ),
     ];
@@ -313,44 +315,44 @@ pub(crate) fn try_lift(insn: &RvrInstruction, pc: u64) -> Option<LiftedInstr> {
         .into_iter()
         .find(|(candidate, _)| *candidate == opcode)
     {
-        return Some(lift_branch(insn, pc, cond));
+        return lift_branch(insn, pc, cond);
     }
 
-    if opcode == Rv64JalLuiOpcode::JAL.global_opcode_usize() {
-        return Some(lift_jal(insn, pc));
+    if opcode == JalLuiOpcode::JAL.global_opcode_usize() {
+        return lift_jal(insn, pc);
     }
-    if opcode == Rv64JalLuiOpcode::LUI.global_opcode_usize() {
-        return Some(lift_lui(insn, pc));
+    if opcode == JalLuiOpcode::LUI.global_opcode_usize() {
+        return lift_lui(insn, pc);
     }
-    if opcode == Rv64JalrOpcode::JALR.global_opcode_usize() {
-        return Some(lift_jalr(insn, pc));
+    if opcode == JalrOpcode::JALR.global_opcode_usize() {
+        return lift_jalr(insn, pc);
     }
-    if opcode == Rv64AuipcOpcode::AUIPC.global_opcode_usize() {
-        return Some(lift_auipc(insn, pc));
+    if opcode == AuipcOpcode::AUIPC.global_opcode_usize() {
+        return lift_auipc(insn, pc);
     }
 
     None
 }
 
 fn lift_alu(
-    insn: &RvrInstruction,
+    insn: &Instruction,
     pc: u64,
     op: AluOp,
     word: bool,
     immediate: Option<CfgOperand>,
 ) -> Option<LiftedInstr> {
     let expected_e = if immediate.is_some() {
-        RV64_IMM_AS
+        IMM_AS
     } else {
-        RV64_REGISTER_AS
+        REGISTER_AS
     };
-    if insn.d != RV64_REGISTER_AS || insn.e != expected_e {
+    if insn.d.as_u32() != REGISTER_AS || insn.e.as_u32() != expected_e {
         return None;
     }
 
-    let rd = decode_reg(insn.a);
-    let lhs = decode_reg(insn.b);
-    let rhs_reg = immediate.is_none().then(|| decode_reg(insn.c));
+    let rd = decode_reg(insn.a.as_u32());
+    let lhs = decode_reg(insn.b.as_u32());
+    let rhs_reg = immediate.is_none().then(|| decode_reg(insn.c.as_u32()));
     let rhs = immediate.unwrap_or_else(|| reg_operand(rhs_reg.unwrap()));
     Some(body(
         pc,
@@ -368,18 +370,18 @@ fn lift_alu(
 
 /// Lift a load encoded as `rd=a/8`, `rs1=b/8`, immediate low bits in `c`,
 /// and the immediate sign marker in `g`.
-fn lift_load(insn: &RvrInstruction, pc: u64, width: MemWidth, signed: bool) -> Option<LiftedInstr> {
-    if insn.d != RV64_REGISTER_AS || insn.e != RV64_MEMORY_AS {
+fn lift_load(insn: &Instruction, pc: u64, width: MemWidth, signed: bool) -> Option<LiftedInstr> {
+    if insn.d.as_u32() != REGISTER_AS || insn.e.as_u32() != MEMORY_AS {
         return None;
     }
-    let rd = decode_reg(insn.a);
+    let rd = decode_reg(insn.a.as_u32());
     Some(body(
         pc,
         Rv64IInstr::Load {
             width,
             signed,
             rd,
-            base: decode_reg(insn.b),
+            base: decode_reg(insn.b.as_u32()),
             offset: decode_imm_cg(insn) as i16,
         },
     ))
@@ -387,88 +389,104 @@ fn lift_load(insn: &RvrInstruction, pc: u64, width: MemWidth, signed: bool) -> O
 
 /// Lift a store encoded as `rs2=a/8`, `rs1=b/8`, immediate low bits in `c`,
 /// and the immediate sign marker in `g`.
-fn lift_store(insn: &RvrInstruction, pc: u64, width: MemWidth) -> Option<LiftedInstr> {
-    if insn.d != RV64_REGISTER_AS || insn.e != RV64_MEMORY_AS {
+fn lift_store(insn: &Instruction, pc: u64, width: MemWidth) -> Option<LiftedInstr> {
+    if insn.d.as_u32() != REGISTER_AS || insn.e.as_u32() != MEMORY_AS || insn.f.is_zero() {
         return None;
     }
     Some(body(
         pc,
         Rv64IInstr::Store {
             width,
-            base: decode_reg(insn.b),
-            src: decode_reg(insn.a),
+            base: decode_reg(insn.b.as_u32()),
+            src: decode_reg(insn.a.as_u32()),
             offset: decode_imm_cg(insn) as i16,
         },
     ))
 }
 
 /// Lift a branch encoded as `rs1=a/8`, `rs2=b/8`, and an offset in `c`
-/// interpreted as a signed source-field value.
-fn lift_branch(insn: &RvrInstruction, pc: u64, cond: CfgBranchCond) -> LiftedInstr {
-    term(
+/// interpreted as a signed instruction operand.
+fn lift_branch(insn: &Instruction, pc: u64, cond: CfgBranchCond) -> Option<LiftedInstr> {
+    if insn.d.as_u32() != REGISTER_AS {
+        return None;
+    }
+    let offset = signed_immediate(insn.c.as_i32(), B_TYPE_IMM_BITS)?;
+    Some(term(
         pc,
         Rv64IInstr::Branch {
             cond,
-            lhs: decode_reg(insn.a),
-            rhs: decode_reg(insn.b),
-            target: pc.wrapping_add_signed(i64::from(insn.signed_c())),
+            lhs: decode_reg(insn.a.as_u32()),
+            rhs: decode_reg(insn.b.as_u32()),
+            target: pc.wrapping_add_signed(i64::from(offset)),
         },
-    )
+    ))
 }
 
-/// Lift JAL encoded as `rd=a/8` and an offset in `c` interpreted as a signed
-/// source-field value.
-fn lift_jal(insn: &RvrInstruction, pc: u64) -> LiftedInstr {
-    let rd = decode_reg(insn.a);
-    term(
+/// Lift JAL encoded as `rd=a/8` and a signed instruction operand in `c`.
+fn lift_jal(insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
+    let offset = signed_immediate(insn.c.as_i32(), J_TYPE_IMM_BITS)?;
+    let rd = decode_reg(insn.a.as_u32());
+    Some(term(
         pc,
         Rv64IInstr::Jump {
             link_dst: (rd != ZERO).then_some(rd),
-            target: pc.wrapping_add_signed(i64::from(insn.signed_c())),
+            target: pc.wrapping_add_signed(i64::from(offset)),
         },
-    )
+    ))
 }
 
 /// Lift JALR encoded as `rd=a/8`, `rs1=b/8`, immediate low bits in `c`,
 /// and the immediate sign marker in `g`.
-fn lift_jalr(insn: &RvrInstruction, pc: u64) -> LiftedInstr {
-    let rd = decode_reg(insn.a);
-    term(
+fn lift_jalr(insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
+    if insn.d.as_u32() != REGISTER_AS {
+        return None;
+    }
+    let rd = decode_reg(insn.a.as_u32());
+    Some(term(
         pc,
         Rv64IInstr::JumpIndirect {
             link_dst: (rd != ZERO).then_some(rd),
-            base: decode_reg(insn.b),
+            base: decode_reg(insn.b.as_u32()),
             offset: decode_imm_cg(insn) as i32,
         },
-    )
+    ))
 }
 
 /// Lift LUI encoded as `rd=a/8` and the upper immediate in `c << 12`.
-fn lift_lui(insn: &RvrInstruction, pc: u64) -> LiftedInstr {
-    body(
+fn lift_lui(insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
+    let immediate = insn.c.checked_as_u32().filter(|&value| value < 1 << 20)?;
+    Some(body(
         pc,
         Rv64IInstr::Const {
             name: "lui",
-            rd: decode_reg(insn.a),
-            value: sign_extend_32(insn.c << 12),
+            rd: decode_reg(insn.a.as_u32()),
+            value: sign_extend_32(immediate << 12),
         },
-    )
+    ))
 }
 
 /// Lift AUIPC encoded as `rd=a/8` and `c << 8`.
 ///
 /// The transpiler stores `(imm & 0xfffff000) >> 8` in `c`, so shifting by
 /// eight reconstructs the upper 20 bits with twelve low zero bits.
-fn lift_auipc(insn: &RvrInstruction, pc: u64) -> LiftedInstr {
-    let upper = insn.c << 8;
-    body(
+fn lift_auipc(insn: &Instruction, pc: u64) -> Option<LiftedInstr> {
+    if insn.d.as_u32() != REGISTER_AS {
+        return None;
+    }
+    let upper = insn.c.as_u32() << 8;
+    Some(body(
         pc,
         Rv64IInstr::Const {
             name: "auipc",
-            rd: decode_reg(insn.a),
+            rd: decode_reg(insn.a.as_u32()),
             value: pc.wrapping_add(sign_extend_32(upper)),
         },
-    )
+    ))
+}
+
+fn signed_immediate(value: i32, bits: u32) -> Option<i32> {
+    let bound = 1i32.checked_shl(bits - 1)?;
+    (-bound..bound).contains(&value).then_some(value)
 }
 
 fn body(pc: u64, instr: impl ExtInstr + 'static) -> LiftedInstr {
@@ -504,26 +522,23 @@ fn sign_extend_32(value: u32) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use openvm_instructions::{
-        instruction::Instruction, riscv::RV64_REGISTER_NUM_LIMBS, VmOpcode, DEFERRAL_AS,
-    };
-    use p3_baby_bear::BabyBear;
+    use openvm_instructions::{riscv::REGISTER_NUM_LIMBS, VmOpcode, DEFERRAL_AS, PUBLIC_VALUES_AS};
 
     use super::*;
     use crate::instruction::Reg;
 
-    fn instruction(opcode: impl LocalOpcode, operands: [usize; 7]) -> RvrInstruction {
+    fn instruction(opcode: impl LocalOpcode, operands: [usize; 7]) -> Instruction {
         instruction_for_opcode(opcode.global_opcode(), operands)
     }
 
-    fn instruction_for_opcode(opcode: VmOpcode, operands: [usize; 7]) -> RvrInstruction {
-        RvrInstruction::from_field(&Instruction::<BabyBear>::from_usize(opcode, operands))
+    fn instruction_for_opcode(opcode: VmOpcode, operands: [usize; 7]) -> Instruction {
+        Instruction::from_usize(opcode, operands)
     }
 
     fn alu_operands(c: usize, d: u32, e: u32) -> [usize; 7] {
         [
-            RV64_REGISTER_NUM_LIMBS,
-            2 * RV64_REGISTER_NUM_LIMBS,
+            REGISTER_NUM_LIMBS,
+            2 * REGISTER_NUM_LIMBS,
             c,
             d as usize,
             e as usize,
@@ -532,7 +547,7 @@ mod tests {
         ]
     }
 
-    fn lifted_name(insn: &RvrInstruction) -> Option<String> {
+    fn lifted_name(insn: &Instruction) -> Option<String> {
         try_lift(insn, 0x100).map(|lifted| match lifted {
             LiftedInstr::Body(InstrAt { instr, .. }) => instr.opname().to_string(),
             LiftedInstr::Term { terminator, .. } => terminator.opname().to_string(),
@@ -547,7 +562,7 @@ mod tests {
                 .to_le_bytes()
                 .into_iter()
                 .enumerate()
-                .map(|(offset, byte)| ((RV64_MEMORY_AS, 4 + offset as u32), byte)),
+                .map(|(offset, byte)| ((MEMORY_AS, 4 + offset as u32), byte)),
         );
 
         assert_eq!(
@@ -578,16 +593,11 @@ mod tests {
         for (opcode, name) in register_opcodes {
             let valid = instruction_for_opcode(
                 opcode,
-                alu_operands(
-                    3 * RV64_REGISTER_NUM_LIMBS,
-                    RV64_REGISTER_AS,
-                    RV64_REGISTER_AS,
-                ),
+                alu_operands(3 * REGISTER_NUM_LIMBS, REGISTER_AS, REGISTER_AS),
             );
             assert_eq!(lifted_name(&valid).as_deref(), Some(name));
 
-            let wrong_domain =
-                instruction_for_opcode(opcode, alu_operands(0, RV64_REGISTER_AS, RV64_IMM_AS));
+            let wrong_domain = instruction_for_opcode(opcode, alu_operands(0, REGISTER_AS, IMM_AS));
             assert!(try_lift(&wrong_domain, 0x100).is_none());
         }
     }
@@ -605,21 +615,17 @@ mod tests {
         ];
         for (opcode, name) in opcodes {
             for immediate in [0, 0x7ff, 0xff_f800, 0xff_ffff] {
-                let valid = instruction_for_opcode(
-                    opcode,
-                    alu_operands(immediate, RV64_REGISTER_AS, RV64_IMM_AS),
-                );
+                let valid =
+                    instruction_for_opcode(opcode, alu_operands(immediate, REGISTER_AS, IMM_AS));
                 assert_eq!(lifted_name(&valid).as_deref(), Some(name));
             }
             for invalid in [0x800, 0xffff] {
-                let invalid = instruction_for_opcode(
-                    opcode,
-                    alu_operands(invalid, RV64_REGISTER_AS, RV64_IMM_AS),
-                );
+                let invalid =
+                    instruction_for_opcode(opcode, alu_operands(invalid, REGISTER_AS, IMM_AS));
                 assert!(try_lift(&invalid, 0x100).is_none());
             }
             let wrong_domain =
-                instruction_for_opcode(opcode, alu_operands(0, RV64_REGISTER_AS, RV64_REGISTER_AS));
+                instruction_for_opcode(opcode, alu_operands(0, REGISTER_AS, REGISTER_AS));
             assert!(try_lift(&wrong_domain, 0x100).is_none());
         }
     }
@@ -632,14 +638,11 @@ mod tests {
             (ShiftImmOpcode::SRAI.global_opcode(), "srai"),
         ] {
             for shamt in [0, 63] {
-                let valid = instruction_for_opcode(
-                    opcode,
-                    alu_operands(shamt, RV64_REGISTER_AS, RV64_IMM_AS),
-                );
+                let valid =
+                    instruction_for_opcode(opcode, alu_operands(shamt, REGISTER_AS, IMM_AS));
                 assert_eq!(lifted_name(&valid).as_deref(), Some(name));
             }
-            let invalid =
-                instruction_for_opcode(opcode, alu_operands(64, RV64_REGISTER_AS, RV64_IMM_AS));
+            let invalid = instruction_for_opcode(opcode, alu_operands(64, REGISTER_AS, IMM_AS));
             assert!(try_lift(&invalid, 0x100).is_none());
         }
 
@@ -649,14 +652,11 @@ mod tests {
             (ShiftWImmOpcode::SRAIW.global_opcode(), "sraiw"),
         ] {
             for shamt in [0, 31] {
-                let valid = instruction_for_opcode(
-                    opcode,
-                    alu_operands(shamt, RV64_REGISTER_AS, RV64_IMM_AS),
-                );
+                let valid =
+                    instruction_for_opcode(opcode, alu_operands(shamt, REGISTER_AS, IMM_AS));
                 assert_eq!(lifted_name(&valid).as_deref(), Some(name));
             }
-            let invalid =
-                instruction_for_opcode(opcode, alu_operands(32, RV64_REGISTER_AS, RV64_IMM_AS));
+            let invalid = instruction_for_opcode(opcode, alu_operands(32, REGISTER_AS, IMM_AS));
             assert!(try_lift(&invalid, 0x100).is_none());
         }
     }
@@ -664,42 +664,143 @@ mod tests {
     #[test]
     fn load_store_families_require_main_memory_domain() {
         let opcodes = [
-            (Rv64LoadStoreOpcode::LOADD.global_opcode(), "ld"),
-            (Rv64LoadStoreOpcode::LOADBU.global_opcode(), "lbu"),
-            (Rv64LoadStoreOpcode::LOADHU.global_opcode(), "lhu"),
-            (Rv64LoadStoreOpcode::LOADWU.global_opcode(), "lwu"),
-            (Rv64LoadStoreOpcode::LOADB.global_opcode(), "lb"),
-            (Rv64LoadStoreOpcode::LOADH.global_opcode(), "lh"),
-            (Rv64LoadStoreOpcode::LOADW.global_opcode(), "lw"),
-            (Rv64LoadStoreOpcode::STORED.global_opcode(), "sd"),
-            (Rv64LoadStoreOpcode::STOREW.global_opcode(), "sw"),
-            (Rv64LoadStoreOpcode::STOREH.global_opcode(), "sh"),
-            (Rv64LoadStoreOpcode::STOREB.global_opcode(), "sb"),
+            (LoadStoreOpcode::LOADD.global_opcode(), "ld"),
+            (LoadStoreOpcode::LOADBU.global_opcode(), "lbu"),
+            (LoadStoreOpcode::LOADHU.global_opcode(), "lhu"),
+            (LoadStoreOpcode::LOADWU.global_opcode(), "lwu"),
+            (LoadStoreOpcode::LOADB.global_opcode(), "lb"),
+            (LoadStoreOpcode::LOADH.global_opcode(), "lh"),
+            (LoadStoreOpcode::LOADW.global_opcode(), "lw"),
+            (LoadStoreOpcode::STORED.global_opcode(), "sd"),
+            (LoadStoreOpcode::STOREW.global_opcode(), "sw"),
+            (LoadStoreOpcode::STOREH.global_opcode(), "sh"),
+            (LoadStoreOpcode::STOREB.global_opcode(), "sb"),
         ];
         for (opcode, name) in opcodes {
-            let valid =
-                instruction_for_opcode(opcode, alu_operands(0, RV64_REGISTER_AS, RV64_MEMORY_AS));
+            let valid = instruction_for_opcode(opcode, alu_operands(0, REGISTER_AS, MEMORY_AS));
             assert_eq!(lifted_name(&valid).as_deref(), Some(name));
 
-            let wrong_memory =
-                instruction_for_opcode(opcode, alu_operands(0, RV64_REGISTER_AS, DEFERRAL_AS));
-            assert!(try_lift(&wrong_memory, 0x100).is_none());
+            for address_space in [DEFERRAL_AS, PUBLIC_VALUES_AS] {
+                let wrong_memory =
+                    instruction_for_opcode(opcode, alu_operands(0, REGISTER_AS, address_space));
+                assert!(try_lift(&wrong_memory, 0x100).is_none());
+            }
             let wrong_destination =
-                instruction_for_opcode(opcode, alu_operands(0, RV64_MEMORY_AS, RV64_MEMORY_AS));
+                instruction_for_opcode(opcode, alu_operands(0, MEMORY_AS, MEMORY_AS));
             assert!(try_lift(&wrong_destination, 0x100).is_none());
         }
     }
 
     #[test]
-    fn control_flow_preserves_negative_field_offsets() {
-        let pc = 0x1000;
+    fn stores_require_enabled_flag() {
         for opcode in [
-            BranchEqualOpcode::BEQ.global_opcode(),
-            Rv64JalLuiOpcode::JAL.global_opcode(),
+            LoadStoreOpcode::STORED,
+            LoadStoreOpcode::STOREW,
+            LoadStoreOpcode::STOREH,
+            LoadStoreOpcode::STOREB,
         ] {
-            let insn = RvrInstruction::from_field(&Instruction::<BabyBear>::from_isize(
-                opcode, 8, 16, -12, 0, 0,
-            ));
+            let disabled = instruction(
+                opcode,
+                [
+                    REGISTER_NUM_LIMBS,
+                    2 * REGISTER_NUM_LIMBS,
+                    0,
+                    REGISTER_AS as usize,
+                    MEMORY_AS as usize,
+                    0,
+                    0,
+                ],
+            );
+            assert!(try_lift(&disabled, 0x100).is_none());
+        }
+    }
+
+    #[test]
+    fn branch_and_jal_immediate_widths_are_enforced() {
+        let branch_opcode = BranchEqualOpcode::BEQ.global_opcode();
+        for offset in [-(1 << 12), (1 << 12) - 1] {
+            let valid = Instruction::large_from_isize(
+                branch_opcode,
+                8,
+                16,
+                offset,
+                REGISTER_AS as isize,
+                0,
+                0,
+                0,
+            );
+            assert!(try_lift(&valid, 0x2000).is_some());
+        }
+        for offset in [-(1 << 12) - 1, 1 << 12] {
+            let invalid = Instruction::large_from_isize(
+                branch_opcode,
+                8,
+                16,
+                offset,
+                REGISTER_AS as isize,
+                0,
+                0,
+                0,
+            );
+            assert!(try_lift(&invalid, 0x2000).is_none());
+        }
+
+        let jal_opcode = JalLuiOpcode::JAL.global_opcode();
+        for offset in [-(1 << 20), (1 << 20) - 1] {
+            let valid = Instruction::large_from_isize(jal_opcode, 8, 0, offset, 0, 0, 1, 0);
+            assert!(try_lift(&valid, 0x20_0000).is_some());
+        }
+        for offset in [-(1 << 20) - 1, 1 << 20] {
+            let invalid = Instruction::large_from_isize(jal_opcode, 8, 0, offset, 0, 0, 1, 0);
+            assert!(try_lift(&invalid, 0x20_0000).is_none());
+        }
+    }
+
+    #[test]
+    fn control_flow_address_space_shapes_are_enforced() {
+        let branch = instruction(
+            BranchEqualOpcode::BEQ,
+            [8, 16, 0, REGISTER_AS as usize, 0, 0, 0],
+        );
+        assert!(try_lift(&branch, 0x100).is_some());
+        let invalid_branch = instruction(
+            BranchEqualOpcode::BEQ,
+            [8, 16, 0, MEMORY_AS as usize, 0, 0, 0],
+        );
+        assert!(try_lift(&invalid_branch, 0x100).is_none());
+
+        for opcode in [
+            JalrOpcode::JALR.global_opcode(),
+            AuipcOpcode::AUIPC.global_opcode(),
+        ] {
+            let valid = instruction_for_opcode(opcode, [8, 16, 0, REGISTER_AS as usize, 0, 1, 0]);
+            assert!(try_lift(&valid, 0x100).is_some());
+            let invalid = instruction_for_opcode(opcode, [8, 16, 0, MEMORY_AS as usize, 0, 1, 0]);
+            assert!(try_lift(&invalid, 0x100).is_none());
+        }
+    }
+
+    #[test]
+    fn lui_immediate_shape_is_enforced() {
+        let opcode = JalLuiOpcode::LUI.global_opcode();
+        for immediate in [0, (1 << 20) - 1] {
+            let valid = Instruction::large_from_isize(opcode, 8, 0, immediate, 0, 0, 1, 0);
+            assert!(try_lift(&valid, 0x100).is_some());
+        }
+        for immediate in [-1, 1 << 20] {
+            let invalid = Instruction::large_from_isize(opcode, 8, 0, immediate, 0, 0, 1, 0);
+            assert!(try_lift(&invalid, 0x100).is_none());
+        }
+    }
+
+    #[test]
+    fn control_flow_preserves_negative_offsets() {
+        let pc = 0x1000;
+        for (opcode, d) in [
+            (BranchEqualOpcode::BEQ.global_opcode(), REGISTER_AS),
+            (JalLuiOpcode::JAL.global_opcode(), 0),
+        ] {
+            let insn = Instruction::large_from_isize(opcode, 8, 16, -12, d as isize, 0, 1, 0);
             let LiftedInstr::Term { terminator, .. } = try_lift(&insn, pc).unwrap() else {
                 panic!("expected terminator");
             };
@@ -714,13 +815,13 @@ mod tests {
     #[test]
     fn load_to_x0_keeps_the_memory_access() {
         let insn = instruction(
-            Rv64LoadStoreOpcode::LOADD,
+            LoadStoreOpcode::LOADD,
             [
                 0,
-                RV64_REGISTER_NUM_LIMBS,
+                REGISTER_NUM_LIMBS,
                 0,
-                RV64_REGISTER_AS as usize,
-                RV64_MEMORY_AS as usize,
+                REGISTER_AS as usize,
+                MEMORY_AS as usize,
                 1,
                 0,
             ],
@@ -737,16 +838,8 @@ mod tests {
     fn preserves_high_auipc_values() {
         let pc = 0x1_0000_0000;
         let insn = instruction(
-            Rv64AuipcOpcode::AUIPC,
-            [
-                RV64_REGISTER_NUM_LIMBS,
-                0,
-                1,
-                RV64_REGISTER_AS as usize,
-                0,
-                0,
-                0,
-            ],
+            AuipcOpcode::AUIPC,
+            [REGISTER_NUM_LIMBS, 0, 1, REGISTER_AS as usize, 0, 0, 0],
         );
         let LiftedInstr::Body(InstrAt { instr, .. }) = try_lift(&insn, pc).unwrap() else {
             panic!("expected body instruction");

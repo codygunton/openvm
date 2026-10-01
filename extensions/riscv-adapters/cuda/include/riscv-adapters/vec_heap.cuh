@@ -3,6 +3,7 @@
 #include "primitives/execution.h"
 #include "primitives/trace_access.h"
 #include "primitives/utils.cuh"
+#include "riscv-adapters/pointer_conv.cuh"
 #include "system/memory/controller.cuh"
 #include "system/memory/offline_checker.cuh"
 
@@ -13,14 +14,15 @@ template <
     size_t NUM_READS,
     size_t BLOCKS_PER_READ,
     size_t BLOCKS_PER_WRITE>
-struct Rv64VecHeapAdapterCols {
+struct VecHeapAdapterCols {
     ExecutionState<T> from_state;
 
     T rs_ptr[NUM_READS];
     T rd_ptr;
 
-    T rs_val[NUM_READS][RV64_PTR_U16_LIMBS];
-    T rd_val[RV64_PTR_U16_LIMBS];
+    T rs_val[NUM_READS][PTR_U16_LIMBS];
+    T rd_val[PTR_U16_LIMBS];
+
 
     MemoryReadAuxCols<T> rs_read_aux[NUM_READS];
     MemoryReadAuxCols<T> rd_read_aux;
@@ -33,7 +35,7 @@ template <
     size_t NUM_READS,
     size_t BLOCKS_PER_READ,
     size_t BLOCKS_PER_WRITE>
-struct Rv64VecHeapAdapterRecord {
+struct VecHeapAdapterRecord {
     uint32_t from_pc;
     uint32_t from_timestamp;
 
@@ -54,12 +56,12 @@ template <
     size_t NUM_READS,
     size_t BLOCKS_PER_READ,
     size_t BLOCKS_PER_WRITE>
-struct Rv64VecHeapAdapter {
+struct VecHeapAdapter {
     size_t pointer_max_bits;
     VariableRangeChecker range_checker;
     MemoryAuxColsFactory mem_helper;
 
-    __device__ Rv64VecHeapAdapter(
+    __device__ VecHeapAdapter(
         size_t pointer_max_bits,
         VariableRangeChecker range_checker,
         uint32_t timestamp_max_bits
@@ -68,7 +70,7 @@ struct Rv64VecHeapAdapter {
           mem_helper(range_checker, timestamp_max_bits) {}
 
     template <typename T>
-    using Cols = Rv64VecHeapAdapterCols<
+    using Cols = VecHeapAdapterCols<
         T,
         NUM_READS,
         BLOCKS_PER_READ,
@@ -76,24 +78,20 @@ struct Rv64VecHeapAdapter {
 
     __device__ void fill_trace_row(
         RowSlice row,
-        Rv64VecHeapAdapterRecord<
+        VecHeapAdapterRecord<
             NUM_READS,
             BLOCKS_PER_READ,
             BLOCKS_PER_WRITE> record
     ) {
         static_assert(NUM_READS == 1 || NUM_READS == 2);
 
+        // Block-index range-check counts for each base pointer. Mirrors the host filler in
+        // vec_heap.rs.
 #pragma unroll
         for (size_t i = 0; i < NUM_READS; i++) {
-            range_checker.add_count(
-                ptr_bound_from_high_u16(uint16_t(record.rs_vals[i] >> U16_BITS), pointer_max_bits),
-                U16_BITS
-            );
+            add_block_index_range_checks(range_checker, record.rs_vals[i], pointer_max_bits);
         }
-        range_checker.add_count(
-            ptr_bound_from_high_u16(uint16_t(record.rd_val >> U16_BITS), pointer_max_bits),
-            U16_BITS
-        );
+        add_block_index_range_checks(range_checker, record.rd_val, pointer_max_bits);
 
         uint32_t timestamp =
             record.from_timestamp + NUM_READS + 1 + NUM_READS * BLOCKS_PER_READ + BLOCKS_PER_WRITE;
@@ -137,12 +135,12 @@ struct Rv64VecHeapAdapter {
             );
         }
 
-        Fp rd_val[RV64_PTR_U16_LIMBS];
+        Fp rd_val[PTR_U16_LIMBS];
         ptr_to_u16_limbs(rd_val, record.rd_val);
         COL_WRITE_ARRAY(row, Cols, rd_val, rd_val);
 
         for (int i = NUM_READS - 1; i >= 0; i--) {
-            Fp rs_val[RV64_PTR_U16_LIMBS];
+            Fp rs_val[PTR_U16_LIMBS];
             ptr_to_u16_limbs(rs_val, record.rs_vals[i]);
             COL_WRITE_ARRAY(row, Cols, rs_val[i], rs_val);
         }
@@ -154,16 +152,16 @@ struct Rv64VecHeapAdapter {
         }
 
         COL_WRITE_VALUE(row, Cols, from_state.timestamp, record.from_timestamp);
-        COL_WRITE_VALUE(row, Cols, from_state.pc, record.from_pc);
+        COL_WRITE_VALUE(row, Cols, from_state.pc, ::program::pc_to_idx(record.from_pc));
     }
 };
 
 // Type aliases for the simple case with BLOCKS_PER_READ=1, BLOCKS_PER_WRITE=1
 template <typename T, size_t NUM_READS>
-using Rv64HeapAdapterCols = Rv64VecHeapAdapterCols<T, NUM_READS, 1, 1>;
+using HeapAdapterCols = VecHeapAdapterCols<T, NUM_READS, 1, 1>;
 
 template <size_t NUM_READS>
-using Rv64HeapAdapterRecord = Rv64VecHeapAdapterRecord<NUM_READS, 1, 1>;
+using HeapAdapterRecord = VecHeapAdapterRecord<NUM_READS, 1, 1>;
 
 template <size_t NUM_READS>
-using Rv64HeapAdapterExecutor = Rv64VecHeapAdapter<NUM_READS, 1, 1>;
+using HeapAdapterExecutor = VecHeapAdapter<NUM_READS, 1, 1>;

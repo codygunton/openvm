@@ -5,9 +5,9 @@ use openvm_circuit::{
     arch::{
         hasher::poseidon2::{vm_poseidon2_hasher, Poseidon2Hasher},
         instructions::exe::VmExe,
-        verify_segments, ContinuationProverBuilder, ContinuationProverFn, ContinuationVmProof,
-        Executor, MeteredExecutor, Streams, VerifiedExecutionPayload, VirtualMachine,
-        VirtualMachineError, VmBuilder, VmExecutionConfig, VmInstance, VmVerificationError,
+        verify_segments, ContinuationProverBuilder, ContinuationVmProof, Executor, MeteredExecutor,
+        VerifiedExecutionPayload, VirtualMachine, VirtualMachineError, VmExecutionConfig,
+        VmInstance, VmVerificationError,
     },
     system::{
         memory::dimensions::MemoryDimensions, program::trace::compute_exe_commit_from_mem_config,
@@ -19,7 +19,7 @@ use openvm_stark_backend::{
     StarkEngine, Val,
 };
 use openvm_stark_sdk::config::baby_bear_poseidon2::Digest;
-use tracing::info_span;
+use tracing::instrument;
 
 use crate::{
     keygen::AppVerifyingKey,
@@ -32,15 +32,15 @@ use crate::{
 pub struct AppProver<E, VB>
 where
     E: StarkEngine,
-    VB: VmBuilder<E>,
+    VB: ContinuationProverBuilder<E>,
 {
     pub program_name: Option<String>,
+    prepared: VB::PreparedContinuation,
     #[getset(get = "pub")]
     instance: VmInstance<E, VB>,
     #[getset(get = "pub")]
     app_vm_vk: MultiStarkVerifyingKey<E::SC>,
-    app_exe_commit: OnceLock<Digest>,
-    prove_app: ContinuationProverFn<E, VB>,
+    app_exe_commit: Digest,
 }
 
 impl<E, VB> AppProver<E, VB>
@@ -58,24 +58,30 @@ where
     pub fn new(
         vm_builder: VB,
         app_vm_pk: &VmProvingKey<VB::VmConfig>,
-        app_exe: Arc<VmExe<Val<E::SC>>>,
+        app_exe: Arc<VmExe>,
     ) -> Result<Self, VirtualMachineError> {
         let instance = new_local_prover(vm_builder, app_vm_pk, app_exe)?;
         let app_vm_vk = app_vm_pk.vm_pk.get_vk();
-        Ok(Self::new_from_instance(instance, app_vm_vk))
+        Self::new_from_instance(instance, app_vm_vk)
     }
 
     pub fn new_from_instance(
         instance: VmInstance<E, VB>,
         app_vm_vk: MultiStarkVerifyingKey<E::SC>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, VirtualMachineError> {
+        let app_exe_commit = compute_exe_commit_from_mem_config(
+            instance.program_commitment(),
+            instance.exe(),
+            &instance.vm.config().as_ref().memory_config,
+        );
+        let prepared = VB::prepare_continuation(&instance)?;
+        Ok(Self {
             program_name: None,
+            prepared,
             instance,
             app_vm_vk,
-            app_exe_commit: OnceLock::new(),
-            prove_app: VB::continuation_prover(),
-        }
+            app_exe_commit,
+        })
     }
 
     pub fn set_program_name(&mut self, program_name: impl AsRef<str>) -> &mut Self {
@@ -94,13 +100,7 @@ where
 
     /// Returns commitment to the executable
     pub fn app_exe_commit(&self) -> Digest {
-        *self.app_exe_commit.get_or_init(|| {
-            compute_exe_commit_from_mem_config(
-                &self.app_program_commit(),
-                self.instance.exe(),
-                &self.instance.vm.config().as_ref().memory_config,
-            )
-        })
+        self.app_exe_commit
     }
 
     pub fn memory_dimensions(&self) -> MemoryDimensions {
@@ -117,6 +117,11 @@ where
     }
 
     /// Generates proof for every continuation segment.
+    #[instrument(
+        name = "app_prove",
+        skip_all,
+        fields(group = "app_proof", program = self.program_name.as_deref().unwrap_or(""))
+    )]
     pub fn prove(&mut self, input: StdIn) -> Result<ContinuationVmProof<E::SC>, VirtualMachineError>
     where
         <VB::VmConfig as VmExecutionConfig<Val<E::SC>>>::Executor:
@@ -126,14 +131,7 @@ where
             self.vm_config().as_ref(),
             self.app_vm_vk.inner.max_constraint_degree(),
         );
-        let input: Streams = input.into();
-        let _prove_span = info_span!(
-            "app_prove",
-            group = "app_proof",
-            program = self.program_name.as_deref().unwrap_or("")
-        )
-        .entered();
-        let proof = (self.prove_app)(&mut self.instance, input)?;
+        let proof = VB::prove_continuation(&mut self.prepared, &mut self.instance, input.into())?;
         #[cfg(debug_assertions)]
         let _ = verify_app_proof_inner::<E>(
             &self.app_vm_vk,
@@ -146,7 +144,7 @@ where
     }
 
     /// App Exe
-    pub fn exe(&self) -> Arc<VmExe<Val<E::SC>>> {
+    pub fn exe(&self) -> Arc<VmExe> {
         self.instance.exe().clone()
     }
 

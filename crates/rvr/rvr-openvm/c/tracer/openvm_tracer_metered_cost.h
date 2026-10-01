@@ -5,23 +5,9 @@
 
 #include "openvm_state.h"
 
-static __attribute__((always_inline)) inline bool
-trace_reserve_memory_writes(RvState* restrict state [[maybe_unused]],
-                            uint32_t writes [[maybe_unused]],
-                            uint32_t slots [[maybe_unused]]) {
-  return true;
-}
-
-static __attribute__((always_inline)) inline bool
-trace_write_other_block_u64(
-    RvState* restrict state [[maybe_unused]],
-    uint32_t address_space [[maybe_unused]], uint32_t pointer [[maybe_unused]],
-    uint64_t value [[maybe_unused]], uint64_t previous_value [[maybe_unused]]) {
-  return true;
-}
-
 static __attribute__((always_inline)) inline void
-trace_timestamp(RvState* restrict state [[maybe_unused]]) {}
+trace_write_public_values_u64(
+    RvState* restrict state [[maybe_unused]], uint32_t pointer [[maybe_unused]]) {}
 
 /* Memory page accounting does not contribute to scalar metered cost. */
 static __attribute__((always_inline)) inline void read_mem_u64_range(
@@ -39,7 +25,7 @@ static __attribute__((always_inline)) inline void write_mem_u64_range(
 /* Peeking at a value does not contribute to scalar metered cost. */
 static __attribute__((always_inline)) inline uint64_t peek_mem_u64(
     RvState* restrict state, uint64_t addr) {
-  return read_mem_u64(state->memory, addr);
+  return read_mem_u64(state->memory, addr, 0);
 }
 
 static __attribute__((always_inline)) inline void peek_mem_u64_range(

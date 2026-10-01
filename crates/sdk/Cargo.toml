@@ -1,5 +1,6 @@
 [package]
 name = "openvm-sdk"
+description = "OpenVM SDK for executing, proving, and verifying guest programs."
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -25,6 +26,7 @@ openvm-deferral-circuit = { workspace = true }
 openvm-continuations = { workspace = true }
 openvm-verify-stark-host = { workspace = true }
 openvm-verify-stark-circuit = { workspace = true }
+openvm-certified-verifier = { workspace = true, optional = true }
 openvm-static-verifier = { workspace = true, optional = true }
 halo2-base = { workspace = true, optional = true }
 
@@ -54,6 +56,7 @@ tempfile = { workspace = true }
 
 [features]
 default = ["parallel", "jemalloc"]
+certified-verifier = ["dep:openvm-certified-verifier"]
 root-prover = [
     "openvm-continuations/root-prover",
     "openvm-stark-sdk/baby-bear-bn254-poseidon2",

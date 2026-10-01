@@ -7,6 +7,25 @@ and this project follows a versioning principles documented in [VERSIONING.md](.
 
 ## Unreleased
 
+## v2.1.0 (2026-08-25)
+
+### Added
+- Added optional STARK proof verification with the certified Swirl verifier extracted from its Lean formalization to the SDK and CLI.
+
+### Changed
+- Updated recursion and continuation circuit interactions and constraints for formal verification.
+- Marked all verifier circuit AIRs as required during key generation.
+
+## v2.0.2 (2026-08-07)
+
+### Changed
+- Improved the Halo2 GPU prover to achieve sub-5-second SNARK proving.
+
+## v2.0.1 (2026-07-15)
+
+### Changed
+- Updated Cargo manifests and yanked dependencies.
+
 ## v2.0.0 (2026-07-06)
 
 ### Added

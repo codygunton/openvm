@@ -5,10 +5,10 @@ use openvm_circuit_primitives::AlignedBytesBorrow;
 use openvm_instructions::{
     instruction::Instruction,
     program::DEFAULT_PC_STEP,
-    riscv::{RV64_MEMORY_AS, RV64_REGISTER_AS, RV64_REGISTER_NUM_LIMBS},
+    riscv::{MEMORY_AS, REGISTER_AS, REGISTER_NUM_LIMBS},
     LocalOpcode,
 };
-use openvm_riscv_circuit::adapters::rv64_bytes_to_u32;
+use openvm_riscv_circuit::adapters::{bytes_to_u32, validate_memory_block_span};
 use openvm_stark_backend::p3_field::PrimeField32;
 
 use super::{Sha2Config, Sha2VmExecutor, SHA2_READ_SIZE};
@@ -35,7 +35,7 @@ impl<F: PrimeField32, C: Sha2Config> InterpreterExecutor<F> for Sha2VmExecutor<C
     fn pre_compute<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -43,14 +43,14 @@ impl<F: PrimeField32, C: Sha2Config> InterpreterExecutor<F> for Sha2VmExecutor<C
     {
         let data: &mut Sha2PreCompute = data.borrow_mut();
         self.pre_compute_impl(pc, inst, data)?;
-        Ok(execute_e1_impl::<_, C>)
+        Ok(execute_e1_handler::<_, C>)
     }
 
     #[cfg(feature = "tco")]
     fn handler<Ctx>(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -72,7 +72,7 @@ impl<F: PrimeField32, C: Sha2Config> InterpreterMeteredExecutor<F> for Sha2VmExe
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<ExecuteFunc<Ctx>, StaticProgramError>
     where
@@ -81,7 +81,7 @@ impl<F: PrimeField32, C: Sha2Config> InterpreterMeteredExecutor<F> for Sha2VmExe
         let data: &mut E2PreCompute<Sha2PreCompute> = data.borrow_mut();
         data.chip_idx = chip_idx as u32;
         self.pre_compute_impl(pc, inst, &mut data.data)?;
-        Ok(execute_e2_impl::<_, C>)
+        Ok(execute_e2_handler::<_, C>)
     }
 
     #[cfg(feature = "tco")]
@@ -89,7 +89,7 @@ impl<F: PrimeField32, C: Sha2Config> InterpreterMeteredExecutor<F> for Sha2VmExe
         &self,
         chip_idx: usize,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut [u8],
     ) -> Result<Handler<Ctx>, StaticProgramError>
     where
@@ -106,40 +106,47 @@ impl<F: PrimeField32, C: Sha2Config> InterpreterMeteredExecutor<F> for Sha2VmExe
 unsafe fn execute_e12_impl<C: Sha2Config, CTX: ExecutionCtxTrait, const IS_E1: bool>(
     pre_compute: &Sha2PreCompute,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
-) -> u32 {
-    let dst: [u8; RV64_REGISTER_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.a as u32);
-    let state: [u8; RV64_REGISTER_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.b as u32);
-    let input: [u8; RV64_REGISTER_NUM_LIMBS] =
-        exec_state.vm_read_bytes(RV64_REGISTER_AS, pre_compute.c as u32);
+) -> Result<u32, ExecutionError> {
+    let pc = exec_state.pc();
+    let dst: [u8; REGISTER_NUM_LIMBS] = exec_state.vm_read_bytes(REGISTER_AS, pre_compute.a as u32);
+    let state: [u8; REGISTER_NUM_LIMBS] =
+        exec_state.vm_read_bytes(REGISTER_AS, pre_compute.b as u32);
+    let input: [u8; REGISTER_NUM_LIMBS] =
+        exec_state.vm_read_bytes(REGISTER_AS, pre_compute.c as u32);
     // Pointers are 32-bit-addressable; upper 4 bytes of each register must be zero.
-    let dst_u32 = rv64_bytes_to_u32(dst);
-    let state_u32 = rv64_bytes_to_u32(state);
-    let input_u32 = rv64_bytes_to_u32(input);
+    let dst_u32 = bytes_to_u32(dst);
+    let state_u32 = bytes_to_u32(state);
+    let input_u32 = bytes_to_u32(input);
+    validate_memory_block_span(pc, dst_u32, C::STATE_WRITES)?;
+    validate_memory_block_span(pc, state_u32, C::STATE_READS)?;
+    validate_memory_block_span(pc, input_u32, C::BLOCK_READS)?;
 
     let mut input_block = Vec::with_capacity(C::BLOCK_BYTES);
     for i in 0..C::BLOCK_READS {
-        input_block.extend_from_slice(&exec_state.vm_read_bytes::<SHA2_READ_SIZE>(
-            RV64_MEMORY_AS,
-            input_u32 + (i * SHA2_READ_SIZE) as u32,
-        ));
+        input_block.extend_from_slice(
+            &exec_state.vm_read_bytes::<SHA2_READ_SIZE>(
+                MEMORY_AS,
+                input_u32 + (i * SHA2_READ_SIZE) as u32,
+            ),
+        );
     }
     // State is in 4-byte little-endian words. Input reads precede state reads to match the
     // timestamp schedule constrained by Sha2MainAir.
     let mut state_data = Vec::with_capacity(C::STATE_BYTES);
     for i in 0..C::STATE_READS {
-        state_data.extend_from_slice(&exec_state.vm_read_bytes::<SHA2_READ_SIZE>(
-            RV64_MEMORY_AS,
-            state_u32 + (i * SHA2_READ_SIZE) as u32,
-        ));
+        state_data.extend_from_slice(
+            &exec_state.vm_read_bytes::<SHA2_READ_SIZE>(
+                MEMORY_AS,
+                state_u32 + (i * SHA2_READ_SIZE) as u32,
+            ),
+        );
     }
 
     C::compress(&mut state_data, &input_block);
 
     for i in 0..C::STATE_WRITES {
         exec_state.vm_write_bytes::<SHA2_WRITE_SIZE>(
-            RV64_MEMORY_AS,
+            MEMORY_AS,
             dst_u32 + (i * SHA2_WRITE_SIZE) as u32,
             &state_data[i * SHA2_WRITE_SIZE..(i + 1) * SHA2_WRITE_SIZE]
                 .try_into()
@@ -147,10 +154,9 @@ unsafe fn execute_e12_impl<C: Sha2Config, CTX: ExecutionCtxTrait, const IS_E1: b
         );
     }
 
-    let pc = exec_state.pc();
     exec_state.set_pc(pc.wrapping_add(DEFAULT_PC_STEP));
 
-    1 // height delta
+    Ok(1) // height delta
 }
 
 #[create_handler]
@@ -158,10 +164,11 @@ unsafe fn execute_e12_impl<C: Sha2Config, CTX: ExecutionCtxTrait, const IS_E1: b
 unsafe fn execute_e1_impl<CTX: ExecutionCtxTrait, C: Sha2Config>(
     pre_compute: *const u8,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
-) {
+) -> Result<(), ExecutionError> {
     let pre_compute: &Sha2PreCompute =
         std::slice::from_raw_parts(pre_compute, size_of::<Sha2PreCompute>()).borrow();
-    execute_e12_impl::<C, CTX, true>(pre_compute, exec_state);
+    execute_e12_impl::<C, CTX, true>(pre_compute, exec_state)?;
+    Ok(())
 }
 
 #[create_handler]
@@ -169,14 +176,14 @@ unsafe fn execute_e1_impl<CTX: ExecutionCtxTrait, C: Sha2Config>(
 unsafe fn execute_e2_impl<CTX: MeteredExecutionCtxTrait, C: Sha2Config>(
     pre_compute: *const u8,
     exec_state: &mut VmExecState<GuestMemory, CTX>,
-) {
+) -> Result<(), ExecutionError> {
     let pre_compute: &E2PreCompute<Sha2PreCompute> =
         std::slice::from_raw_parts(pre_compute, size_of::<E2PreCompute<Sha2PreCompute>>()).borrow();
 
     let main_air_idx = pre_compute.chip_idx as usize;
 
     // Update Sha2MainChip height (1 row per instruction)
-    let height = execute_e12_impl::<C, CTX, false>(&pre_compute.data, exec_state);
+    let height = execute_e12_impl::<C, CTX, false>(&pre_compute.data, exec_state)?;
     exec_state.ctx.on_height_change(main_air_idx, height);
 
     // HACK: Sha2BlockHasherVmAir is added right before Sha2MainAir in extend_circuit,
@@ -188,13 +195,14 @@ unsafe fn execute_e2_impl<CTX: MeteredExecutionCtxTrait, C: Sha2Config>(
     exec_state
         .ctx
         .on_height_change(block_hasher_air_idx, C::ROWS_PER_BLOCK as u32);
+    Ok(())
 }
 
 impl<C: Sha2Config> Sha2VmExecutor<C> {
-    fn pre_compute_impl<F: PrimeField32>(
+    fn pre_compute_impl(
         &self,
         pc: u32,
-        inst: &Instruction<F>,
+        inst: &Instruction,
         data: &mut Sha2PreCompute,
     ) -> Result<(), StaticProgramError> {
         let Instruction {
@@ -206,14 +214,14 @@ impl<C: Sha2Config> Sha2VmExecutor<C> {
             e,
             ..
         } = inst;
-        let e_u32 = e.as_canonical_u32();
-        if d.as_canonical_u32() != RV64_REGISTER_AS || e_u32 != RV64_MEMORY_AS {
+        let e_u32 = e.as_u32();
+        if d.as_u32() != REGISTER_AS || e_u32 != MEMORY_AS {
             return Err(StaticProgramError::InvalidInstruction(pc));
         }
         *data = Sha2PreCompute {
-            a: a.as_canonical_u32() as u8,
-            b: b.as_canonical_u32() as u8,
-            c: c.as_canonical_u32() as u8,
+            a: a.as_u32() as u8,
+            b: b.as_u32() as u8,
+            c: c.as_u32() as u8,
         };
         assert_eq!(&C::OPCODE.global_opcode(), opcode);
         Ok(())

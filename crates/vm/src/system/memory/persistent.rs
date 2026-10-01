@@ -149,14 +149,14 @@ impl<const DIGEST_WIDTH: usize, AB: InteractionBuilder> Air<AB>
         );
 
         // memory bus interactions
-        let leaf_ptr = local.leaf_label * AB::F::from_usize(DIGEST_WIDTH);
         for block_idx in 0..BLOCKS_PER_LEAF {
-            let ptr = leaf_ptr.clone() + AB::F::from_usize(block_idx * BLOCK_FE_WIDTH);
+            let memory_block_index = local.leaf_label * AB::F::from_usize(BLOCKS_PER_LEAF)
+                + AB::F::from_usize(block_idx);
             // Each block uses its own timestamp; untouched blocks stay at t=0.
             // initial block
             self.memory_bus
                 .send(
-                    MemoryAddress::new(local.address_space, ptr.clone()),
+                    MemoryAddress::new(local.address_space.into(), memory_block_index.clone()),
                     local.initial_values
                         [block_idx * BLOCK_FE_WIDTH..(block_idx + 1) * BLOCK_FE_WIDTH]
                         .to_vec(),
@@ -166,7 +166,7 @@ impl<const DIGEST_WIDTH: usize, AB: InteractionBuilder> Air<AB>
             // final block
             self.memory_bus
                 .send(
-                    MemoryAddress::new(local.address_space, ptr),
+                    MemoryAddress::new(local.address_space.into(), memory_block_index),
                     local.final_values
                         [block_idx * BLOCK_FE_WIDTH..(block_idx + 1) * BLOCK_FE_WIDTH]
                         .to_vec(),
@@ -213,10 +213,11 @@ type EnrichedEntry<F> = ((u32, u32), BlockInfo<F>); // ((addr_space, leaf_label)
 /// Touched memory grouped into merkle leaves: `(addr_space, leaf_label) -> blocks`.
 pub(crate) type LeafGroupedTouchedMemory<F> = Vec<((u32, u32), Vec<BlockInfo<F>>)>;
 
-pub(crate) fn group_touched_memory_by_leaf<F: Copy + Send + Sync>(
+/// Groups final memory blocks that are strictly ordered by `(address_space, pointer)`.
+pub(crate) fn group_sorted_touched_memory_by_leaf<F: Copy + Send + Sync>(
     final_memory: &TouchedMemory<F>,
 ) -> LeafGroupedTouchedMemory<F> {
-    let mut enriched: Vec<EnrichedEntry<F>> = final_memory
+    let enriched: Vec<EnrichedEntry<F>> = final_memory
         .par_iter()
         .map(|block| {
             let leaf_label = block.ptr / VM_DIGEST_WIDTH as u32;
@@ -231,7 +232,9 @@ pub(crate) fn group_touched_memory_by_leaf<F: Copy + Send + Sync>(
             (key, block_info)
         })
         .collect();
-    enriched.sort_unstable_by_key(|(key, _)| *key);
+    debug_assert!(enriched
+        .windows(2)
+        .all(|window| (window[0].0, (window[0].1).0) < (window[1].0, (window[1].1).0)));
 
     enriched
         .chunk_by(|a, b| a.0 == b.0)
@@ -344,13 +347,13 @@ impl<const DIGEST_WIDTH: usize, F: PrimeField32> PersistentBoundaryChip<F, DIGES
     }
 }
 
-impl<const DIGEST_WIDTH: usize, SC> Chip<(), CpuBackend<SC>>
+impl<const DIGEST_WIDTH: usize, SC> Chip<CpuBackend<SC>>
     for PersistentBoundaryChip<Val<SC>, DIGEST_WIDTH>
 where
     SC: StarkProtocolConfig,
     Val<SC>: PrimeField32,
 {
-    fn generate_proving_ctx(&self, _: ()) -> AirProvingContext<CpuBackend<SC>> {
+    fn generate_proving_ctx(&self) -> AirProvingContext<CpuBackend<SC>> {
         let trace = {
             let touched_labels = self
                 .touched_labels

@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use num_bigint::BigUint;
-use openvm_algebra_transpiler::Rv64ModularArithmeticOpcode;
+use openvm_algebra_transpiler::ModularArithmeticOpcode;
 use openvm_circuit::arch::cuda::postflight::{
     GpuPostflightError, GpuPostflightPlan, GpuPostflightProgram, GpuPostflightTranscript,
 };
 use openvm_circuit_primitives::var_range::VariableRangeCheckerChipGPU;
 use openvm_cuda_backend::{base::DeviceMatrix, prelude::F, GpuBackend};
 use openvm_cuda_common::{copy::MemCopyH2D, d_buffer::DeviceBuffer};
-use openvm_riscv_adapters::Rv64VecHeapAdapterCols;
+use openvm_riscv_adapters::VecHeapAdapterCols;
 use openvm_stark_backend::{p3_air::BaseAir, prover::AirProvingContext};
 
 use super::{
@@ -22,8 +22,8 @@ pub struct ModularAddSubReplayChipGpu<const BLOCKS: usize> {
     range_checker: Arc<VariableRangeCheckerChipGPU>,
     modulus: DeviceBuffer<u8>,
     opcode_base: usize,
-    pointer_max_bits: usize,
-    timestamp_max_bits: usize,
+    pointer_max_bits: u32,
+    timestamp_max_bits: u32,
     width: usize,
 }
 
@@ -37,27 +37,27 @@ impl<const BLOCKS: usize> ModularAddSubReplayChipGpu<BLOCKS> {
         range_checker: Arc<VariableRangeCheckerChipGPU>,
     ) -> Result<Option<Self>, GpuPostflightError> {
         if !matches!(BLOCKS, 4 | 6) {
-            return Err(GpuPostflightError::InvalidTranscript(format!(
+            return Err(GpuPostflightError::InvalidConfiguration(format!(
                 "unsupported modular add/sub block count {BLOCKS}"
             )));
         }
         let num_bytes = BLOCKS * openvm_circuit::arch::MEMORY_BLOCK_BYTES;
         let mut modulus_bytes = modulus.to_bytes_le();
         if modulus_bytes.is_empty() || modulus_bytes.len() > num_bytes {
-            return Err(GpuPostflightError::InvalidTranscript(
+            return Err(GpuPostflightError::InvalidConfiguration(
                 "modular add/sub replay requires a nonzero modulus fitting its heap layout"
                     .to_string(),
             ));
         }
         modulus_bytes.resize(num_bytes, 0);
 
-        let adapter_width = Rv64VecHeapAdapterCols::<F, 2, BLOCKS, BLOCKS>::width();
+        let adapter_width = VecHeapAdapterCols::<F, 2, BLOCKS, BLOCKS>::width();
         let core_width = BaseAir::<F>::width(&chip.inner.expr);
         let expected_core_width = 4usize
             .checked_mul(num_bytes)
             .and_then(|width| width.checked_add(4))
             .ok_or_else(|| {
-                GpuPostflightError::InvalidTranscript(
+                GpuPostflightError::InvalidConfiguration(
                     "modular add/sub replay trace width overflow".to_string(),
                 )
             })?;
@@ -65,8 +65,18 @@ impl<const BLOCKS: usize> ModularAddSubReplayChipGpu<BLOCKS> {
             return Ok(None);
         }
         let width = adapter_width.checked_add(core_width).ok_or_else(|| {
-            GpuPostflightError::InvalidTranscript(
+            GpuPostflightError::InvalidConfiguration(
                 "modular add/sub replay trace width overflow".to_string(),
+            )
+        })?;
+        let pointer_max_bits = u32::try_from(pointer_max_bits).map_err(|_| {
+            GpuPostflightError::InvalidConfiguration(
+                "modular add/sub pointer width does not fit u32".to_string(),
+            )
+        })?;
+        let timestamp_max_bits = u32::try_from(timestamp_max_bits).map_err(|_| {
+            GpuPostflightError::InvalidConfiguration(
+                "modular add/sub timestamp width does not fit u32".to_string(),
             )
         })?;
         let modulus = modulus_bytes
@@ -89,9 +99,9 @@ impl<const BLOCKS: usize> ModularAddSubReplayChipGpu<BLOCKS> {
         replay_plan: &GpuPostflightPlan,
     ) -> Result<AirProvingContext<GpuBackend>, GpuPostflightError> {
         let local_opcodes = [
-            Rv64ModularArithmeticOpcode::ADD as usize,
-            Rv64ModularArithmeticOpcode::SUB as usize,
-            Rv64ModularArithmeticOpcode::SETUP_ADDSUB as usize,
+            ModularArithmeticOpcode::ADD as usize,
+            ModularArithmeticOpcode::SUB as usize,
+            ModularArithmeticOpcode::SETUP_ADDSUB as usize,
         ];
         let projection = gather_vec_heap_trace_inputs_device::<2, BLOCKS>(
             program,
@@ -99,14 +109,17 @@ impl<const BLOCKS: usize> ModularAddSubReplayChipGpu<BLOCKS> {
             replay_plan,
             self.opcode_base,
             &local_opcodes,
-            self.pointer_max_bits,
+            self.pointer_max_bits as usize,
             &self.range_checker.device_ctx,
         )?;
         if projection.is_empty() {
             return Ok(AirProvingContext::simple_no_pis(DeviceMatrix::dummy()));
         }
-        let (height, _) =
-            checked_trace_shape(projection.len(), self.width, self.timestamp_max_bits)?;
+        let (height, _) = checked_trace_shape(
+            projection.len(),
+            self.width,
+            self.timestamp_max_bits as usize,
+        )?;
         let device_ctx = &self.range_checker.device_ctx;
         let trace = DeviceMatrix::<F>::with_capacity_on(height, self.width, device_ctx);
         let delta = DeviceBuffer::with_capacity_on(self.range_checker.count.len(), device_ctx);
@@ -117,25 +130,16 @@ impl<const BLOCKS: usize> ModularAddSubReplayChipGpu<BLOCKS> {
                 height,
                 &projection.inputs,
                 &self.modulus,
-                Rv64ModularArithmeticOpcode::ADD as u32,
-                Rv64ModularArithmeticOpcode::SUB as u32,
-                Rv64ModularArithmeticOpcode::SETUP_ADDSUB as u32,
+                ModularArithmeticOpcode::ADD as u32,
+                ModularArithmeticOpcode::SUB as u32,
+                ModularArithmeticOpcode::SETUP_ADDSUB as u32,
                 &delta,
-                u32::try_from(self.pointer_max_bits).map_err(|_| {
-                    GpuPostflightError::InvalidTranscript(
-                        "modular add/sub pointer width does not fit u32".to_string(),
-                    )
-                })?,
-                u32::try_from(self.timestamp_max_bits).map_err(|_| {
-                    GpuPostflightError::InvalidTranscript(
-                        "modular add/sub timestamp width does not fit u32".to_string(),
-                    )
-                })?,
+                self.pointer_max_bits,
+                self.timestamp_max_bits,
                 transcript.error_ptr(),
                 device_ctx.stream.as_raw(),
             )?;
         }
-        transcript.synchronize()?;
         let error = transcript.error_code()?;
         if error != 0 {
             return Err(GpuPostflightError::InvalidTranscript(format!(
