@@ -7,7 +7,7 @@ use std::{
 use eyre::eyre;
 use getset::{CopyGetters, MutGetters};
 use openvm_instructions::exe::SparseMemoryImage;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 use tracing::instrument;
 
 use super::{create_memory_image, ExecutionError, Streams};
@@ -31,7 +31,18 @@ pub struct VmState<MEM = GuestMemory> {
     pub metrics: VmMetrics,
 }
 
-pub(super) const DEFAULT_RNG_SEED: u64 = 0;
+/// Seed for a new execution's host RNG: `OPENVM_RNG_SEED` if set, to reproduce a run, else fresh
+/// from the OS. The guest has no say in it.
+pub(super) fn new_rng_seed() -> u64 {
+    match std::env::var("OPENVM_RNG_SEED") {
+        Ok(seed) => seed.parse().expect("OPENVM_RNG_SEED must be a u64"),
+        Err(_) => {
+            let seed = StdRng::from_os_rng().next_u64();
+            tracing::info!(rng_seed = seed, "drew host randomness seed");
+            seed
+        }
+    }
+}
 
 impl<MEM> VmState<MEM> {
     #[inline(always)]
@@ -73,7 +84,9 @@ impl VmState<GuestMemory> {
         inputs: impl Into<Streams>,
     ) -> Self {
         let memory = create_memory_image(&system_config.memory_config, init_memory);
-        VmState::new_with_defaults(pc_start, memory, inputs.into(), DEFAULT_RNG_SEED)
+        let streams = inputs.into();
+        let seed = streams.rng_seed;
+        VmState::new_with_defaults(pc_start, memory, streams, seed)
     }
 
     pub fn reset(
@@ -86,7 +99,7 @@ impl VmState<GuestMemory> {
         self.memory.memory.fill_zero();
         self.memory.memory.set_from_sparse(init_memory);
         self.streams = streams.into();
-        self.rng = StdRng::seed_from_u64(DEFAULT_RNG_SEED);
+        self.rng = StdRng::seed_from_u64(self.streams.rng_seed);
     }
 }
 

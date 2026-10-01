@@ -877,7 +877,10 @@ mod tests {
         let exe = callback_phantom_exe();
         let executor = VmExecutor::new(test_rv64im_config())?;
         let preflight = executor.preflight_instance(&exe)?;
-        let inputs = vec![b"first".to_vec(), b"second".to_vec()];
+        let inputs = openvm_circuit::arch::Streams {
+            rng_seed: 0,
+            ..vec![b"first".to_vec(), b"second".to_vec()].into()
+        };
         let initial_state =
             configure_callback_state(preflight.create_initial_vm_state(inputs.clone()));
 
@@ -1868,6 +1871,33 @@ mod tests {
                 .with_extension(Rv64IoTranspilerExtension),
         )?;
         air_test(Rv64ImBuilder, config, exe);
+        Ok(())
+    }
+
+    /// Proving checks that the metered and preflight passes draw the same bytes; the outputs
+    /// check that the seed reaches the guest.
+    #[test]
+    fn test_host_random_seed() -> Result<()> {
+        let config = test_rv64im_config();
+        let elf = build_example_program_at_path(get_programs_dir!(), "host_random", &config)?;
+        let exe = VmExe::from_elf(
+            elf,
+            Transpiler::<F>::default()
+                .with_extension(Rv64ITranspilerExtension)
+                .with_extension(Rv64MTranspilerExtension)
+                .with_extension(Rv64IoTranspilerExtension),
+        )?;
+        let prove = |rng_seed| {
+            let input = openvm_circuit::arch::Streams {
+                rng_seed,
+                ..Default::default()
+            };
+            let memory =
+                air_test_with_min_segments(Rv64ImBuilder, config.clone(), exe.clone(), input, 1)
+                    .expect("guest should exit successfully");
+            extract_public_values(8, &memory)
+        };
+        assert_ne!(prove(1), prove(2));
         Ok(())
     }
 

@@ -87,10 +87,10 @@ use super::{
     hint_stream::HintStream,
     interpreter::InterpretedInstance,
     interpreter_preflight::PreflightInterpretedInstance,
-    AirInventoryError, ChipInventoryError, ExecutionError, Executor, ExecutorInventory,
-    ExecutorInventoryError, MemoryConfig, MeteredExecutor, Postflight, PreflightOutput,
-    StaticProgramError, SystemConfig, VmBuilder, VmChipComplex, VmCircuitConfig, VmExecutionConfig,
-    VmState, BOUNDARY_AIR_ID, CONNECTOR_AIR_ID, MERKLE_AIR_ID, PROGRAM_AIR_ID,
+    new_rng_seed, AirInventoryError, ChipInventoryError, ExecutionError, Executor,
+    ExecutorInventory, ExecutorInventoryError, MemoryConfig, MeteredExecutor, Postflight,
+    PreflightOutput, StaticProgramError, SystemConfig, VmBuilder, VmChipComplex, VmCircuitConfig,
+    VmExecutionConfig, VmState, BOUNDARY_AIR_ID, CONNECTOR_AIR_ID, MERKLE_AIR_ID, PROGRAM_AIR_ID,
     PROGRAM_CACHED_TRACE_INDEX,
 };
 #[cfg(feature = "cuda")]
@@ -217,13 +217,15 @@ where
     .map_err(|error| GenerationError::ExtensionTracegen(error.to_string()))
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Streams {
     pub input_stream: VecDeque<Vec<u8>>,
     pub hint_stream: HintStream,
     /// Cached deferred operation inputs and outputs. Each idx corresponds to a
     /// unique function that is constrained outside the VM in its own deferral circuit.
     pub deferrals: Vec<DeferralState>,
+    /// Seed of the host RNG. Every execution pass of a job must use the same seed.
+    pub rng_seed: u64,
 }
 
 impl Streams {
@@ -232,7 +234,14 @@ impl Streams {
             input_stream: input_stream.into(),
             hint_stream: HintStream::default(),
             deferrals: Vec::default(),
+            rng_seed: new_rng_seed(),
         }
+    }
+}
+
+impl Default for Streams {
+    fn default() -> Self {
+        Self::new(VecDeque::new())
     }
 }
 
