@@ -7,7 +7,10 @@ use std::{
 use eyre::eyre;
 use getset::{CopyGetters, MutGetters};
 use openvm_instructions::exe::SparseMemoryImage;
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use rand::{
+    rngs::{OsRng, StdRng},
+    SeedableRng, TryRngCore,
+};
 use tracing::instrument;
 
 use super::{create_memory_image, ExecutionError, Streams};
@@ -31,14 +34,20 @@ pub struct VmState<MEM = GuestMemory> {
     pub metrics: VmMetrics,
 }
 
-/// Seed for a new execution's host RNG: `OPENVM_RNG_SEED` if set, to reproduce a run, else fresh
-/// from the OS. The guest has no say in it.
-pub(super) fn new_rng_seed() -> u64 {
+/// Seed for a new execution's host RNG: `OPENVM_RNG_SEED` (64 hex digits) if set, to reproduce a
+/// run, else fresh from the OS. The guest has no say in it.
+pub(super) fn new_rng_seed() -> [u8; 32] {
     match std::env::var("OPENVM_RNG_SEED") {
-        Ok(seed) => seed.parse().expect("OPENVM_RNG_SEED must be a u64"),
+        Ok(seed) => hex::decode(seed)
+            .ok()
+            .and_then(|seed| seed.try_into().ok())
+            .expect("OPENVM_RNG_SEED must be 64 hex digits"),
         Err(_) => {
-            let seed = StdRng::from_os_rng().next_u64();
-            tracing::info!(rng_seed = seed, "drew host randomness seed");
+            let mut seed = [0; 32];
+            OsRng
+                .try_fill_bytes(&mut seed)
+                .expect("OS randomness must be available");
+            tracing::info!(rng_seed = hex::encode(seed), "drew host randomness seed");
             seed
         }
     }
@@ -84,9 +93,9 @@ impl VmState<GuestMemory> {
         inputs: impl Into<Streams>,
     ) -> Self {
         let memory = create_memory_image(&system_config.memory_config, init_memory);
-        let streams = inputs.into();
-        let seed = streams.rng_seed;
-        VmState::new_with_defaults(pc_start, memory, streams, seed)
+        let mut state = VmState::new_with_defaults(pc_start, memory, inputs, 0);
+        state.rng = StdRng::from_seed(state.streams.rng_seed);
+        state
     }
 
     pub fn reset(
@@ -99,7 +108,7 @@ impl VmState<GuestMemory> {
         self.memory.memory.fill_zero();
         self.memory.memory.set_from_sparse(init_memory);
         self.streams = streams.into();
-        self.rng = StdRng::seed_from_u64(self.streams.rng_seed);
+        self.rng = StdRng::from_seed(self.streams.rng_seed);
     }
 }
 

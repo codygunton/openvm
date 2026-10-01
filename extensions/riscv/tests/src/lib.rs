@@ -878,7 +878,7 @@ mod tests {
         let executor = VmExecutor::new(test_rv64im_config())?;
         let preflight = executor.preflight_instance(&exe)?;
         let inputs = openvm_circuit::arch::Streams {
-            rng_seed: 0,
+            rng_seed: [0; 32],
             ..vec![b"first".to_vec(), b"second".to_vec()].into()
         };
         let initial_state =
@@ -911,7 +911,7 @@ mod tests {
         expected_input_hint.resize(16, 0);
         assert_eq!(input_hint, expected_input_hint);
         let mut suspended_rng = suspended.state.rng.clone();
-        let mut initial_rng = StdRng::seed_from_u64(0);
+        let mut initial_rng = StdRng::from_seed([0; 32]);
         assert_eq!(suspended_rng.random::<u64>(), initial_rng.random::<u64>());
 
         let mut execution = preflight.execute_from_state_for(
@@ -935,7 +935,7 @@ mod tests {
             vec![b"second".to_vec()]
         );
 
-        let mut expected_rng = StdRng::seed_from_u64(0);
+        let mut expected_rng = StdRng::from_seed([0; 32]);
         let expected_hint = (0..8)
             .map(|_| expected_rng.random::<u8>())
             .collect::<Vec<_>>();
@@ -1875,9 +1875,15 @@ mod tests {
     }
 
     /// Proving checks that the metered and preflight passes draw the same bytes; the outputs
-    /// check that the seed reaches the guest.
+    /// check that the seed reaches the guest. Unless `OPENVM_RNG_SEED` pins it, every `Streams`
+    /// draws a fresh seed.
     #[test]
     fn test_host_random_seed() -> Result<()> {
+        use openvm_circuit::arch::Streams;
+
+        if std::env::var_os("OPENVM_RNG_SEED").is_none() {
+            assert_ne!(Streams::default().rng_seed, Streams::default().rng_seed);
+        }
         let config = test_rv64im_config();
         let elf = build_example_program_at_path(get_programs_dir!(), "host_random", &config)?;
         let exe = VmExe::from_elf(
@@ -1888,7 +1894,7 @@ mod tests {
                 .with_extension(Rv64IoTranspilerExtension),
         )?;
         let prove = |rng_seed| {
-            let input = openvm_circuit::arch::Streams {
+            let input = Streams {
                 rng_seed,
                 ..Default::default()
             };
@@ -1897,7 +1903,7 @@ mod tests {
                     .expect("guest should exit successfully");
             extract_public_values(8, &memory)
         };
-        assert_ne!(prove(1), prove(2));
+        assert_ne!(prove([1; 32]), prove([2; 32]));
         Ok(())
     }
 

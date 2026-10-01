@@ -225,7 +225,7 @@ pub struct Streams {
     /// unique function that is constrained outside the VM in its own deferral circuit.
     pub deferrals: Vec<DeferralState>,
     /// Seed of the host RNG. Every execution pass of a job must use the same seed.
-    pub rng_seed: u64,
+    pub rng_seed: [u8; 32],
 }
 
 impl Streams {

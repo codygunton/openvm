@@ -36,6 +36,7 @@ derive-new.workspace = true
 derive_more = { workspace = true, features = ["from"] }
 backtrace.workspace = true
 rand.workspace = true
+hex = { workspace = true, features = ["alloc"] }
 serde.workspace = true
 serde-big-array.workspace = true
 metrics = { workspace = true, optional = true }

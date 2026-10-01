@@ -52,7 +52,7 @@ OpenVM supports standard Rust written using the `std` library, with the followin
 - Standard input (e.g., from console) is not supported. Use the `read` methods [above](#handling-io) instead.
 - Standard output and standard error (e.g., `println!, eprintln!`) are supported and will _both_ print to the host standard output.
 - `std::time` is deterministic and does not expose host wall-clock time. `Instant::now()` starts at zero, and `SystemTime::now()` returns `UNIX_EPOCH`; these APIs do not panic, but they do not report elapsed VM time or real time.
-- System randomness calls are supported by default. The host draws them from a CSPRNG that is seeded afresh for each execution, so repeated executions of one program see independent values. The seed is logged at info level; set `OPENVM_RNG_SEED` to a `u64` to pin it and reproduce a run.
+- System randomness calls are supported by default. The host draws them from a CSPRNG that is seeded afresh for each execution, so repeated executions of one program see independent values. The 32-byte seed is logged at info level as hex; set `OPENVM_RNG_SEED` to those 64 hex digits to pin it and reproduce a run.
   **Important**: the values reach the guest as free witness values. The proof carries no attestation that the host drew them honestly, so a program's public output must **not** depend on them, and they must **not** be used where a dishonest host could profit from choosing them.
 - Reading of environment variables will always return an empty string.
 - Reading of `argc` and `argv` will always return `0`.
