@@ -34,8 +34,7 @@ pub struct VmState<MEM = GuestMemory> {
     pub metrics: VmMetrics,
 }
 
-/// Seed for a new execution's host RNG: `OPENVM_RNG_SEED` (64 hex digits) if set, to reproduce a
-/// run, else fresh from the OS. The guest has no say in it.
+/// Returns a fresh seed from the OS, or the hex seed in `OPENVM_RNG_SEED` if it is set.
 pub(super) fn new_rng_seed() -> [u8; 32] {
     match std::env::var("OPENVM_RNG_SEED") {
         Ok(seed) => hex::decode(seed)
